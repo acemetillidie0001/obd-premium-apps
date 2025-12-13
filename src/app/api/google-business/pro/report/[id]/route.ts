@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { REPORT_STORE } from "../reportStore";
+import { REPORT_STORE } from "../../reportStore";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
   const stored = REPORT_STORE.get(id);
 
   if (!stored) {

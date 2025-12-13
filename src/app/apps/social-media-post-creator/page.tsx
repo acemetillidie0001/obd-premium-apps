@@ -228,7 +228,9 @@ export default function SocialMediaPostCreatorPage() {
     if (typeof parsed.numberOfPosts === "number") setNumberOfPosts(parsed.numberOfPosts);
     if (parsed.hashtagStyle) setHashtagStyle(parsed.hashtagStyle);
     if (parsed.emojiStyle) setEmojiStyle(parsed.emojiStyle);
-    if (parsed.tone) setTone(parsed.tone);
+    if (parsed.tone && ["casual", "professional", "engaging"].includes(parsed.tone)) {
+      setTone(parsed.tone as "casual" | "professional" | "engaging");
+    }
     if (parsed.platform) setPlatform(parsed.platform);
     if (typeof parsed.carouselSlides === "number") setCarouselSlides(parsed.carouselSlides);
   };

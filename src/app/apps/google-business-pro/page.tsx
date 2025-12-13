@@ -350,7 +350,40 @@ export default function GoogleBusinessProfileProPage() {
     } else {
       setShareUrl(null);
     }
+    // Set PDF URL if pdfBase64 is available
+    if (reportExport?.pdfBase64) {
+      setReportPdfUrl(`data:application/pdf;base64,${reportExport.pdfBase64}`);
+    } else {
+      setReportPdfUrl(null);
+    }
   }, [reportExport]);
+
+  const handleDownloadPDF = () => {
+    if (!reportExport?.pdfBase64) return;
+    
+    try {
+      // Convert base64 to blob
+      const byteCharacters = atob(reportExport.pdfBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: "application/pdf" });
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `google-business-pro-report${reportExport.shareId ? `-${reportExport.shareId}` : ""}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading PDF:", error);
+    }
+  };
 
   const handleViewReport = () => {
     if (shareUrl) {

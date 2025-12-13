@@ -985,13 +985,15 @@ export default function LocalKeywordResearchPage() {
                           #{rankResult.currentPositionOrganic}
                         </p>
                         <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                          {rankResult.currentPositionOrganic <= 10
+                          {rankResult.currentPositionOrganic !== undefined && rankResult.currentPositionOrganic <= 10
                             ? "Appears on page 1."
-                            : rankResult.currentPositionOrganic <= 20
+                            : rankResult.currentPositionOrganic !== undefined && rankResult.currentPositionOrganic <= 20
                             ? "Appears on page 2."
-                            : rankResult.currentPositionOrganic <= 30
+                            : rankResult.currentPositionOrganic !== undefined && rankResult.currentPositionOrganic <= 30
                             ? "Appears on page 3."
-                            : "Appears on page 4+."}
+                            : rankResult.currentPositionOrganic !== undefined
+                            ? "Appears on page 4+."
+                            : "Position not available."}
                         </p>
                       </>
                     ) : (

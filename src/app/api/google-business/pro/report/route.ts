@@ -5,7 +5,7 @@ import {
   GoogleBusinessProReportOptions,
   GoogleBusinessProReportExport,
 } from "@/app/apps/google-business-pro/types";
-import { REPORT_STORE, StoredReport } from "./reportStore";
+import { REPORT_STORE, StoredReport } from "../reportStore";
 
 /**
  * Generate a shareable ID (simple UUID-like string)
@@ -16,35 +16,6 @@ function generateShareId(): string {
   }
   // Fallback for environments without crypto.randomUUID
   return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-}
-
-/**
- * Generate styled HTML report from Pro result
- */
-function generateHTMLReport(
-  result: GoogleBusinessProResult,
-  options: GoogleBusinessProReportOptions = {}
-): string {
-  const theme = options.theme || "light";
-  const sections = options.includeSections || {};
-  const reportTitle = options.reportTitle || `${result.audit.summary.split(".")[0]} - Google Business Profile Analysis`;
-
-  // Default to including all sections if not specified
-  const includeAuditSummary = sections.auditSummary !== false;
-  const includeStrengths = sections.strengths !== false;
-  const includeIssues = sections.issues !== false;
-  const includeQuickWins = sections.quickWins !== false;
-  const includePriorityFixes = sections.priorityFixes !== false;
-  const includeDescriptions = sections.descriptions !== false;
-  const includeFaqs = sections.faqs !== false;
-  const includePosts = sections.posts !== false;
-  const includeKeywords = sections.keywords !== false;
-
-  const bgColor = theme === "dark" ? "#1e293b" : "#ffffff";
-  const textColor = theme === "dark" ? "#f1f5f9" : "#1e293b";
-  const borderColor = theme === "dark" ? "#475569" : "#e2e8f0";
-  const cardBg = theme === "dark" ? "#334155" : "#f8fafc";
-
 }
 
 /**
@@ -498,6 +469,7 @@ export async function POST(req: Request) {
 
     // Store report in memory
     const storedReport: StoredReport = {
+      shareId,
       html,
       pdfBase64,
       meta: {

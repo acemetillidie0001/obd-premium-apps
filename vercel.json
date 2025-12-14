@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/google-business/pro/cleanup",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

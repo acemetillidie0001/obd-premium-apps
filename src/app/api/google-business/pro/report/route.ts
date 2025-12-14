@@ -5,7 +5,7 @@ import {
   GoogleBusinessProReportOptions,
   GoogleBusinessProReportExport,
 } from "@/app/apps/google-business-pro/types";
-import { REPORT_STORE, StoredReport } from "../reportStore";
+import { saveProReport } from "../reportStore";
 
 /**
  * Generate a shareable ID (simple UUID-like string)
@@ -467,18 +467,22 @@ export async function POST(req: Request) {
         ? crypto.randomUUID().replace(/-/g, "")
         : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-    // Store report in memory
-    const storedReport: StoredReport = {
+    // Calculate expiration (30 days from now)
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+    // Store report in database
+    await saveProReport({
       shareId,
       html,
       pdfBase64,
-      meta: {
-        ...metadata,
-        createdAt: new Date().toISOString(),
-        accessToken,
-      },
-    };
-    REPORT_STORE.set(shareId, storedReport);
+      businessName: metadata.businessName,
+      city: metadata.city,
+      state: metadata.state,
+      score: metadata.score ?? 0,
+      accessToken,
+      expiresAt,
+    });
 
     const exportData: GoogleBusinessProReportExport = {
       html,

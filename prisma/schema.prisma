@@ -1,0 +1,33 @@
+// -----------------------------------------------------
+// OBD Premium Apps — Prisma Schema for Railway Postgres
+// -----------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------
+// Table: Google Business Pro Reports
+// ----------------------------------------------
+model ProReport {
+  id        String   @id @default(cuid())
+  shareId   String   @unique
+  html      String
+  pdfBase64 String? // optional PDF export
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+
+  // metadata
+  businessName String
+  city         String
+  state        String
+  score        Int
+  accessToken  String? // null = public access
+
+  @@index([shareId])
+  @@index([businessName, city, state])
+}

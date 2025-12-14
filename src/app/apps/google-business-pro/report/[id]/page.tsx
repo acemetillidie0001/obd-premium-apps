@@ -45,6 +45,8 @@ export default function ReportViewerPage() {
             setError("Report not found");
           } else if (res.status === 401) {
             setError("This report is secured. Please request a valid access link.");
+          } else if (res.status === 410) {
+            setError("This report has expired.");
           } else {
             setError("Failed to load report");
           }
@@ -93,7 +95,7 @@ export default function ReportViewerPage() {
   }, [pdfUrl]);
 
   return (
-    <div className={`min-h-screen ${isDark ? "bg-slate-900" : "bg-slate-50"}`}>
+    <div className="gbp-report-viewer min-h-screen bg-slate-50 text-slate-900">
       {/* OBD-Styled Header */}
       <div className={`bg-gradient-to-r ${
         isDark 
@@ -127,7 +129,7 @@ export default function ReportViewerPage() {
         <div className="mb-8">
           
           {meta && (
-            <div className={`rounded-xl border p-4 mb-4 ${
+            <div className={`report-card rounded-xl border p-4 mb-4 ${
               isDark ? "bg-slate-800/50 border-slate-700" : "bg-white border-slate-200"
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -207,7 +209,7 @@ export default function ReportViewerPage() {
           <div className="relative">
             {/* Watermark */}
             <div 
-              className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0"
+              className="gbp-report-watermark absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0"
               style={{
                 fontSize: "clamp(2rem, 8vw, 6rem)",
                 fontWeight: "bold",
@@ -245,6 +247,38 @@ export default function ReportViewerPage() {
           </p>
         </div>
       </footer>
+
+      <style jsx global>{`
+        @media (prefers-color-scheme: dark) {
+          .gbp-report-viewer {
+            background-color: #0f172a; /* slate-900 */
+            color: #e2e8f0; /* slate-200 */
+          }
+          .gbp-report-viewer .report-card {
+            background-color: rgba(15, 23, 42, 0.85);
+            border-color: rgba(51, 65, 85, 0.6);
+          }
+        }
+
+        @media print {
+          .gbp-report-viewer header,
+          .gbp-report-viewer footer,
+          .gbp-report-viewer button,
+          .gbp-report-viewer a,
+          .gbp-report-viewer .no-print {
+            display: none !important;
+          }
+
+          .gbp-report-viewer {
+            background: #ffffff !important;
+            color: #000000 !important;
+          }
+
+          .gbp-report-watermark {
+            opacity: 0.05 !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

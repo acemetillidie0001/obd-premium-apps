@@ -194,11 +194,17 @@ export const authConfig = {
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
-        // Log which email provider is active (for debugging in Vercel logs)
+        // Log environment variable presence (booleans only, no secrets)
+        console.log("[NextAuth Email] === Email Sign-In Request Debug ===");
+        console.log("[NextAuth Email] AUTH_URL present:", !!(process.env.AUTH_URL || process.env.NEXTAUTH_URL));
+        console.log("[NextAuth Email] AUTH_SECRET present:", !!(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET));
+        console.log("[NextAuth Email] EMAIL_FROM present:", !!process.env.EMAIL_FROM);
+        console.log("[NextAuth Email] RESEND_API_KEY present:", !!process.env.RESEND_API_KEY);
+        console.log("[NextAuth Email] DATABASE_URL present:", !!process.env.DATABASE_URL);
+        console.log("[NextAuth Email] Adapter loaded:", adapter !== undefined && adapter !== null);
         console.log("[NextAuth Email] Using Resend SDK for email delivery");
         const emailFrom = process.env.EMAIL_FROM;
         console.log("[NextAuth Email] From address:", emailFrom ? `${emailFrom.substring(0, 3)}***@${emailFrom.split("@")[1]}` : "NOT SET");
-        console.log("[NextAuth Email] Resend API key:", process.env.RESEND_API_KEY ? "SET" : "NOT SET");
         
         const { Resend } = await import("resend");
         const resendApiKey = getEnvVar("RESEND_API_KEY"); // Validate when actually sending email
@@ -260,6 +266,10 @@ export const authConfig = {
   },
   callbacks: {
     async jwt({ token, user, trigger }) {
+      // Log when JWT callback is invoked (for debugging email sign-in flow)
+      if (user) {
+        console.log("[NextAuth JWT] User sign-in detected, email:", user.email);
+      }
       if (user) {
         token.id = user.id;
         token.role = user.role || "user";

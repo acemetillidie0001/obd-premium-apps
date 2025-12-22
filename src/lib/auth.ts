@@ -176,6 +176,8 @@ export const authConfig = {
     },
   },
   secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build", // Use process.env directly, fallback for build
+  // Trust host for production (Vercel handles this automatically)
+  trustHost: true,
 } satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);

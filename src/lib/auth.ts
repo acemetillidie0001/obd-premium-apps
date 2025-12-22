@@ -194,17 +194,13 @@ export const authConfig = {
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
-        // Log environment variable presence (booleans only, no secrets)
-        console.log("[NextAuth Email] === Email Sign-In Request Debug ===");
-        console.log("[NextAuth Email] AUTH_URL present:", !!(process.env.AUTH_URL || process.env.NEXTAUTH_URL));
-        console.log("[NextAuth Email] AUTH_SECRET present:", !!(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET));
-        console.log("[NextAuth Email] EMAIL_FROM present:", !!process.env.EMAIL_FROM);
-        console.log("[NextAuth Email] RESEND_API_KEY present:", !!process.env.RESEND_API_KEY);
-        console.log("[NextAuth Email] DATABASE_URL present:", !!process.env.DATABASE_URL);
-        console.log("[NextAuth Email] Adapter loaded:", adapter !== undefined && adapter !== null);
-        console.log("[NextAuth Email] Using Resend SDK for email delivery");
-        const emailFrom = process.env.EMAIL_FROM;
-        console.log("[NextAuth Email] From address:", emailFrom ? `${emailFrom.substring(0, 3)}***@${emailFrom.split("@")[1]}` : "NOT SET");
+        // REMOVE AFTER FIX: Debug logging for magic link email send
+        console.log("[NextAuth Email] sendVerificationRequest start", {
+          identifier,
+          hasResendKey: !!process.env.RESEND_API_KEY,
+          hasEmailFrom: !!process.env.EMAIL_FROM,
+          hasDatabaseUrl: !!process.env.DATABASE_URL,
+        });
         
         const { Resend } = await import("resend");
         const resendApiKey = getEnvVar("RESEND_API_KEY"); // Validate when actually sending email
@@ -244,13 +240,18 @@ export const authConfig = {
             text: `Sign in to OBD Premium Apps\n\nClick this link to sign in: ${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.`,
           });
           console.log("[NextAuth Email] Verification email sent successfully to:", identifier);
-        } catch (error) {
-          console.error("[NextAuth Email] Error sending email via Resend:", error);
-          // Provide more specific error message for debugging
-          if (error instanceof Error) {
-            console.error("[NextAuth Email] Error details:", error.message);
-          }
-          throw new Error(`Failed to send verification email: ${error instanceof Error ? error.message : "Unknown error"}`);
+        } catch (err: any) {
+          // REMOVE AFTER FIX: Detailed error logging for Resend failures
+          console.error("[NextAuth Email] resend error", {
+            message: err?.message,
+            name: err?.name,
+            statusCode: err?.statusCode,
+            response: err?.response,
+            cause: err?.cause,
+            stack: err?.stack,
+          });
+          // Rethrow to fail loudly so NextAuth shows Configuration error
+          throw err;
         }
       },
     }),

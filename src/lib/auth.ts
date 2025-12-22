@@ -25,6 +25,22 @@ function getAdapter() {
   }
 }
 
+// Environment variable helpers supporting both NextAuth v5 (AUTH_*) and legacy (NEXTAUTH_*) naming
+const getAuthSecret = (): string => {
+  return process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? "";
+};
+
+const getAuthUrl = (): string => {
+  return process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "";
+};
+
+const getTrustHost = (): boolean => {
+  if (process.env.AUTH_TRUST_HOST === "true") return true;
+  if (process.env.AUTH_TRUST_HOST === "false") return false;
+  // Default to true for Vercel/production
+  return true;
+};
+
 // Access env vars directly (works in Edge Runtime)
 // Access them lazily inside functions, not at module load
 const getEnvVar = (key: string): string => {
@@ -34,6 +50,82 @@ const getEnvVar = (key: string): string => {
   }
   return value;
 };
+
+// Validate required environment variables on server startup
+// This runs when the module is imported in Node.js runtime (not Edge Runtime)
+function validateAuthEnv() {
+  // Skip validation during build/static generation
+  const isBuildTime = process.env.NEXT_PHASE === "phase-production-build" ||
+                      process.env.NEXT_PHASE === "phase-development-build" ||
+                      (typeof window === "undefined" && !process.env.DATABASE_URL);
+
+  if (isBuildTime) {
+    return; // Skip validation during build
+  }
+
+  // Only validate in Node.js runtime (not Edge Runtime)
+  // Edge Runtime doesn't have access to process.env in the same way
+  if (process.env.NEXT_RUNTIME === "edge") {
+    return; // Skip validation in Edge Runtime
+  }
+
+  const missing: string[] = [];
+
+  // Check auth secret (supports both naming conventions)
+  const authSecret = getAuthSecret();
+  if (!authSecret || authSecret === "fallback-secret-for-build") {
+    missing.push("AUTH_SECRET or NEXTAUTH_SECRET");
+  }
+
+  // Check auth URL (supports both naming conventions)
+  const authUrl = getAuthUrl();
+  if (!authUrl) {
+    missing.push("AUTH_URL or NEXTAUTH_URL");
+  }
+
+  // Check Resend API key
+  if (!process.env.RESEND_API_KEY) {
+    missing.push("RESEND_API_KEY");
+  }
+
+  // Check email from
+  if (!process.env.EMAIL_FROM) {
+    missing.push("EMAIL_FROM");
+  }
+
+  // Check database URL
+  if (!process.env.DATABASE_URL) {
+    missing.push("DATABASE_URL");
+  }
+
+  if (missing.length > 0) {
+    const errorMessage = `
+❌ Missing required environment variables:
+
+${missing.map((key) => `  - ${key}`).join("\n")}
+
+Please set these variables in:
+  - .env.local (for local development)
+  - Vercel Project Settings → Environment Variables (for production)
+
+See ENV_VARS_CHECKLIST.md for detailed instructions.
+    `.trim();
+
+    throw new Error(errorMessage);
+  }
+}
+
+// Run validation on module load (only in Node.js runtime, not during build)
+try {
+  validateAuthEnv();
+} catch (error) {
+  // Only throw if we're actually in a runtime environment (not build)
+  if (process.env.NODE_ENV !== "production" || process.env.VERCEL) {
+    throw error;
+  }
+  // During build, just log a warning
+  console.warn("[NextAuth] Environment validation skipped during build");
+}
 
 export const authConfig = {
   adapter: undefined, // Don't call getAdapter() at module load - causes Edge Runtime issues
@@ -175,9 +267,10 @@ export const authConfig = {
       return true;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build", // Use process.env directly, fallback for build
+  secret: getAuthSecret() || "fallback-secret-for-build", // Supports both AUTH_SECRET and NEXTAUTH_SECRET
   // Trust host for production (Vercel handles this automatically)
-  trustHost: true,
+  // Supports AUTH_TRUST_HOST env var or defaults to true
+  trustHost: getTrustHost(),
 } satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);

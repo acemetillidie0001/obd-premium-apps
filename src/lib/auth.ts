@@ -147,14 +147,16 @@ export const authConfig = {
   providers: [
     Email({
       from: getEmailFrom(),
-      // Minimal server config required by NextAuth (not actually used when sendVerificationRequest is provided)
-      // We use Resend SDK directly via sendVerificationRequest instead of SMTP
+      // NextAuth v5 requires server config even when using sendVerificationRequest
+      // This config is validated but not used when sendVerificationRequest is provided
+      // We provide minimal valid config to satisfy NextAuth validation
       server: {
         host: "smtp.resend.com",
         port: 465,
+        secure: true,
         auth: {
           user: "resend",
-          pass: process.env.RESEND_API_KEY || "dummy", // Dummy value - not used when sendVerificationRequest is provided
+          pass: process.env.RESEND_API_KEY || "dummy-placeholder",
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {

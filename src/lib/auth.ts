@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Email from "next-auth/providers/email";
 import { env } from "@/lib/env";
 import type { NextAuthConfig } from "next-auth";
+import type { PrismaClient } from "@prisma/client";
 
 // Validate environment variables on module load
 // This ensures we fail fast if required env vars are missing
@@ -107,8 +108,8 @@ export const authConfig = {
         // Lazy-load Prisma only when needed (not in Edge Runtime)
         try {
           const prismaModule = await import("@/lib/prisma");
-          const prisma = prismaModule.prisma;
-          const dbUser = await (prisma as any).user.findUnique({
+          const prisma = prismaModule.prisma as PrismaClient;
+          const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
           });
           if (dbUser) {

@@ -205,21 +205,27 @@ export const authConfig = {
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
-        // REMOVE AFTER FIX: Debug logging for magic link email send
+        // REMOVE AFTER FIX: magic-link debug logs
+        const connectionString = process.env.DATABASE_URL || "";
+        const hasSslmode = connectionString.includes("sslmode=");
+        const hasConnectionLimit = connectionString.includes("connection_limit=");
+        
         console.log("[NextAuth Email] sendVerificationRequest start", {
           identifier,
           hasResendKey: !!process.env.RESEND_API_KEY,
           hasEmailFrom: !!process.env.EMAIL_FROM,
           hasDatabaseUrl: !!process.env.DATABASE_URL,
+          hasSslmode,
+          hasConnectionLimit,
         });
         
-        const { Resend } = await import("resend");
-        const resendApiKey = getEnvVar("RESEND_API_KEY"); // Validate when actually sending email
-        const resend = new Resend(resendApiKey);
-
         try {
+          const { Resend } = await import("resend");
+          const resendApiKey = getEnvVar("RESEND_API_KEY");
+          const resend = new Resend(resendApiKey);
+
           await resend.emails.send({
-            from: getEnvVar("EMAIL_FROM"), // Validate when actually sending email
+            from: getEnvVar("EMAIL_FROM"),
             to: identifier,
             subject: "Sign in to OBD Premium Apps",
             html: `
@@ -252,10 +258,11 @@ export const authConfig = {
           });
           console.log("[NextAuth Email] Verification email sent successfully to:", identifier);
         } catch (err: any) {
-          // REMOVE AFTER FIX: Detailed error logging for Resend failures
-          console.error("[NextAuth Email] resend error", {
+          // REMOVE AFTER FIX: magic-link debug logs
+          console.error("[NextAuth Email] sendVerificationRequest error", {
             message: err?.message,
             name: err?.name,
+            code: err?.code,
             statusCode: err?.statusCode,
             response: err?.response,
             cause: err?.cause,

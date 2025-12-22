@@ -1,16 +1,12 @@
 // src/app/api/local-keyword-research/route.ts
 
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
 } from "./types";
 import { fetchKeywordMetrics } from "@/lib/local-keyword-metrics";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 interface RawKeywordIdea {
   keyword: string;
@@ -254,6 +250,7 @@ export async function POST(req: Request) {
     const requestData = sanitizeAndClampRequest(body);
 
     // -------- STEP 1: generate raw keyword ideas --------
+    const openai = getOpenAIClient();
     const ideasCompletion = await openai.chat.completions.create({
       model: process.env.OBD_OPENAI_MODEL || "gpt-4o-mini",
       temperature: 0.3,

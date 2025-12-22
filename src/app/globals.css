@@ -33,3 +33,183 @@ body {
 .obd-soft-text {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
+
+/* Premium animations for Coming Soon / In Development tiles */
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 0.18; }
+  50% { transform: scale(1.15); opacity: 0.10; }
+  100% { transform: scale(1); opacity: 0.18; }
+}
+
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to { background-position: 400px 0; }
+}
+
+@keyframes floatTile {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes rotateBorder {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes disabledPulse {
+  0% { opacity: 0.35; }
+  50% { opacity: 0.55; }
+  100% { opacity: 0.35; }
+}
+
+.comingSoonGlow {
+  position: relative;
+}
+
+.comingSoonGlow::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(41, 196, 169, 0.18), rgba(41, 196, 169, 0.05));
+  animation: pulse 3s ease-in-out infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.tileShimmer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.07) 50%, transparent 100%);
+  background-size: 400px 100%;
+  animation: shimmer 7s linear infinite;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.tileFloat {
+  animation: floatTile 5s ease-in-out infinite;
+}
+
+.animatedBorder {
+  position: relative;
+  border: 1px solid transparent;
+}
+
+.animatedBorder::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, #29c4a9, #0ac8e9, #29c4a9);
+  background-size: 200% 100%;
+  -webkit-mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: 
+    linear-gradient(#fff 0 0) content-box, 
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  animation: rotateBorder 6s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.7;
+}
+
+.disabledCTA {
+  animation: disabledPulse 4s ease-in-out infinite;
+}
+
+/* Ultra-premium animations for non-live apps */
+
+/* 1. Neon edge highlight on hover */
+.neonHoverBorder {
+  transition: box-shadow 0.45s ease-out;
+}
+
+.neonHoverBorder:hover {
+  box-shadow: 0 0 22px rgba(41, 196, 169, 0.35);
+}
+
+/* 2. Parallax shimmer layer */
+.tileParallax {
+  position: relative;
+}
+
+.tileParallax::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.05) 50%, transparent 100%);
+  background-size: 400px 100%;
+  transform: translate(calc(var(--px, 0px) * -0.02), calc(var(--py, 0px) * -0.02));
+  transition: transform 0.1s linear;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* 3. Dust particle system */
+@keyframes dustDrift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(12px, -18px) scale(1.4); }
+  100% { transform: translate(-6px, 12px) scale(1); }
+}
+
+.dustParticle {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  animation: dustDrift var(--d, 8s) linear infinite;
+  top: var(--t, 50%);
+  left: var(--l, 50%);
+  opacity: var(--o, 0.2);
+  pointer-events: none;
+}
+
+/* 4. Animated status icons */
+.gearSpin {
+  display: inline-block;
+  animation: spin 4s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0); }
+  to { transform: rotate(360deg); }
+}
+
+.sparklePulse {
+  animation: sparkle 3.5s ease-in-out infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% { opacity: 0.25; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.15); }
+}
+
+/* 5. Luxury gold-foil ribbon */
+.luxRibbon {
+  position: absolute;
+  top: 12px;
+  left: -12px;
+  padding: 4px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transform: rotate(-12deg);
+  background: linear-gradient(120deg, #f7e99c, #f5d675, #f7e99c);
+  color: #5a4a00;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  z-index: 10;
+  pointer-events: none;
+}

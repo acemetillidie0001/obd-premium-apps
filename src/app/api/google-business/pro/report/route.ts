@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, PDFFont } from "pdf-lib";
 import {
   GoogleBusinessProResult,
   GoogleBusinessProReportOptions,
@@ -39,7 +39,7 @@ async function generatePDFReport(
   const sectionSpacing = 20;
 
   // Helper to wrap text
-  const wrapText = (text: string, width: number, font: any, fontSize: number): string[] => {
+  const wrapText = (text: string, width: number, font: PDFFont, fontSize: number): string[] => {
     const words = text.split(" ");
     const lines: string[] = [];
     let currentLine = "";
@@ -434,13 +434,36 @@ function extractMetadata(proResult: GoogleBusinessProResult): {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body." },
+        { status: 400 }
+      );
+    }
+
     const { proResult, options }: { proResult: GoogleBusinessProResult; options?: GoogleBusinessProReportOptions } = body;
 
     // Basic validation
-    if (!proResult || !proResult.audit || !proResult.content) {
+    if (!proResult || typeof proResult !== "object") {
       return NextResponse.json(
-        { error: "Invalid proResult. Must include audit and content." },
+        { error: "Invalid request. Missing or invalid proResult." },
+        { status: 400 }
+      );
+    }
+
+    if (!proResult.audit || typeof proResult.audit !== "object") {
+      return NextResponse.json(
+        { error: "Invalid request. Missing or invalid audit data." },
+        { status: 400 }
+      );
+    }
+
+    if (!proResult.content || typeof proResult.content !== "object") {
+      return NextResponse.json(
+        { error: "Invalid request. Missing or invalid content data." },
         { status: 400 }
       );
     }
@@ -494,9 +517,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(exportData);
   } catch (error) {
-    console.error("Error generating report:", error);
+    console.error("[GBP_PRO_REPORT] Error generating report:", error);
+    // Return generic error message to avoid leaking internal details
     return NextResponse.json(
-      { error: "Failed to generate report" },
+      { error: "Failed to generate report. Please try again." },
       { status: 500 }
     );
   }

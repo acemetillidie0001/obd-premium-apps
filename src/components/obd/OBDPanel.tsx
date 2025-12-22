@@ -6,11 +6,12 @@ interface OBDPanelProps {
   children: React.ReactNode;
   isDark: boolean;
   className?: string;
+  id?: string;
 }
 
-export default function OBDPanel({ children, isDark, className = "" }: OBDPanelProps) {
+export default function OBDPanel({ children, isDark, className = "", id }: OBDPanelProps) {
   return (
-    <div className={`${getPanelClasses(isDark)} ${className}`}>
+    <div id={id} className={`${getPanelClasses(isDark)} ${className}`}>
       {children}
     </div>
   );

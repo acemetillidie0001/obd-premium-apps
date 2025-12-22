@@ -29,8 +29,55 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Quick Deploy to Vercel (Recommended)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. **Install Vercel CLI** (if not already installed):
+   ```bash
+   npm i -g vercel
+   ```
+
+2. **Login and deploy**:
+   ```bash
+   vercel login
+   vercel
+   ```
+
+3. **Set environment variables** in Vercel dashboard:
+   - `OPENAI_API_KEY` - Required for AI features
+   - `DATABASE_URL` - Required for database connections
+
+4. **Add custom subdomain**:
+   - Go to Vercel project → Settings → Domains
+   - Add your subdomain (e.g., `apps.ocalabusinessdirectory.com`)
+   - Configure DNS records as instructed
+
+5. **Deploy to production**:
+   ```bash
+   vercel --prod
+   ```
+
+### Detailed Deployment Guide
+
+For complete deployment instructions including:
+- Step-by-step Vercel setup
+- Alternative hosting options (Netlify, self-hosted)
+- DNS configuration
+- Environment variable setup
+- Troubleshooting
+
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for the full guide.
+
+### Required Environment Variables
+
+Before deploying, ensure you have these environment variables configured:
+
+- `OPENAI_API_KEY` - Your OpenAI API key for AI-powered features
+- `DATABASE_URL` - PostgreSQL connection string (if using database features)
+- `NODE_ENV=production` - Set automatically in production
+
+### Next.js Deployment Resources
+
+- [Next.js Deployment Documentation](https://nextjs.org/docs/app/building-your-application/deploying)
+- [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme)

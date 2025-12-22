@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import { GoogleBusinessAuditRequest, GoogleBusinessAuditResult, isGoogleBusinessAuditResult } from "@/app/apps/google-business-pro/types";
-
-// Initialize OpenAI client using your API key from .env.local
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const SYSTEM_PROMPT = `You are the Audit Engine for the OBD Google Business Profile Pro tool.
 Your role is to analyze Google Business Profile listings and provide comprehensive, actionable audit results that help businesses optimize their local search visibility and conversion potential.
@@ -206,6 +201,7 @@ export async function POST(req: NextRequest) {
     let model: string | undefined;
 
     try {
+      const openai = getOpenAIClient();
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [

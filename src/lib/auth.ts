@@ -116,22 +116,37 @@ See ENV_VARS_CHECKLIST.md for detailed instructions.
 }
 
 // Run validation on module load (only in Node.js runtime, not during build)
+// Don't throw during module load - it prevents NextAuth from initializing
+// Instead, log warnings and let NextAuth handle the error
 try {
   validateAuthEnv();
 } catch (error) {
-  // Only throw if we're actually in a runtime environment (not build)
-  if (process.env.NODE_ENV !== "production" || process.env.VERCEL) {
-    throw error;
-  }
-  // During build, just log a warning
-  console.warn("[NextAuth] Environment validation skipped during build");
+  // Log error but don't throw - NextAuth will handle missing config gracefully
+  console.error("[NextAuth] Environment validation failed:", error instanceof Error ? error.message : String(error));
+  console.warn("[NextAuth] Continuing with fallback values - this may cause Configuration errors");
 }
+
+// Get email from address with validation
+const getEmailFrom = (): string => {
+  const emailFrom = process.env.EMAIL_FROM;
+  // Allow fallback during build, but validate at runtime
+  if (!emailFrom) {
+    const isBuildTime = process.env.NEXT_PHASE === "phase-production-build" ||
+                        process.env.NEXT_PHASE === "phase-development-build";
+    if (isBuildTime) {
+      return "noreply@example.com"; // Fallback for build only
+    }
+    // At runtime, this will be caught by validateAuthEnv or email sending will fail
+    return "noreply@example.com"; // Temporary fallback
+  }
+  return emailFrom;
+};
 
 export const authConfig = {
   adapter: undefined, // Don't call getAdapter() at module load - causes Edge Runtime issues
   providers: [
     Email({
-      from: process.env.EMAIL_FROM || "noreply@example.com", // Use process.env directly, fallback for build
+      from: getEmailFrom(),
       // Minimal server config required by NextAuth (not actually used when sendVerificationRequest is provided)
       // We use Resend SDK directly via sendVerificationRequest instead of SMTP
       server: {
@@ -267,7 +282,26 @@ export const authConfig = {
       return true;
     },
   },
-  secret: getAuthSecret() || "fallback-secret-for-build", // Supports both AUTH_SECRET and NEXTAUTH_SECRET
+  secret: (() => {
+    const secret = getAuthSecret();
+    const isBuildTime = process.env.NEXT_PHASE === "phase-production-build" ||
+                        process.env.NEXT_PHASE === "phase-development-build";
+    
+    // Allow fallback only during build
+    if (isBuildTime) {
+      return secret || "fallback-secret-for-build";
+    }
+    
+    // At runtime, return the secret (even if empty)
+    // NextAuth will throw Configuration error if it's invalid, which is better than crashing module load
+    if (!secret || secret === "fallback-secret-for-build") {
+      console.error("[NextAuth] AUTH_SECRET or NEXTAUTH_SECRET is missing or invalid. NextAuth will show Configuration error.");
+      // Return empty string - NextAuth will reject it and show Configuration error
+      return "";
+    }
+    
+    return secret;
+  })(),
   // Trust host for production (Vercel handles this automatically)
   // Supports AUTH_TRUST_HOST env var or defaults to true
   trustHost: getTrustHost(),

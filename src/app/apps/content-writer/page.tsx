@@ -16,7 +16,7 @@ interface ContentWriterFormValues {
   targetAudience: string;
   topic: string;
   contentGoal: string;
-  contentType: "BlogPost" | "ServicePage" | "AboutUs" | "LandingPage" | "Email" | "Other";
+  contentType: "BlogPost" | "ServicePage" | "AboutUs" | "LandingPage" | "Email" | "LegalPolicy" | "JobPost" | "Other";
   customOutline: string;
   tone: string;
   personalityStyle: "" | "Soft" | "Bold" | "High-Energy" | "Luxury";
@@ -232,7 +232,7 @@ export default function ContentWriterPage() {
       isDark={isDark}
       onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
       title="AI Content Writer"
-      tagline="Write high-quality content for your business needs, from blog posts to webpage copy, tailored for your Ocala business."
+      tagline="Write high-quality content for your business needs, from blog posts and service pages to emails, bios, policies, and job posts—all tailored for your Ocala business."
     >
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
@@ -335,10 +335,14 @@ export default function ContentWriterPage() {
                     <option value="BlogPost">Blog Post</option>
                     <option value="ServicePage">Service Page</option>
                     <option value="AboutUs">About Page</option>
-                    <option value="LandingPage">Landing Page</option>
                     <option value="Email">Email</option>
+                    <option value="LegalPolicy">Legal/Policy Template</option>
+                    <option value="JobPost">Job Post</option>
                     <option value="Other">Other</option>
                   </select>
+                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                    Create blogs, service pages, emails, bios, policies, job posts, and more for your Ocala business.
+                  </p>
                 </div>
 
                     <div>

@@ -1,0 +1,120 @@
+# src/app/local-hiring-assistant/qa.http
+
+### Basic happy path – massage therapist in Ocala
+POST http://localhost:3000/api/local-hiring-assistant
+Content-Type: application/json
+
+{
+  "businessName": "Tranquil Touch Massage",
+  "businessType": "Massage Spa",
+  "services": ["Deep tissue massage", "Swedish massage", "Couples massage"],
+  "city": "Ocala",
+  "state": "Florida",
+  "roleTitle": "Licensed Massage Therapist",
+  "employmentType": "Full-Time",
+  "workLocationType": "On-site",
+  "department": "Massage Therapy",
+  "experienceLevel": "2+ years in professional spa setting",
+  "scheduleDetails": "Tuesday–Saturday, 10am–6pm",
+  "compensationDetails": "Hourly + tips, details discussed in interview",
+  "responsibilities": [
+    "Provide 60- and 90-minute massage sessions",
+    "Maintain a clean and calming treatment room",
+    "Educate clients on wellness packages"
+  ],
+  "mustHaveSkills": [
+    "Active Florida massage license",
+    "Strong client communication skills"
+  ],
+  "niceToHaveSkills": [
+    "Experience with hot stone therapy",
+    "Knowledge of aromatherapy"
+  ],
+  "certifications": ["Florida Massage License"],
+  "benefits": ["Employee discounts", "Flexible scheduling", "Supportive team culture"],
+  "aboutCompany": "We are a locally owned spa focused on stress relief and wellness for the Ocala community.",
+  "idealCandidateProfile": "Someone who loves building long-term client relationships and creating a calming experience.",
+  "hiringGoals": "Fill this role in the next 30 days with a therapist who wants to grow with our team.",
+  "brandVoice": "Warm, friendly, and professional. We speak like real humans, not a corporate chain.",
+  "personalityStyle": "Soft",
+  "language": "English",
+  "jobPostLength": "Medium",
+  "includeShortJobPostPack": true,
+  "includeScreeningQuestions": true,
+  "includeInterviewQuestions": true,
+  "includeBenefitsHighlight": true,
+  "includeApplicationInstructions": true
+}
+
+###
+
+### Validation error – missing roleTitle
+POST http://localhost:3000/api/local-hiring-assistant
+Content-Type: application/json
+
+{
+  "businessName": "Sample Business",
+  "businessType": "Restaurant",
+  "roleTitle": "",
+  "employmentType": "Full-Time",
+  "workLocationType": "On-site",
+  "personalityStyle": "None",
+  "language": "English",
+  "jobPostLength": "Short",
+  "includeShortJobPostPack": true,
+  "includeScreeningQuestions": false,
+  "includeInterviewQuestions": false,
+  "includeBenefitsHighlight": false,
+  "includeApplicationInstructions": false
+}
+
+###
+
+### Minimal request – only required fields
+POST http://localhost:3000/api/local-hiring-assistant
+Content-Type: application/json
+
+{
+  "businessName": "Ocala Auto Repair",
+  "businessType": "Auto Repair Shop",
+  "roleTitle": "Auto Mechanic",
+  "employmentType": "Full-Time",
+  "workLocationType": "On-site",
+  "personalityStyle": "None",
+  "language": "English",
+  "jobPostLength": "Short",
+  "includeShortJobPostPack": false,
+  "includeScreeningQuestions": false,
+  "includeInterviewQuestions": false,
+  "includeBenefitsHighlight": false,
+  "includeApplicationInstructions": false
+}
+
+###
+
+### Spanish language example
+POST http://localhost:3000/api/local-hiring-assistant
+Content-Type: application/json
+
+{
+  "businessName": "Restaurante La Familia",
+  "businessType": "Restaurante Mexicano",
+  "services": ["Tacos", "Burritos", "Quesadillas"],
+  "city": "Ocala",
+  "state": "Florida",
+  "roleTitle": "Mesero/Mesera",
+  "employmentType": "Part-Time",
+  "workLocationType": "On-site",
+  "responsibilities": ["Tomar órdenes", "Servir comida", "Mantener mesas limpias"],
+  "mustHaveSkills": ["Experiencia en servicio al cliente", "Bilingüe (inglés/español)"],
+  "personalityStyle": "Soft",
+  "language": "Spanish",
+  "jobPostLength": "Medium",
+  "includeShortJobPostPack": true,
+  "includeScreeningQuestions": true,
+  "includeInterviewQuestions": false,
+  "includeBenefitsHighlight": true,
+  "includeApplicationInstructions": true
+}
+
+###

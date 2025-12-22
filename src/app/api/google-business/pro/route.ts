@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import {
   GoogleBusinessProRequest,
   GoogleBusinessProResult,
@@ -7,11 +7,6 @@ import {
   isGoogleBusinessAuditResult,
   isGoogleBusinessWizardResult,
 } from "@/app/apps/google-business-pro/types";
-
-// Initialize OpenAI client using your API key from .env.local
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const SYSTEM_PROMPT = `You are the OBD Google Business Profile PRO Engine.
 
@@ -465,6 +460,7 @@ export async function POST(req: NextRequest) {
     let model: string | undefined;
 
     try {
+      const openai = getOpenAIClient();
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [

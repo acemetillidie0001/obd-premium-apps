@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-
-// Initialize OpenAI client using your API key from .env.local
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { getOpenAIClient } from "@/lib/openai-client";
 
 interface SocialPostRequest {
   businessName?: string;
@@ -79,6 +74,7 @@ async function generateSocialPosts({
 
   const userMessage = JSON.stringify(payload, null, 2);
 
+  const openai = getOpenAIClient();
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [

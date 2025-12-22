@@ -1,0 +1,293 @@
+### Event Campaign Builder API Tests
+### Use VS Code REST Client extension to run these
+
+@baseUrl = http://localhost:3000
+@contentType = application/json
+
+### Scenario 1 — Baseline Happy Path (English, all channels ON)
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Sunrise Wellness Spa",
+  "businessType": "Day Spa",
+  "services": "Massages, facials, aromatherapy, couples packages",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Relax & Reset Ladies Night",
+  "eventDate": "March 15, 2026",
+  "eventTime": "6:00 PM – 8:30 PM",
+  "eventLocation": "Sunrise Wellness Spa, Ocala, FL",
+  "eventType": "InPerson",
+  "eventDescription": "An intimate after-hours spa event with mini-massages, skincare demos, aromatherapy, refreshments, and exclusive discounts on packages.",
+  "audience": "Women in Ocala who want to de-stress and enjoy a self-care evening with friends.",
+  "mainGoal": "RSVPs",
+  "budgetLevel": "Moderate",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Gentle, caring, and community-centered.",
+  "personalityStyle": "Soft",
+  "language": "English",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 10,
+  "notesForAI": "Limited spots available, but keep the tone soft and not pushy."
+}
+
+###
+
+### Scenario 2 — Required Field Validation (Missing eventName)
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Sunrise Wellness Spa",
+  "businessType": "Day Spa",
+  "services": "",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "",
+  "eventDate": "March 15, 2026",
+  "eventTime": "6:00 PM – 8:30 PM",
+  "eventLocation": "Sunrise Wellness Spa, Ocala, FL",
+  "eventType": "InPerson",
+  "eventDescription": "Short.",
+  "audience": "",
+  "mainGoal": "RSVPs",
+  "budgetLevel": "Low",
+  "urgencyLevel": "Normal",
+  "brandVoice": "",
+  "personalityStyle": "None",
+  "language": "English",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 10,
+  "notesForAI": ""
+}
+
+###
+
+### Scenario 3 — Channel Toggles OFF
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Brick City Fitness",
+  "businessType": "Gym",
+  "services": "Group classes, personal training, open gym",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Spring Fitness Kickoff",
+  "eventDate": "April 5, 2026",
+  "eventTime": "9:00 AM – 12:00 PM",
+  "eventLocation": "Brick City Fitness, Ocala, FL",
+  "eventType": "InPerson",
+  "eventDescription": "A free community fitness morning with sample classes, demos, and Q&A with trainers.",
+  "audience": "Adults in Ocala interested in trying a new gym or getting back into a routine.",
+  "mainGoal": "Leads",
+  "budgetLevel": "Free",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Energetic but approachable.",
+  "personalityStyle": "High-Energy",
+  "language": "English",
+  "includeFacebook": false,
+  "includeInstagram": false,
+  "includeX": false,
+  "includeGoogleBusiness": false,
+  "includeEmail": false,
+  "includeSms": false,
+  "includeImageCaption": false,
+  "campaignDurationDays": 7,
+  "notesForAI": "We only want text assets for internal planning in this test."
+}
+
+###
+
+### Scenario 4 — Spanish-only Event
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Casa Verde Restaurante",
+  "businessType": "Restaurant",
+  "services": "Comida latina, cenas familiares, eventos especiales",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Noche de Sabores Latinos",
+  "eventDate": "May 10, 2026",
+  "eventTime": "7:00 PM – 10:00 PM",
+  "eventLocation": "Casa Verde Restaurante, Ocala, FL",
+  "eventType": "InPerson",
+  "eventDescription": "Una noche especial con platillos latinos, música suave y degustaciones de la casa.",
+  "audience": "Familias y amigos que disfrutan de la comida latina en Ocala.",
+  "mainGoal": "RSVPs",
+  "budgetLevel": "Moderate",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Cálido, acogedor y familiar.",
+  "personalityStyle": "Soft",
+  "language": "Spanish",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 14,
+  "notesForAI": "Mantén el tono familiar y acogedor. No exageres con mayúsculas ni signos de exclamación."
+}
+
+###
+
+### Scenario 5 — Bilingual Mode
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Ocala Art Collective",
+  "businessType": "Art Gallery",
+  "services": "Local art exhibits, workshops, live art events",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "First Friday Art Walk",
+  "eventDate": "June 5, 2026",
+  "eventTime": "5:00 PM – 8:00 PM",
+  "eventLocation": "Downtown Ocala, various galleries",
+  "eventType": "InPerson",
+  "eventDescription": "A downtown art walk with local artists, live demos, and gallery open houses.",
+  "audience": "Locals and visitors who enjoy art, culture, and community events.",
+  "mainGoal": "Awareness",
+  "budgetLevel": "Low",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Creative, welcoming, and community-focused.",
+  "personalityStyle": "Bold",
+  "language": "Bilingual",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 12,
+  "notesForAI": "Please clearly separate English and Spanish like 'English: ...\\nEspañol: ...'."
+}
+
+###
+
+### Scenario 6 — Last-Minute Urgency
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Downtown Yoga Studio",
+  "businessType": "Fitness Studio",
+  "services": "Yoga classes, workshops, private sessions",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Sunday Sunrise Rooftop Yoga",
+  "eventDate": "July 12, 2026",
+  "eventTime": "7:00 AM – 8:00 AM",
+  "eventLocation": "Rooftop, Downtown Ocala",
+  "eventType": "InPerson",
+  "eventDescription": "A one-hour sunrise yoga session on a downtown rooftop with gentle flows and guided breathing.",
+  "audience": "Adults who want a calm, early-morning reset.",
+  "mainGoal": "RSVPs",
+  "budgetLevel": "Low",
+  "urgencyLevel": "Last-Minute",
+  "brandVoice": "Calm, encouraging, and minimalistic.",
+  "personalityStyle": "Soft",
+  "language": "English",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 3,
+  "notesForAI": "Focus on a short last-minute push without sounding panicked."
+}
+
+###
+
+### Scenario 7A — Duration Clamping (too low: 0)
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Ocala Coding Camp",
+  "businessType": "Education",
+  "services": "Kids coding camps, STEM workshops",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Weekend Coding Camp",
+  "eventDate": "August 22, 2026",
+  "eventTime": "9:00 AM – 3:00 PM",
+  "eventLocation": "Ocala Innovation Center",
+  "eventType": "InPerson",
+  "eventDescription": "A 1-day kids coding camp introducing basic game design and logic.",
+  "audience": "Parents of kids ages 8–13 in Ocala.",
+  "mainGoal": "TicketSales",
+  "budgetLevel": "Premium",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Friendly, educational, and empowering.",
+  "personalityStyle": "High-Energy",
+  "language": "English",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 0,
+  "notesForAI": ""
+}
+
+###
+
+### Scenario 7B — Duration Clamping (too high: 100)
+POST {{baseUrl}}/api/event-campaign-builder
+Content-Type: {{contentType}}
+
+{
+  "businessName": "Ocala Coding Camp",
+  "businessType": "Education",
+  "services": "Kids coding camps, STEM workshops",
+  "city": "Ocala",
+  "state": "Florida",
+  "eventName": "Weekend Coding Camp",
+  "eventDate": "August 22, 2026",
+  "eventTime": "9:00 AM – 3:00 PM",
+  "eventLocation": "Ocala Innovation Center",
+  "eventType": "InPerson",
+  "eventDescription": "A 1-day kids coding camp introducing basic game design and logic.",
+  "audience": "Parents of kids ages 8–13 in Ocala.",
+  "mainGoal": "TicketSales",
+  "budgetLevel": "Premium",
+  "urgencyLevel": "Normal",
+  "brandVoice": "Friendly, educational, and empowering.",
+  "personalityStyle": "High-Energy",
+  "language": "English",
+  "includeFacebook": true,
+  "includeInstagram": true,
+  "includeX": true,
+  "includeGoogleBusiness": true,
+  "includeEmail": true,
+  "includeSms": true,
+  "includeImageCaption": true,
+  "campaignDurationDays": 100,
+  "notesForAI": ""
+}
+
+###

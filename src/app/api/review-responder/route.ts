@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-
-// Initialize OpenAI client using your API key from .env.local
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { getOpenAIClient } from "@/lib/openai-client";
 
 interface ReviewResponderRequest {
   businessName: string;
@@ -64,6 +59,7 @@ async function generateReviewResponse(request: ReviewResponderRequest): Promise<
 
   const userMessage = fields.join("\n");
 
+  const openai = getOpenAIClient();
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [

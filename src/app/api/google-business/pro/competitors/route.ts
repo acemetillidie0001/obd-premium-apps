@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getOpenAIClient } from "@/lib/openai-client";
 import {
   GoogleBusinessCompetitorInsightsRequest,
   GoogleBusinessCompetitorInsightsResult,
 } from "@/app/apps/google-business-pro/types";
-
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const SYSTEM_PROMPT = `You are a Local Business Competitive Intelligence Analyst.
 
@@ -99,6 +94,7 @@ export async function POST(req: NextRequest) {
     let model: string | undefined;
 
     try {
+      const openai = getOpenAIClient();
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [

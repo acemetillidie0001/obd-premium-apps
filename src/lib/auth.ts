@@ -106,8 +106,8 @@ export const authConfig = {
     async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
-        token.role = (user as any).role || "user";
-        token.isPremium = (user as any).isPremium || false;
+        token.role = user.role || "user";
+        token.isPremium = user.isPremium || false;
       }
       
       // Refresh user data on session update
@@ -115,12 +115,12 @@ export const authConfig = {
         // Lazy-load Prisma only when needed (not in Edge Runtime)
         try {
           const prismaModule = await import("@/lib/prisma");
-          const prisma = prismaModule.prisma as any; // Use 'any' to bypass TS type checking for dynamic import
+          const prisma = prismaModule.prisma as any; // Dynamic import requires type assertion
           const dbUser = await prisma.user.findUnique({
-            where: { id: token.id as string },
+            where: { id: token.id },
           });
           if (dbUser) {
-            token.role = (dbUser.role === "admin" ? "admin" : "user") as "user" | "admin";
+            token.role = dbUser.role === "admin" ? "admin" : "user";
             token.isPremium = dbUser.isPremium;
           }
         } catch (error) {
@@ -133,9 +133,9 @@ export const authConfig = {
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as "user" | "admin";
-        session.user.isPremium = token.isPremium as boolean;
+        session.user.id = token.id;
+        session.user.role = token.role;
+        session.user.isPremium = token.isPremium;
       }
       return session;
     },

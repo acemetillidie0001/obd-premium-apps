@@ -164,8 +164,19 @@ export const authConfig = {
     if (process.env.NEXT_RUNTIME === "edge") {
       return undefined;
     }
-    // Load adapter lazily - this will be called when NextAuth initializes
-    return getAdapter();
+    
+    // Load adapter - this will be called when NextAuth initializes
+    const adapterInstance = getAdapter();
+    
+    // If adapter is null or undefined, log error
+    if (!adapterInstance) {
+      console.error("[NextAuth] Adapter is null/undefined. Email provider will not work.");
+      console.error("[NextAuth] This usually means PrismaAdapter failed to load.");
+    } else {
+      console.log("[NextAuth] PrismaAdapter loaded successfully");
+    }
+    
+    return adapterInstance;
   })(),
   providers: [
     Email({

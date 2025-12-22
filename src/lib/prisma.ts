@@ -6,10 +6,18 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-const connectionString = process.env.DATABASE_URL;
+let connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is not set");
+}
+
+// Ensure connection string has SSL mode for Railway Postgres
+// Railway requires SSL but uses self-signed certificates
+if (!connectionString.includes("sslmode=")) {
+  // Add sslmode=require if not present (Railway needs this)
+  const separator = connectionString.includes("?") ? "&" : "?";
+  connectionString = `${connectionString}${separator}sslmode=require`;
 }
 
 // Configure Pool with SSL for Railway Postgres

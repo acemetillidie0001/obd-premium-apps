@@ -4,22 +4,28 @@ import type { NextAuthConfig } from "next-auth";
 import type { PrismaClient } from "@prisma/client";
 
 // Lazy-load Prisma adapter to avoid importing Node.js modules in Edge Runtime
-// Only needed for database sessions, but we're using JWT strategy
-// Set to undefined - NextAuth will work fine without it for JWT strategy
+// NextAuth v5 Email provider REQUIRES an adapter even with JWT strategy
+// We need to provide it, but load it lazily to avoid Edge Runtime issues
 let adapter: any = undefined;
 
 function getAdapter() {
   if (adapter !== undefined) return adapter;
   
+  // Skip adapter loading in Edge Runtime
+  if (process.env.NEXT_RUNTIME === "edge") {
+    adapter = null;
+    return null;
+  }
+  
   try {
-    // Try to load Prisma adapter (will fail in Edge Runtime, which is fine)
+    // Load Prisma adapter (required for Email provider in NextAuth v5)
     const { PrismaAdapter } = require("@auth/prisma-adapter");
     const { prisma } = require("@/lib/prisma");
     adapter = PrismaAdapter(prisma);
     return adapter;
   } catch (error) {
-    // In Edge Runtime, Prisma can't be loaded (uses Node.js 'stream' module)
-    // This is fine since we're using JWT strategy and don't need database sessions
+    // If Prisma can't be loaded, log error but don't crash
+    console.error("[NextAuth] Failed to load PrismaAdapter:", error);
     adapter = null;
     return null;
   }
@@ -150,7 +156,17 @@ const getEmailFrom = (): string => {
 };
 
 export const authConfig = {
-  adapter: undefined, // Don't call getAdapter() at module load - causes Edge Runtime issues
+  // NextAuth v5 Email provider REQUIRES an adapter
+  // Load it lazily to avoid Edge Runtime issues during module load
+  // The adapter is only used for user creation/lookup, not for sessions (we use JWT)
+  adapter: (() => {
+    // Only load adapter in Node.js runtime (not Edge Runtime)
+    if (process.env.NEXT_RUNTIME === "edge") {
+      return undefined;
+    }
+    // Load adapter lazily - this will be called when NextAuth initializes
+    return getAdapter();
+  })(),
   providers: [
     Email({
       from: getEmailFrom(),

@@ -15,12 +15,22 @@ if (!connectionString) {
 // Ensure connection string has SSL mode for Railway Postgres
 // Railway requires SSL but uses self-signed certificates
 // Use sslmode=no-verify to accept self-signed certificates
-if (!connectionString.includes("sslmode=")) {
+// IMPORTANT: Replace sslmode=require with sslmode=no-verify (require still validates certs)
+
+// Check for any existing sslmode parameter (case-insensitive)
+const sslmodeMatch = connectionString.match(/[?&]sslmode=([^&]+)/i);
+if (sslmodeMatch) {
+  const currentSslmode = sslmodeMatch[1];
+  if (currentSslmode.toLowerCase() !== "no-verify") {
+    // Replace existing sslmode with no-verify
+    connectionString = connectionString.replace(/[?&]sslmode=[^&]+/i, `${sslmodeMatch[0].startsWith("?") ? "?" : "&"}sslmode=no-verify`);
+    console.log("[Prisma] Replaced sslmode parameter with sslmode=no-verify for Railway Postgres");
+  }
+} else {
+  // Add sslmode=no-verify if no sslmode is present
   const separator = connectionString.includes("?") ? "&" : "?";
   connectionString = `${connectionString}${separator}sslmode=no-verify`;
-} else if (connectionString.includes("sslmode=require")) {
-  // Replace sslmode=require with sslmode=no-verify to accept self-signed certs
-  connectionString = connectionString.replace(/sslmode=require/g, "sslmode=no-verify");
+  console.log("[Prisma] Added sslmode=no-verify to connection string");
 }
 
 // Configure Pool with SSL for Railway Postgres

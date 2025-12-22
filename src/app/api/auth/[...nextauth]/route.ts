@@ -24,13 +24,31 @@ async function handleRequest(
     }
     
     return await handler(req);
-  } catch (error) {
-    console.error("[NextAuth Route] Error:", error);
-    // Return a proper error response instead of crashing
+  } catch (error: any) {
+    // REMOVE AFTER FIX: Enhanced error logging to surface underlying Prisma errors
+    console.error("[NextAuth Route] Error:", {
+      message: error?.message,
+      name: error?.name,
+      code: error?.code,
+      cause: error?.cause,
+      stack: error?.stack,
+    });
+    
+    // If AUTH_DEBUG is enabled, include more details
+    const isDebug = process.env.AUTH_DEBUG === "true" || process.env.NEXTAUTH_DEBUG === "true";
+    if (isDebug && error?.cause) {
+      console.error("[NextAuth Route] Underlying error (AUTH_DEBUG):", {
+        message: error.cause?.message,
+        code: error.cause?.code,
+        name: error.cause?.name,
+      });
+    }
+    
     return new Response(
       JSON.stringify({
         error: "Authentication error",
         message: error instanceof Error ? error.message : "Unknown error",
+        ...(isDebug && error?.cause ? { underlyingError: error.cause?.message } : {}),
       }),
       {
         status: 500,

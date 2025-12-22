@@ -17,52 +17,35 @@ export async function GET() {
   });
 
   try {
-    // Step 1: Test read access to VerificationToken table
-    console.log("[Test DB] Step 1: Testing VerificationToken table read access...");
-    const existingToken = await prisma.verificationToken.findFirst({
-      take: 1,
-    });
-    console.log("[Test DB] Step 1: ✓ Read successful");
+    // Read test
+    console.log("[Test DB] Testing VerificationToken read...");
+    await prisma.verificationToken.findFirst();
+    console.log("[Test DB] ✓ Read successful");
 
-    // Step 2: Test write access (CREATE) with a safe test record
-    console.log("[Test DB] Step 2: Testing VerificationToken table write access (CREATE)...");
-    const testIdentifier = `test-${Date.now()}@test.local`;
-    const testToken = `test-token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    const testExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-
-    await prisma.verificationToken.create({
+    // Write test (create + delete)
+    console.log("[Test DB] Testing VerificationToken create + delete...");
+    const token = await prisma.verificationToken.create({
       data: {
-        identifier: testIdentifier,
-        token: testToken,
-        expires: testExpires,
+        identifier: "test-db@local",
+        token: "test-token",
+        expires: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
-    console.log("[Test DB] Step 2: ✓ CREATE successful");
-
-    // Step 3: Test delete access (DELETE) - clean up test record
-    console.log("[Test DB] Step 3: Testing VerificationToken table delete access (DELETE)...");
-    await prisma.verificationToken.deleteMany({
+    console.log("[Test DB] ✓ Create successful");
+    
+    await prisma.verificationToken.delete({
       where: {
-        identifier: testIdentifier,
-        token: testToken,
+        identifier_token: {
+          identifier: token.identifier,
+          token: token.token,
+        },
       },
     });
-    console.log("[Test DB] Step 3: ✓ DELETE successful");
+    console.log("[Test DB] ✓ Delete successful");
 
     console.log("[Test DB] All tests passed - database is fully functional");
 
-    return NextResponse.json({
-      ok: true,
-      message: "Database connection and schema operations successful",
-      tests: {
-        read: true,
-        create: true,
-        delete: true,
-      },
-      hasDatabaseUrl,
-      hasSslmode,
-      hasConnectionLimit,
-    });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
     console.error("[Test DB] Database test failed:", {
       message: err?.message,

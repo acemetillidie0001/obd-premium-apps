@@ -36,6 +36,11 @@ The application supports **both** NextAuth v5 (`AUTH_*`) and legacy (`NEXTAUTH_*
 
 - `PREMIUM_BYPASS_KEY` - Secret key for admin bypass (development/testing only)
 
+### Debugging (Optional)
+
+- `AUTH_DEBUG` - Set to `"true"` to enable verbose Auth.js error logging (useful for debugging AdapterError)
+- `NEXTAUTH_DEBUG` - Set to `"true"` for legacy NextAuth debug logging (if using NEXTAUTH_* naming)
+
 ## Example Vercel Environment Variables
 
 ```

@@ -21,11 +21,25 @@ function getAdapter() {
     // Load Prisma adapter (required for Email provider in NextAuth v5)
     const { PrismaAdapter } = require("@auth/prisma-adapter");
     const { prisma } = require("@/lib/prisma");
+    
+    // REMOVE AFTER FIX: Log adapter initialization for debugging
+    console.log("[NextAuth] Initializing PrismaAdapter...");
+    
     adapter = PrismaAdapter(prisma);
+    
+    // REMOVE AFTER FIX: Test adapter with a simple query (synchronous check)
+    // Note: This is a best-effort check; actual adapter operations are async
+    console.log("[NextAuth] PrismaAdapter created successfully");
+    
     return adapter;
-  } catch (error) {
-    // If Prisma can't be loaded, log error but don't crash
-    console.error("[NextAuth] Failed to load PrismaAdapter:", error);
+  } catch (error: any) {
+    // REMOVE AFTER FIX: Detailed error logging for adapter initialization failures
+    console.error("[NextAuth] Failed to load PrismaAdapter:", {
+      message: error?.message,
+      code: error?.code,
+      name: error?.name,
+      stack: error?.stack,
+    });
     adapter = null;
     return null;
   }
@@ -183,8 +197,25 @@ export const authConfig = {
     if (!adapterInstance) {
       console.error("[NextAuth] Adapter is null/undefined. Email provider will not work.");
       console.error("[NextAuth] This usually means PrismaAdapter failed to load.");
+      console.error("[NextAuth] Check Vercel logs for Prisma connection errors.");
     } else {
       console.log("[NextAuth] PrismaAdapter loaded successfully");
+      
+      // REMOVE AFTER FIX: Test adapter with a simple query to catch DB issues early
+      // This is async, so we can't await here, but we can log if it fails
+      (async () => {
+        try {
+          const { prisma } = require("@/lib/prisma");
+          await prisma.verificationToken.findFirst();
+          console.log("[NextAuth] Adapter database test passed");
+        } catch (dbError: any) {
+          console.error("[NextAuth] Adapter database test failed - adapter operations will fail:", {
+            message: dbError?.message,
+            code: dbError?.code,
+            name: dbError?.name,
+          });
+        }
+      })();
     }
     
     return adapterInstance;

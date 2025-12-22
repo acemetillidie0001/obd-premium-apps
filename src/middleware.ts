@@ -16,19 +16,36 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(req: NextRequest) {
-  const token = await getToken({
-    req,
-    secret: process.env.NEXTAUTH_SECRET,
-  });
-
-  if (!token) {
+  // Defensive: Check if NEXTAUTH_SECRET is missing
+  const secret = process.env.NEXTAUTH_SECRET;
+  if (!secret) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
+    url.searchParams.set("error", "missing_secret");
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  try {
+    const token = await getToken({
+      req,
+      secret,
+    });
+
+    if (!token) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
+      return NextResponse.redirect(url);
+    }
+
+    return NextResponse.next();
+  } catch (error) {
+    // Defensive: If token check fails, redirect to login with error
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("error", "auth_error");
+    return NextResponse.redirect(url);
+  }
 }
 
 export const config = {

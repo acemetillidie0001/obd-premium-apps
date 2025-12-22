@@ -106,8 +106,9 @@ export const authConfig = {
       if (trigger === "update") {
         // Lazy-load Prisma only when needed (not in Edge Runtime)
         try {
-          const { prisma } = await import("@/lib/prisma");
-          const dbUser = await prisma.user.findUnique({
+          const prismaModule = await import("@/lib/prisma");
+          const prisma = prismaModule.prisma;
+          const dbUser = await (prisma as any).user.findUnique({
             where: { id: token.id as string },
           });
           if (dbUser) {

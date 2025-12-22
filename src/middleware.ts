@@ -16,8 +16,8 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(req: NextRequest) {
-  // Defensive: Check if NEXTAUTH_SECRET is missing
-  const secret = process.env.NEXTAUTH_SECRET;
+  // Defensive: Check if auth secret is missing (supports both AUTH_SECRET and NEXTAUTH_SECRET)
+  const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
   if (!secret) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";

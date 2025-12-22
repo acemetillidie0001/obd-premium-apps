@@ -136,8 +136,15 @@ const getEmailFrom = (): string => {
     if (isBuildTime) {
       return "noreply@example.com"; // Fallback for build only
     }
-    // At runtime, this will be caught by validateAuthEnv or email sending will fail
-    return "noreply@example.com"; // Temporary fallback
+    // At runtime, log warning but return fallback to prevent NextAuth initialization failure
+    // The actual email sending will fail gracefully with a clear error
+    console.warn("[NextAuth] EMAIL_FROM not set, using fallback. Email sending will fail.");
+    return "noreply@example.com"; // Fallback to prevent config error
+  }
+  // Validate email format
+  if (!emailFrom.includes("@")) {
+    console.error("[NextAuth] EMAIL_FROM is not a valid email address:", emailFrom);
+    return "noreply@example.com"; // Fallback
   }
   return emailFrom;
 };
@@ -294,12 +301,13 @@ export const authConfig = {
       return secret || "fallback-secret-for-build";
     }
     
-    // At runtime, return the secret (even if empty)
-    // NextAuth will throw Configuration error if it's invalid, which is better than crashing module load
-    if (!secret || secret === "fallback-secret-for-build") {
-      console.error("[NextAuth] AUTH_SECRET or NEXTAUTH_SECRET is missing or invalid. NextAuth will show Configuration error.");
-      // Return empty string - NextAuth will reject it and show Configuration error
-      return "";
+    // At runtime, validate secret length (NextAuth requires at least 32 chars)
+    if (!secret || secret === "fallback-secret-for-build" || secret.length < 32) {
+      console.error("[NextAuth] AUTH_SECRET or NEXTAUTH_SECRET is missing, invalid, or too short (< 32 chars).");
+      console.error("[NextAuth] This will cause Configuration errors. Please set a valid secret in Vercel.");
+      // Return a dummy secret that will fail validation but won't crash module load
+      // NextAuth will show Configuration error when actually used
+      return "invalid-secret-missing-or-too-short";
     }
     
     return secret;

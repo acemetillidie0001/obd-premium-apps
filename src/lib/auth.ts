@@ -40,15 +40,23 @@ export const authConfig = {
   providers: [
     Email({
       from: process.env.EMAIL_FROM || "noreply@example.com", // Use process.env directly, fallback for build
+      // Minimal server config required by NextAuth (not actually used when sendVerificationRequest is provided)
+      // We use Resend SDK directly via sendVerificationRequest instead of SMTP
       server: {
         host: "smtp.resend.com",
         port: 465,
         auth: {
           user: "resend",
-          pass: process.env.RESEND_API_KEY || "", // Use process.env directly, fallback for build
+          pass: process.env.RESEND_API_KEY || "dummy", // Dummy value - not used when sendVerificationRequest is provided
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
+        // Log which email provider is active (for debugging in Vercel logs)
+        console.log("[NextAuth Email] Using Resend SDK for email delivery");
+        const emailFrom = process.env.EMAIL_FROM;
+        console.log("[NextAuth Email] From address:", emailFrom ? `${emailFrom.substring(0, 3)}***@${emailFrom.split("@")[1]}` : "NOT SET");
+        console.log("[NextAuth Email] Resend API key:", process.env.RESEND_API_KEY ? "SET" : "NOT SET");
+        
         const { Resend } = await import("resend");
         const resendApiKey = getEnvVar("RESEND_API_KEY"); // Validate when actually sending email
         const resend = new Resend(resendApiKey);

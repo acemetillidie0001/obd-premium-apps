@@ -12,7 +12,14 @@ if (!connectionString) {
   throw new Error("DATABASE_URL environment variable is not set");
 }
 
-const pool = new Pool({ connectionString });
+// Configure Pool with SSL for Railway Postgres
+// Railway requires SSL but may use self-signed certificates
+const pool = new Pool({
+  connectionString,
+  ssl: {
+    rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
+  },
+});
 const adapter = new PrismaPg(pool);
 
 export const prisma =

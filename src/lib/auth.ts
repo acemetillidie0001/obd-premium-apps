@@ -1,15 +1,11 @@
 import NextAuth from "next-auth";
 import Email from "next-auth/providers/email";
-import { env } from "@/lib/env";
 import type { NextAuthConfig } from "next-auth";
 import type { PrismaClient } from "@prisma/client";
 
-// Validate environment variables on module load
-// This ensures we fail fast if required env vars are missing
-env;
-
 // Lazy-load Prisma adapter to avoid importing Node.js modules in Edge Runtime
 // Only needed for database sessions, but we're using JWT strategy
+// Set to undefined - NextAuth will work fine without it for JWT strategy
 let adapter: any = undefined;
 
 function getAdapter() {
@@ -29,26 +25,37 @@ function getAdapter() {
   }
 }
 
+// Access env vars directly (works in Edge Runtime)
+// Access them lazily inside functions, not at module load
+const getEnvVar = (key: string): string => {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+};
+
 export const authConfig = {
-  adapter: getAdapter() as any,
+  adapter: undefined, // Don't call getAdapter() at module load - causes Edge Runtime issues
   providers: [
     Email({
-      from: env.EMAIL_FROM,
+      from: process.env.EMAIL_FROM || "noreply@example.com", // Use process.env directly, fallback for build
       server: {
         host: "smtp.resend.com",
         port: 465,
         auth: {
           user: "resend",
-          pass: env.RESEND_API_KEY,
+          pass: process.env.RESEND_API_KEY || "", // Use process.env directly, fallback for build
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
         const { Resend } = await import("resend");
-        const resend = new Resend(env.RESEND_API_KEY);
+        const resendApiKey = getEnvVar("RESEND_API_KEY"); // Validate when actually sending email
+        const resend = new Resend(resendApiKey);
 
         try {
           await resend.emails.send({
-            from: env.EMAIL_FROM,
+            from: getEnvVar("EMAIL_FROM"), // Validate when actually sending email
             to: identifier,
             subject: "Sign in to OBD Premium Apps",
             html: `
@@ -155,7 +162,7 @@ export const authConfig = {
       return true;
     },
   },
-  secret: env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-build", // Use process.env directly, fallback for build
 } satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);

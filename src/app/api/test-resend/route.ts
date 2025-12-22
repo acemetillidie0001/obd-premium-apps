@@ -4,9 +4,20 @@ import { Resend } from "resend";
 export const runtime = "nodejs";
 
 export async function GET() {
+  // Extract email from "Display Name <email@domain.com>" format if present
+  const emailFromRaw = process.env.EMAIL_FROM || "";
+  let from = emailFromRaw;
+  const emailMatch = emailFromRaw.match(/<([^>]+)>/);
+  if (emailMatch) {
+    from = emailMatch[1].trim();
+  }
+  
   const resend = new Resend(process.env.RESEND_API_KEY);
   const to = "scottbaxtermarketing@gmail.com";
-  const from = process.env.EMAIL_FROM!;
+
+  console.log("[Test Resend] EMAIL_FROM raw:", emailFromRaw);
+  console.log("[Test Resend] EMAIL_FROM extracted:", from);
+  console.log("[Test Resend] RESEND_API_KEY present:", !!process.env.RESEND_API_KEY);
 
   try {
     const result = await resend.emails.send({
@@ -17,6 +28,12 @@ export async function GET() {
     });
     return NextResponse.json({ ok: true, result });
   } catch (err: any) {
+    console.error("[Test Resend] Error:", {
+      message: err?.message,
+      name: err?.name,
+      statusCode: err?.statusCode,
+      response: err?.response,
+    });
     return NextResponse.json(
       { ok: false, error: { message: err?.message, statusCode: err?.statusCode, response: err?.response } },
       { status: 500 }

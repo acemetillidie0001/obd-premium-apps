@@ -133,6 +133,7 @@ try {
 }
 
 // Get email from address with validation
+// Handles formats like "Display Name <email@domain.com>" or just "email@domain.com"
 const getEmailFrom = (): string => {
   const emailFrom = process.env.EMAIL_FROM;
   // Allow fallback during build, but validate at runtime
@@ -147,12 +148,22 @@ const getEmailFrom = (): string => {
     console.warn("[NextAuth] EMAIL_FROM not set, using fallback. Email sending will fail.");
     return "noreply@example.com"; // Fallback to prevent config error
   }
+  
+  // Extract email from "Display Name <email@domain.com>" format if present
+  let extractedEmail = emailFrom;
+  const emailMatch = emailFrom.match(/<([^>]+)>/);
+  if (emailMatch) {
+    extractedEmail = emailMatch[1].trim();
+    console.log("[NextAuth] Extracted email from display name format:", extractedEmail);
+  }
+  
   // Validate email format
-  if (!emailFrom.includes("@")) {
+  if (!extractedEmail.includes("@")) {
     console.error("[NextAuth] EMAIL_FROM is not a valid email address:", emailFrom);
     return "noreply@example.com"; // Fallback
   }
-  return emailFrom;
+  
+  return extractedEmail;
 };
 
 export const authConfig = {

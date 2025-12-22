@@ -14,14 +14,18 @@ if (!connectionString) {
 
 // Ensure connection string has SSL mode for Railway Postgres
 // Railway requires SSL but uses self-signed certificates
+// Use sslmode=no-verify to accept self-signed certificates
 if (!connectionString.includes("sslmode=")) {
-  // Add sslmode=require if not present (Railway needs this)
   const separator = connectionString.includes("?") ? "&" : "?";
-  connectionString = `${connectionString}${separator}sslmode=require`;
+  connectionString = `${connectionString}${separator}sslmode=no-verify`;
+} else if (connectionString.includes("sslmode=require")) {
+  // Replace sslmode=require with sslmode=no-verify to accept self-signed certs
+  connectionString = connectionString.replace(/sslmode=require/g, "sslmode=no-verify");
 }
 
 // Configure Pool with SSL for Railway Postgres
-// Railway requires SSL but may use self-signed certificates
+// Railway requires SSL but uses self-signed certificates
+// Both connection string sslmode=no-verify AND Pool ssl config are needed
 const pool = new Pool({
   connectionString,
   ssl: {

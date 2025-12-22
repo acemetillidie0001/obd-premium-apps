@@ -108,7 +108,7 @@ export const authConfig = {
         // Lazy-load Prisma only when needed (not in Edge Runtime)
         try {
           const prismaModule = await import("@/lib/prisma");
-          const prisma = prismaModule.prisma as PrismaClient;
+          const prisma = prismaModule.prisma as any; // Use 'any' to bypass TS type checking for dynamic import
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
           });

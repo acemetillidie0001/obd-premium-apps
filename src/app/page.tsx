@@ -116,13 +116,10 @@ export default function Home() {
                 <div
                   className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-shadow duration-200 ${cardBgNonLive} opacity-90`}
                 >
-                  <div
-                    className={`pointer-events-none absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-0 ${
-                      isDark ? "bg-slate-900/60" : "bg-slate-100/70"
-                    }`}
-                  >
-                    <div className="relative z-20">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                  <div className="space-y-2">
+                    {/* Badge: Coming Q1 2026 (non-interactive chip) */}
+                    <div className="flex justify-center mb-2">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] pointer-events-none ${
                         isDark
                           ? "border-[#29c4a9]/50 bg-[#29c4a9]/10 text-[#29c4a9]"
                           : "border-[#29c4a9]/60 bg-[#29c4a9]/10 text-[#29c4a9]"
@@ -130,8 +127,6 @@ export default function Home() {
                         Coming Q1 2026
                       </span>
                     </div>
-                  </div>
-                  <div className="relative z-10 space-y-2">
                     <div className="flex items-center justify-center gap-2 text-center w-full">
                       <div className="flex-shrink-0 text-2xl">💳</div>
                       <h3 className={`text-base font-semibold ${
@@ -146,7 +141,7 @@ export default function Home() {
                       Manage your subscription, invoices, and feature access.
                     </p>
                   </div>
-                  <div className="relative z-10 mt-4">
+                  <div className="mt-4">
                     <button
                       type="button"
                       disabled
@@ -163,13 +158,10 @@ export default function Home() {
                 <div
                   className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-shadow duration-200 ${cardBgNonLive} opacity-90`}
                 >
-                  <div
-                    className={`pointer-events-none absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-0 ${
-                      isDark ? "bg-slate-900/60" : "bg-slate-100/70"
-                    }`}
-                  >
-                    <div className="relative z-20">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                  <div className="space-y-2">
+                    {/* Badge: Coming Q1 2026 (non-interactive chip) */}
+                    <div className="flex justify-center mb-2">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] pointer-events-none ${
                         isDark
                           ? "border-[#29c4a9]/50 bg-[#29c4a9]/10 text-[#29c4a9]"
                           : "border-[#29c4a9]/60 bg-[#29c4a9]/10 text-[#29c4a9]"
@@ -177,8 +169,6 @@ export default function Home() {
                         Coming Q1 2026
                       </span>
                     </div>
-                  </div>
-                  <div className="relative z-10 space-y-2">
                     <div className="flex items-center justify-center gap-2 text-center w-full">
                       <div className="flex-shrink-0 text-2xl">👥</div>
                       <h3 className={`text-base font-semibold ${
@@ -193,7 +183,7 @@ export default function Home() {
                       Invite team members and control access to your business tools.
                     </p>
                   </div>
-                  <div className="relative z-10 mt-4">
+                  <div className="mt-4">
                     <button
                       type="button"
                       disabled

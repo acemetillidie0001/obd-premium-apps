@@ -202,6 +202,9 @@ export default function SocialMediaPostCreatorPage() {
     };
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
+  const [brandVoiceAutoFilled, setBrandVoiceAutoFilled] = useState(false);
+  const [personalityAutoFilled, setPersonalityAutoFilled] = useState(false);
 
   const parsedPosts = useMemo(
     () => (aiResponse ? parseAiResponse(aiResponse) : []),
@@ -215,13 +218,83 @@ export default function SocialMediaPostCreatorPage() {
     setShuffledPosts(null);
   }, [aiResponse]);
 
+  // Helper: Check if we should use brand profile (defaults to true if missing)
+  const shouldUseBrandProfile = (): boolean => {
+    if (typeof window === "undefined") return false;
+    try {
+      const raw = localStorage.getItem("obd.v3.useBrandProfile");
+      if (raw === null) return true; // Default to ON
+      return JSON.parse(raw) === true;
+    } catch {
+      return true; // Safe fallback: default to ON
+    }
+  };
+
+  // Auto-load brand profile on mount (only prefill empty fields, and only if toggle is ON)
+  useEffect(() => {
+    if (brandProfileLoaded) return;
+    
+    const loadBrandProfile = async () => {
+      // Check localStorage preference: only auto-load if "Use saved brand profile" toggle is ON
+      if (!shouldUseBrandProfile()) {
+        setBrandProfileLoaded(true);
+        return;
+      }
+      
+      try {
+        const res = await fetch("/api/brand-profile");
+        if (res.ok) {
+          const profile = await res.json();
+          if (profile) {
+            // Only set if field is empty (don't overwrite user input)
+            if (!businessName && profile.businessName) {
+              setBusinessName(profile.businessName);
+            }
+            if (!businessType && profile.businessType) {
+              setBusinessType(profile.businessType);
+            }
+            if (!brandVoice && profile.brandVoice) {
+              setBrandVoice(profile.brandVoice);
+              setBrandVoiceAutoFilled(true);
+            }
+            if (!personalityStyle && profile.brandPersonality) {
+              // Map brandPersonality to personalityStyle
+              const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+                "Soft": "Soft",
+                "Bold": "Bold",
+                "High-Energy": "High-Energy",
+                "Luxury": "Luxury",
+              };
+              const mapped = personalityMap[profile.brandPersonality];
+              if (mapped) {
+                setPersonalityStyle(mapped);
+                setPersonalityAutoFilled(true);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load brand profile:", err);
+      } finally {
+        setBrandProfileLoaded(true);
+      }
+    };
+    
+    loadBrandProfile();
+  }, [brandProfileLoaded]);
+
   const applyTemplate = (parsed: SocialTemplate) => {
     if (parsed.businessName) setBusinessName(parsed.businessName);
     if (parsed.businessType) setBusinessType(parsed.businessType);
     if (parsed.topic) setTopic(parsed.topic);
     if (parsed.details) setDetails(parsed.details);
     if (parsed.brandVoice) setBrandVoice(parsed.brandVoice);
-    if (parsed.personalityStyle) setPersonalityStyle(parsed.personalityStyle as any);
+    if (parsed.personalityStyle) {
+      const personality = parsed.personalityStyle as "Soft" | "Bold" | "High-Energy" | "Luxury" | "";
+      if (personality) {
+        setPersonalityStyle(personality);
+      }
+    }
     if (parsed.postLength) setPostLength(parsed.postLength);
     if (parsed.campaignType) setCampaignType(parsed.campaignType);
     if (parsed.outputMode) setOutputMode(parsed.outputMode);
@@ -526,10 +599,18 @@ export default function SocialMediaPostCreatorPage() {
                   <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Brand Voice Sample (Optional)
                   </label>
+                  {brandVoiceAutoFilled && (
+                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                      ✓ Loaded from Brand Profile
+                    </p>
+                  )}
                   <textarea
                     id="brandVoice"
                     value={brandVoice}
-                    onChange={(e) => setBrandVoice(e.target.value)}
+                    onChange={(e) => {
+                      setBrandVoice(e.target.value);
+                      setBrandVoiceAutoFilled(false); // Clear hint when user edits
+                    }}
                     rows={3}
                     className={getInputClasses(isDark, "resize-none")}
                     placeholder="Paste a short example of your brand's writing style. The AI will try to match it."
@@ -540,10 +621,18 @@ export default function SocialMediaPostCreatorPage() {
                   <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Personality Style
                   </label>
+                  {personalityAutoFilled && (
+                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                      ✓ Loaded from Brand Profile
+                    </p>
+                  )}
                   <select
                     id="personalityStyle"
                     value={personalityStyle}
-                    onChange={(e) => setPersonalityStyle(e.target.value as "Soft" | "Bold" | "High-Energy" | "Luxury" | "")}
+                    onChange={(e) => {
+                      setPersonalityStyle(e.target.value as "Soft" | "Bold" | "High-Energy" | "Luxury" | "");
+                      setPersonalityAutoFilled(false); // Clear hint when user edits
+                    }}
                     className={getInputClasses(isDark)}
                   >
                     <option value="">None selected</option>
@@ -769,7 +858,7 @@ export default function SocialMediaPostCreatorPage() {
                 <div className="mb-6">
                   {lastPayload?.outputMode === "ContentCalendar" && (
                     <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
-                      Content Calendar mode: use "Shuffle Posts" to quickly change the day order.
+                      Content Calendar mode: use &quot;Shuffle Posts&quot; to quickly change the day order.
                     </p>
                   )}
                   <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
@@ -840,7 +929,7 @@ export default function SocialMediaPostCreatorPage() {
                                     {post.bodyLines.map((line, lineIdx) => {
                                       const match = /^Slide\s+(\d+)\s*[—–-]\s*(.*)$/i.exec(line.trim()) ||
                                                     /^Slide\s+(\d+):\s*(.*)$/i.exec(line.trim());
-                                      let slideNumber = match ? match[1] : `${lineIdx + 1}`;
+                                      const slideNumber = match ? match[1] : `${lineIdx + 1}`;
                                       let slideText = match ? match[2].trim() : line.trim();
                                       
                                       // Clean any leftover prefixes

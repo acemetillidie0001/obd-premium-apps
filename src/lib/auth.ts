@@ -1,49 +1,8 @@
 import NextAuth from "next-auth";
 import Email from "next-auth/providers/email";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { prisma } from "./prisma";
 import type { NextAuthConfig } from "next-auth";
-import type { PrismaClient } from "@prisma/client";
-
-// Lazy-load Prisma adapter to avoid importing Node.js modules in Edge Runtime
-// NextAuth v5 Email provider REQUIRES an adapter even with JWT strategy
-// We need to provide it, but load it lazily to avoid Edge Runtime issues
-let adapter: any = undefined;
-
-function getAdapter() {
-  if (adapter !== undefined) return adapter;
-  
-  // Skip adapter loading in Edge Runtime
-  if (process.env.NEXT_RUNTIME === "edge") {
-    adapter = null;
-    return null;
-  }
-  
-  try {
-    // Load Prisma adapter (required for Email provider in NextAuth v5)
-    const { PrismaAdapter } = require("@auth/prisma-adapter");
-    const { prisma } = require("@/lib/prisma");
-    
-    // REMOVE AFTER FIX: Log adapter initialization for debugging
-    console.log("[NextAuth] Initializing PrismaAdapter...");
-    
-    adapter = PrismaAdapter(prisma);
-    
-    // REMOVE AFTER FIX: Test adapter with a simple query (synchronous check)
-    // Note: This is a best-effort check; actual adapter operations are async
-    console.log("[NextAuth] PrismaAdapter created successfully");
-    
-    return adapter;
-  } catch (error: any) {
-    // REMOVE AFTER FIX: Detailed error logging for adapter initialization failures
-    console.error("[NextAuth] Failed to load PrismaAdapter:", {
-      message: error?.message,
-      code: error?.code,
-      name: error?.name,
-      stack: error?.stack,
-    });
-    adapter = null;
-    return null;
-  }
-}
 
 // Environment variable helpers supporting both NextAuth v5 (AUTH_*) and legacy (NEXTAUTH_*) naming
 const getAuthSecret = (): string => {
@@ -168,7 +127,6 @@ const getEmailFrom = (): string => {
   const emailMatch = emailFrom.match(/<([^>]+)>/);
   if (emailMatch) {
     extractedEmail = emailMatch[1].trim();
-    console.log("[NextAuth] Extracted email from display name format:", extractedEmail);
   }
   
   // Validate email format
@@ -182,47 +140,27 @@ const getEmailFrom = (): string => {
 
 export const authConfig = {
   // NextAuth v5 Email provider REQUIRES an adapter
-  // Load it lazily to avoid Edge Runtime issues during module load
-  // The adapter is only used for user creation/lookup, not for sessions (we use JWT)
-  adapter: (() => {
-    // Only load adapter in Node.js runtime (not Edge Runtime)
-    if (process.env.NEXT_RUNTIME === "edge") {
-      return undefined;
-    }
-    
-    // Load adapter - this will be called when NextAuth initializes
-    const adapterInstance = getAdapter();
-    
-    // If adapter is null or undefined, log error
-    if (!adapterInstance) {
-      console.error("[NextAuth] Adapter is null/undefined. Email provider will not work.");
-      console.error("[NextAuth] This usually means PrismaAdapter failed to load.");
-      console.error("[NextAuth] Check Vercel logs for Prisma connection errors.");
-    } else {
-      console.log("[NextAuth] PrismaAdapter loaded successfully");
-      
-      // REMOVE AFTER FIX: Test adapter with a simple query to catch DB issues early
-      // This is async, so we can't await here, but we can log if it fails
-      (async () => {
-        try {
-          const { prisma } = require("@/lib/prisma");
-          await prisma.verificationToken.findFirst();
-          console.log("[NextAuth] Adapter database test passed");
-        } catch (dbError: any) {
-          console.error("[NextAuth] Adapter database test failed - adapter operations will fail:", {
-            message: dbError?.message,
-            code: dbError?.code,
-            name: dbError?.name,
-          });
-        }
-      })();
-    }
-    
-    return adapterInstance;
-  })(),
+  // Use static import - PrismaAdapter(prisma) wired directly
+  // Type assertion needed due to NextAuth v5 beta type compatibility
+  adapter: PrismaAdapter(prisma) as any,
   providers: [
     Email({
       from: getEmailFrom(),
+      // Normalize email identifier to prevent AdapterError with undefined
+      // This ensures the email is always valid before it reaches the adapter
+      normalizeIdentifier: (identifier: string) => {
+        if (!identifier || typeof identifier !== "string") {
+          throw new Error("Email identifier is required and must be a string");
+        }
+        // Trim and lowercase the email
+        const normalized = identifier.trim().toLowerCase();
+        // Validate email format: must have @ and characters before and after @
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!normalized || !emailRegex.test(normalized)) {
+          throw new Error("Invalid email format");
+        }
+        return normalized;
+      },
       // NextAuth v5 requires server config even when using sendVerificationRequest
       // This config is validated but not used when sendVerificationRequest is provided
       // We provide minimal valid config to satisfy NextAuth validation
@@ -236,19 +174,9 @@ export const authConfig = {
         },
       },
       sendVerificationRequest: async ({ identifier, url }) => {
-        // REMOVE AFTER FIX: magic-link debug logs
-        const connectionString = process.env.DATABASE_URL || "";
-        const hasSslmode = connectionString.includes("sslmode=");
-        const hasConnectionLimit = connectionString.includes("connection_limit=");
-        
-        console.log("[NextAuth Email] sendVerificationRequest start", {
-          identifier,
-          hasResendKey: !!process.env.RESEND_API_KEY,
-          hasEmailFrom: !!process.env.EMAIL_FROM,
-          hasDatabaseUrl: !!process.env.DATABASE_URL,
-          hasSslmode,
-          hasConnectionLimit,
-        });
+        if (!identifier || typeof identifier !== "string" || !identifier.includes("@")) {
+          throw new Error(`Invalid email identifier: ${identifier}`);
+        }
         
         try {
           const { Resend } = await import("resend");
@@ -287,19 +215,8 @@ export const authConfig = {
             `,
             text: `Sign in to OBD Premium Apps\n\nClick this link to sign in: ${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.`,
           });
-          console.log("[NextAuth Email] Verification email sent successfully to:", identifier);
         } catch (err: any) {
-          // REMOVE AFTER FIX: magic-link debug logs
-          console.error("[NextAuth Email] sendVerificationRequest error", {
-            message: err?.message,
-            name: err?.name,
-            code: err?.code,
-            statusCode: err?.statusCode,
-            response: err?.response,
-            cause: err?.cause,
-            stack: err?.stack,
-          });
-          // Rethrow to fail loudly so NextAuth shows Configuration error
+          console.error("[NextAuth Email] Failed to send verification email:", err?.message);
           throw err;
         }
       },
@@ -316,10 +233,6 @@ export const authConfig = {
   },
   callbacks: {
     async jwt({ token, user, trigger }) {
-      // Log when JWT callback is invoked (for debugging email sign-in flow)
-      if (user) {
-        console.log("[NextAuth JWT] User sign-in detected, email:", user.email);
-      }
       if (user) {
         token.id = user.id;
         token.role = user.role || "user";
@@ -328,10 +241,7 @@ export const authConfig = {
       
       // Refresh user data on session update
       if (trigger === "update") {
-        // Lazy-load Prisma only when needed (not in Edge Runtime)
         try {
-          const prismaModule = await import("@/lib/prisma");
-          const prisma = prismaModule.prisma as any; // Dynamic import requires type assertion
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id },
           });
@@ -340,7 +250,7 @@ export const authConfig = {
             token.isPremium = dbUser.isPremium;
           }
         } catch (error) {
-          // If Prisma can't be loaded (e.g., in Edge Runtime), skip database update
+          // If database query fails, skip update
           // This is fine since we're using JWT strategy and the token already has the data
         }
       }
@@ -378,31 +288,20 @@ export const authConfig = {
       return true;
     },
   },
-  secret: (() => {
-    const secret = getAuthSecret();
-    const isBuildTime = process.env.NEXT_PHASE === "phase-production-build" ||
-                        process.env.NEXT_PHASE === "phase-development-build";
-    
-    // Allow fallback only during build
-    if (isBuildTime) {
-      return secret || "fallback-secret-for-build";
-    }
-    
-    // At runtime, validate secret length (NextAuth requires at least 32 chars)
-    if (!secret || secret === "fallback-secret-for-build" || secret.length < 32) {
-      console.error("[NextAuth] AUTH_SECRET or NEXTAUTH_SECRET is missing, invalid, or too short (< 32 chars).");
-      console.error("[NextAuth] This will cause Configuration errors. Please set a valid secret in Vercel.");
-      // Return a dummy secret that will fail validation but won't crash module load
-      // NextAuth will show Configuration error when actually used
-      return "invalid-secret-missing-or-too-short";
-    }
-    
-    return secret;
-  })(),
+  secret: getAuthSecret(),
   // Trust host for production (Vercel handles this automatically)
   // Supports AUTH_TRUST_HOST env var or defaults to true
   trustHost: getTrustHost(),
 } satisfies NextAuthConfig;
 
-export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
+// Initialize NextAuth
+let nextAuthInstance: any = null;
+try {
+  nextAuthInstance = NextAuth(authConfig);
+} catch (error: any) {
+  console.error("[NextAuth] Initialization failed:", error?.message);
+  throw new Error(`NextAuth initialization failed: ${error?.message}`);
+}
+
+export const { handlers, auth, signIn, signOut } = nextAuthInstance;
 

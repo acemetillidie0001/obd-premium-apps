@@ -1,0 +1,25 @@
+{
+  "businessName": "Ocala Coffee Shop",
+  "businessType": "Coffee Shop",
+  "services": ["espresso", "pastries"],
+  "city": "Ocala",
+  "state": "Florida",
+  "brandPersonality": "Professional",
+  "targetAudience": "Local families and professionals",
+  "differentiators": "Fast service, local beans",
+  "inspirationBrands": "",
+  "avoidStyles": "",
+  "brandVoice": "",
+  "toneNotes": "",
+  "language": "English",
+  "industryKeywords": "Ocala, coffee",
+  "vibeKeywords": "friendly, modern",
+  "variationMode": "Conservative",
+  "includeHashtags": true,
+  "hashtagStyle": "Local",
+  "includeSocialPostTemplates": true,
+  "includeFAQStarter": true,
+  "includeGBPDescription": true,
+  "includeMetaDescription": true
+}
+

@@ -41,6 +41,28 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
       }`}>
         <p className={`text-xs font-semibold mb-4 ${theme.mutedText}`}>Premium Apps</p>
         <nav className="space-y-6">
+          {/* ACCOUNT Section */}
+          <div>
+            <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${theme.mutedText}`}>
+              Account
+            </p>
+            <div className="space-y-1">
+              <Link
+                href="/apps/brand-profile"
+                className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${
+                  pathname === "/apps/brand-profile"
+                    ? "text-[#29c4a9] font-semibold border-l-4 border-[#29c4a9] pl-4 bg-transparent"
+                    : isDark
+                    ? "text-slate-500 hover:bg-slate-800/60"
+                    : "text-slate-500 hover:bg-slate-100/70"
+                }`}
+              >
+                <span className="flex-shrink-0">🎨</span>
+                <span>Brand Profile</span>
+              </Link>
+            </div>
+          </div>
+
           {Object.entries(appsByCategory).map(([category, apps]) => (
             <div key={category}>
               <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${theme.mutedText}`}>

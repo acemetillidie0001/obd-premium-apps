@@ -17,15 +17,16 @@ export function getDatabaseUrl(): string {
   const hasSslmode = connectionString.includes("sslmode=");
   const hasConnectionLimit = connectionString.includes("connection_limit=");
 
-  // Ensure sslmode=require is present (Railway requires SSL)
+  // Ensure sslmode is present (Railway requires SSL)
+  // Use sslmode=no-verify to accept self-signed certificates
+  // This works with PrismaPg adapter which doesn't properly pass through Pool SSL config
   if (!hasSslmode) {
     const separator = connectionString.includes("?") ? "&" : "?";
-    connectionString = `${connectionString}${separator}sslmode=require`;
+    connectionString = `${connectionString}${separator}sslmode=no-verify`;
   } else {
-    // Replace sslmode=no-verify with sslmode=require if present
-    // (We'll handle self-signed certs via Pool SSL config, not connection string)
-    if (connectionString.includes("sslmode=no-verify")) {
-      connectionString = connectionString.replace(/sslmode=no-verify/gi, "sslmode=require");
+    // Replace sslmode=require with sslmode=no-verify to accept self-signed certs
+    if (connectionString.includes("sslmode=require")) {
+      connectionString = connectionString.replace(/sslmode=require/gi, "sslmode=no-verify");
     }
   }
 

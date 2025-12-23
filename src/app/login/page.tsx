@@ -26,7 +26,16 @@ function LoginForm() {
       });
 
       if (result?.error) {
-        setMessage({ type: "error", text: result.error });
+        // Map NextAuth error codes to user-friendly messages
+        let errorMessage = result.error;
+        if (result.error === "Configuration") {
+          errorMessage = "Server configuration error. Please check that all required environment variables are set and the database is accessible.";
+        } else if (result.error === "AccessDenied") {
+          errorMessage = "Access denied. Please contact support if you believe this is an error.";
+        } else if (result.error === "Verification") {
+          errorMessage = "The verification link has expired or has already been used. Please request a new one.";
+        }
+        setMessage({ type: "error", text: errorMessage });
       } else {
         setMessage({
           type: "success",

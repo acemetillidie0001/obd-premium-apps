@@ -24,6 +24,37 @@ export interface ObdAppDefinition {
   icon?: string;          // icon key for Lucide icon mapping
 }
 
+/**
+ * Validates that premium apps (live/in-progress) use /apps/* namespace for auth protection
+ * 
+ * Safety: Only throws in development. In production, logs warnings to prevent runtime crashes.
+ */
+function validateAppRoutes(apps: ObdAppDefinition[]): void {
+  // Only validate in browser runtime (client-side), not during build/server-side
+  // This prevents build failures while still catching issues in development
+  if (typeof window === "undefined") {
+    return;
+  }
+  
+  const isDev = process.env.NODE_ENV !== "production";
+  const isPremiumStatus = (status: AppStatus) => status === "live" || status === "in-progress";
+  
+  for (const app of apps) {
+    if (isPremiumStatus(app.status) && app.href) {
+      if (!app.href.startsWith("/apps/")) {
+        // Include app id and href in message for debugging
+        const message = `[apps.config.ts] Premium app "${app.id}" (${app.status}) has href "${app.href}" but should start with "/apps/" for auth protection.`;
+        if (isDev) {
+          throw new Error(message);
+        } else {
+          // Production: warn only, never throw (prevents runtime crashes)
+          console.warn(`[ROUTE VALIDATION] ${message}`);
+        }
+      }
+    }
+  }
+}
+
 export const OBD_APPS: ObdAppDefinition[] = [
   // CATEGORY: "content"
   {
@@ -110,7 +141,7 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "local-hiring-assistant",
     name: "Local Hiring Assistant",
     description: "Build clear job descriptions, social hiring posts, and interview questions for your next local hire.",
-    href: "/local-hiring-assistant",
+    href: "/apps/local-hiring-assistant",
     category: "content",
     status: "live",
     ctaLabel: "Open Tool",
@@ -217,19 +248,26 @@ export const OBD_APPS: ObdAppDefinition[] = [
   
   // CATEGORY: "branding"
   {
-    id: "logo-generator",
+    id: "ai-logo-generator",
     name: "AI Logo Generator",
-    description: "Explore logo concepts and refinements designed for local Ocala brands.",
+    description: "Create professional logo concepts and designs tailored to your Ocala business.",
+    href: "/apps/ai-logo-generator",
     category: "branding",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Generate Logos",
     icon: "sparkles",
   },
   {
     id: "brand-kit-builder",
     name: "Brand Kit Builder",
     description: "Lock in your colors, fonts, and voice so all your marketing stays on-brand.",
+    href: "/apps/brand-kit-builder",
     category: "branding",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Build Brand Kit",
     icon: "palette",
   },
 ];
+
+// Validate app routes on module load
+validateAppRoutes(OBD_APPS);

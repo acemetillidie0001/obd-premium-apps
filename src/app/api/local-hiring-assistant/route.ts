@@ -9,7 +9,7 @@ import type {
   PersonalityStyle,
   JobPostLength,
   LanguageOption,
-} from '@/app/local-hiring-assistant/types';
+} from '@/app/apps/local-hiring-assistant/types';
 
 const SYSTEM_PROMPT = `
 You are the "Local Hiring Assistant" for Ocala Business Directory (OBD).

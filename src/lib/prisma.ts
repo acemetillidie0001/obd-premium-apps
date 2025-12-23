@@ -12,14 +12,23 @@ const connectionString = getDatabaseUrl();
 
 // Configure Pool with SSL for Railway Postgres
 // Railway requires SSL but uses self-signed certificates
-// We use sslmode=require in connection string + rejectUnauthorized: false in Pool config
+// CRITICAL: We must set rejectUnauthorized: false to accept self-signed certificates
 const pool = new Pool({
   connectionString,
   ssl: {
     rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
   },
+  // Additional SSL options to ensure connection works
+  max: 1, // Match connection_limit=1 from connection string
 });
+
+// Create adapter with the pool
 const adapter = new PrismaPg(pool);
+
+// Verify adapter is created correctly
+if (!adapter) {
+  throw new Error("Failed to create PrismaPg adapter");
+}
 
 export const prisma =
   globalForPrisma.prisma ??

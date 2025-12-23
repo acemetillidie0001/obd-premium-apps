@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -96,6 +96,84 @@ export default function ReviewResponderPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResponderResponse | null>(null);
+  const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
+  const [brandVoiceAutoFilled, setBrandVoiceAutoFilled] = useState(false);
+  const [personalityAutoFilled, setPersonalityAutoFilled] = useState(false);
+
+  // Helper: Check if we should use brand profile (defaults to true if missing)
+  const shouldUseBrandProfile = (): boolean => {
+    if (typeof window === "undefined") return false;
+    try {
+      const raw = localStorage.getItem("obd.v3.useBrandProfile");
+      if (raw === null) return true; // Default to ON
+      return JSON.parse(raw) === true;
+    } catch {
+      return true; // Safe fallback: default to ON
+    }
+  };
+
+  // Auto-load brand profile on mount (only prefill empty fields, and only if toggle is ON)
+  useEffect(() => {
+    if (brandProfileLoaded) return;
+    
+    const loadBrandProfile = async () => {
+      // Check localStorage preference: only auto-load if "Use saved brand profile" toggle is ON
+      if (!shouldUseBrandProfile()) {
+        setBrandProfileLoaded(true);
+        return;
+      }
+      
+      try {
+        const res = await fetch("/api/brand-profile");
+        if (res.ok) {
+          const profile = await res.json();
+          if (profile) {
+            setFormValues((prev) => {
+              const updated = { ...prev };
+              // Only set if field is empty (don't overwrite user input)
+              if (!updated.businessName && profile.businessName) {
+                updated.businessName = profile.businessName;
+              }
+              if (!updated.businessType && profile.businessType) {
+                updated.businessType = profile.businessType;
+              }
+              if (!updated.city && profile.city) {
+                updated.city = profile.city;
+              }
+              if (!updated.state && profile.state) {
+                updated.state = profile.state;
+              }
+              if (!updated.brandVoice && profile.brandVoice) {
+                updated.brandVoice = profile.brandVoice;
+                setBrandVoiceAutoFilled(true);
+              }
+              if (updated.personalityStyle === "None" && profile.brandPersonality) {
+                // Map brandPersonality to personalityStyle
+                const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+                  "Soft": "Soft",
+                  "Bold": "Bold",
+                  "High-Energy": "High-Energy",
+                  "Luxury": "Luxury",
+                };
+                const mapped = personalityMap[profile.brandPersonality];
+                if (mapped) {
+                  updated.personalityStyle = mapped;
+                  setPersonalityAutoFilled(true);
+                }
+              }
+              return updated;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load brand profile:", err);
+      } finally {
+        setBrandProfileLoaded(true);
+      }
+    };
+    
+    loadBrandProfile();
+  }, [brandProfileLoaded]);
 
   const updateFormValue = <K extends keyof ReviewResponderFormValues>(
     key: K,
@@ -348,10 +426,18 @@ export default function ReviewResponderPage() {
                   <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Brand Voice (Optional)
                   </label>
+                  {brandVoiceAutoFilled && (
+                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                      ✓ Loaded from Brand Profile
+                    </p>
+                  )}
                   <textarea
                     id="brandVoice"
                     value={formValues.brandVoice}
-                    onChange={(e) => updateFormValue("brandVoice", e.target.value)}
+                    onChange={(e) => {
+                      updateFormValue("brandVoice", e.target.value);
+                      setBrandVoiceAutoFilled(false); // Clear hint when user edits
+                    }}
                     rows={3}
                     className={getInputClasses(isDark, "resize-none")}
                     placeholder="Example: Warm and family-friendly, professional and clinical, fun and high-energy"
@@ -364,10 +450,18 @@ export default function ReviewResponderPage() {
                     <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                       Personality Style
                     </label>
+                    {personalityAutoFilled && (
+                      <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                        ✓ Loaded from Brand Profile
+                      </p>
+                    )}
                     <select
                       id="personalityStyle"
                       value={formValues.personalityStyle}
-                      onChange={(e) => updateFormValue("personalityStyle", e.target.value as ReviewResponderFormValues["personalityStyle"])}
+                      onChange={(e) => {
+                        updateFormValue("personalityStyle", e.target.value as ReviewResponderFormValues["personalityStyle"]);
+                        setPersonalityAutoFilled(false); // Clear hint when user edits
+                      }}
                       className={getInputClasses(isDark)}
                     >
                       <option value="None">None</option>
@@ -616,7 +710,7 @@ export default function ReviewResponderPage() {
           </div>
         ) : (
           <p className={`italic obd-soft-text text-center py-8 ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-            Fill out the form above and click "Generate Responses" to create your review responses.
+            Fill out the form above and click &quot;Generate Responses&quot; to create your review responses.
           </p>
         )}
       </OBDPanel>

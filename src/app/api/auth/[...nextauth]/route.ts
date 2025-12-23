@@ -9,40 +9,12 @@ async function handleRequest(
   req: NextRequest
 ): Promise<Response> {
   try {
-    // REMOVE AFTER FIX: Log email sign-in requests for debugging
-    const url = new URL(req.url);
-    if (url.pathname.includes("/signin/email")) {
-      console.log("[NextAuth Route] signin/email request", {
-        path: url.pathname,
-        method: req.method,
-        hasAuthUrl: !!(process.env.AUTH_URL || process.env.NEXTAUTH_URL),
-        hasAuthSecret: !!(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET),
-        hasResendKey: !!process.env.RESEND_API_KEY,
-        hasEmailFrom: !!process.env.EMAIL_FROM,
-        hasDatabaseUrl: !!process.env.DATABASE_URL,
-      });
-    }
-    
     return await handler(req);
   } catch (error: any) {
-    // REMOVE AFTER FIX: Enhanced error logging to surface underlying Prisma errors
-    console.error("[NextAuth Route] Error:", {
-      message: error?.message,
-      name: error?.name,
-      code: error?.code,
-      cause: error?.cause,
-      stack: error?.stack,
-    });
+    console.error("[NextAuth Route] Error:", error?.message);
     
     // If AUTH_DEBUG is enabled, include more details
     const isDebug = process.env.AUTH_DEBUG === "true" || process.env.NEXTAUTH_DEBUG === "true";
-    if (isDebug && error?.cause) {
-      console.error("[NextAuth Route] Underlying error (AUTH_DEBUG):", {
-        message: error.cause?.message,
-        code: error.cause?.code,
-        name: error.cause?.name,
-      });
-    }
     
     return new Response(
       JSON.stringify({
@@ -59,9 +31,41 @@ async function handleRequest(
 }
 
 export async function GET(req: NextRequest) {
-  return handleRequest(handlers.GET, req);
+  try {
+    // Verify handlers are available
+    if (!handlers || !handlers.GET) {
+      console.error("[NextAuth Route] handlers.GET is not available");
+      return new Response(
+        JSON.stringify({ error: "Configuration", message: "Auth handlers not initialized" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return handleRequest(handlers.GET, req);
+  } catch (error: any) {
+    console.error("[NextAuth Route] GET handler error:", error.message);
+    return new Response(
+      JSON.stringify({ error: "Configuration", message: error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
-  return handleRequest(handlers.POST, req);
+  try {
+    // Verify handlers are available
+    if (!handlers || !handlers.POST) {
+      console.error("[NextAuth Route] handlers.POST is not available");
+      return new Response(
+        JSON.stringify({ error: "Configuration", message: "Auth handlers not initialized" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return handleRequest(handlers.POST, req);
+  } catch (error: any) {
+    console.error("[NextAuth Route] POST handler error:", error.message);
+    return new Response(
+      JSON.stringify({ error: "Configuration", message: error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }

@@ -8,6 +8,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ----------------------------------------------
@@ -23,9 +24,11 @@ model User {
   isPremium     Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
   accounts      Account[]
   sessions      Session[]
+  usageCounters UsageCounter[]
+  brandProfile  BrandProfile?
 
   @@index([email])
 }
@@ -89,4 +92,75 @@ model ProReport {
   @@index([shareId])
   @@index([businessName, city, state])
   @@index([expiresAt])
+}
+
+// ----------------------------------------------
+// Table: App Usage Counters (Daily Quotas)
+// ----------------------------------------------
+model UsageCounter {
+  id            String   @id @default(cuid())
+  userId        String
+  appId         String // e.g., "ai-logo-generator"
+  dayKey        String // YYYY-MM-DD format
+  conceptsCount Int      @default(0)
+  imagesCount   Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, appId, dayKey])
+  @@index([userId, appId, dayKey])
+  @@index([dayKey])
+}
+
+// ----------------------------------------------
+// Table: Brand Profile (Saved Brand Kits)
+// ----------------------------------------------
+model BrandProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Business Basics
+  businessName String?
+  businessType String?
+  city         String?
+  state        String?
+
+  // Brand Direction
+  brandPersonality  String? // BrandPersonality enum as string
+  targetAudience    String? @db.Text
+  differentiators   String? @db.Text
+  inspirationBrands String? @db.Text
+  avoidStyles       String? @db.Text
+
+  // Voice & Language
+  brandVoice String? @db.Text
+  toneNotes  String? @db.Text
+  language   String? // LanguageOption enum as string
+
+  // Output Controls
+  industryKeywords String? @db.Text
+  vibeKeywords     String? @db.Text
+  variationMode    String? // VariationMode enum as string
+  includeHashtags  Boolean @default(false)
+  hashtagStyle     String? // HashtagStyle enum as string
+
+  // Extras toggles
+  includeSocialPostTemplates Boolean @default(false)
+  includeFAQStarter          Boolean @default(false)
+  includeGBPDescription      Boolean @default(false)
+  includeMetaDescription     Boolean @default(false)
+
+  // JSON fields for complex data
+  colorsJson     Json? // ColorInfo[] array
+  typographyJson Json? // TypographyPairing object
+  messagingJson  Json? // messaging object
+  kitJson        Json? // Full BrandKitBuilderResponse snapshot
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

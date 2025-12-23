@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "migrate:deploy": "prisma migrate deploy && prisma generate",
+    "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma migrate deploy && prisma generate",
     "verify:db": "tsx scripts/verify-db.ts",
     "check:deploy": "tsx scripts/check-deployment-status.ts"
   },

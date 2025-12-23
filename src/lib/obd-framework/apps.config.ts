@@ -199,8 +199,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "business-schema-generator",
     name: "Business Schema Generator",
     description: "Create JSON-LD schema for your local business, FAQs, and articles.",
+    href: "/apps/business-schema-generator",
     category: "seo",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Generate Schema",
     icon: "code-2",
   },
   {

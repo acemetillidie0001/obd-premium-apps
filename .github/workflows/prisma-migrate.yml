@@ -31,15 +31,6 @@ jobs:
             echo "skipped=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify DATABASE_URL is set
-        if: steps.check-guard.outputs.skipped != 'true'
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "❌ Error: DATABASE_URL secret is not set in GitHub repository secrets"
-            exit 1
-          fi
-          echo "✅ DATABASE_URL secret is configured"
-
       - name: Setup Node.js
         if: steps.check-guard.outputs.skipped != 'true'
         uses: actions/setup-node@v4
@@ -47,11 +38,38 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Debug: secrets.DATABASE_URL presence
+        if: steps.check-guard.outputs.skipped != 'true'
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "❌ secrets.DATABASE_URL is empty or not set"
+            exit 1
+          fi
+          echo "✅ secrets.DATABASE_URL is present (non-empty)"
+
+      - name: Debug: env DATABASE_URL presence
+        if: steps.check-guard.outputs.skipped != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "❌ env DATABASE_URL is empty or not set"
+            exit 1
+          fi
+          echo "✅ env DATABASE_URL is present (non-empty)"
+
       - name: Install dependencies
         if: steps.check-guard.outputs.skipped != 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npm ci
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL available: NO"
+            exit 1
+          else
+            echo "DATABASE_URL available: YES"
+          fi
+          npm ci
 
       - name: Deploy Prisma migrations
         if: steps.check-guard.outputs.skipped != 'true'

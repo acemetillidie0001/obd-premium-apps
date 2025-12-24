@@ -1,11 +1,11 @@
 /**
- * Edge-safe middleware for protecting /apps routes
+ * Edge-safe middleware for protecting /apps routes and homepage
  * 
  * Verification checklist:
- * - Visiting / should work without login (not matched by middleware)
+ * - Visiting / should redirect to /login when logged out
  * - Visiting /login should work without 500 (not matched by middleware)
  * - Visiting /apps should redirect to /login when logged out
- * - After login, /apps loads successfully
+ * - After login, / and /apps load successfully
  * 
  * IMPORTANT: This middleware uses ONLY Edge-compatible APIs.
  * Do NOT import Prisma, NextAuth config, or env validation modules here.
@@ -34,7 +34,9 @@ export async function middleware(req: NextRequest) {
     if (!token) {
       const url = req.nextUrl.clone();
       url.pathname = "/login";
-      url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
+      // Set callbackUrl to the original path (including "/" for homepage)
+      const callbackPath = req.nextUrl.pathname === "/" ? "/" : req.nextUrl.pathname + req.nextUrl.search;
+      url.searchParams.set("callbackUrl", callbackPath);
       return NextResponse.redirect(url);
     }
 
@@ -49,5 +51,10 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/apps/:path*"],
+  // Protect homepage and all /apps routes
+  // Note: /login and /api/auth/* are automatically excluded (not in matcher)
+  matcher: [
+    "/",
+    "/apps/:path*",
+  ],
 };

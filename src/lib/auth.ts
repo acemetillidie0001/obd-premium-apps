@@ -231,6 +231,45 @@ export const authConfig = {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
+  cookies: {
+    sessionToken: {
+      name: `${process.env.NODE_ENV === "production" ? "__Secure-" : ""}next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        // Set domain to parent domain for subdomain support
+        // e.g., .ocalabusinessdirectory.com works for apps.ocalabusinessdirectory.com
+        domain: process.env.NODE_ENV === "production" 
+          ? process.env.AUTH_COOKIE_DOMAIN || undefined
+          : undefined,
+      },
+    },
+    callbackUrl: {
+      name: `${process.env.NODE_ENV === "production" ? "__Secure-" : ""}next-auth.callback-url`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        domain: process.env.NODE_ENV === "production" 
+          ? process.env.AUTH_COOKIE_DOMAIN || undefined
+          : undefined,
+      },
+    },
+    csrfToken: {
+      name: `${process.env.NODE_ENV === "production" ? "__Host-" : ""}next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+        // CSRF token should NOT have domain set (security best practice)
+        domain: undefined,
+      },
+    },
+  },
   callbacks: {
     async jwt({ token, user, trigger }) {
       if (user) {
@@ -275,12 +314,7 @@ export const authConfig = {
         return true;
       }
       
-      // Dashboard is public
-      if (nextUrl.pathname === "/") {
-        return true;
-      }
-      
-      // All other routes require login
+      // All routes (including homepage) require login
       if (!isLoggedIn) {
         return false;
       }

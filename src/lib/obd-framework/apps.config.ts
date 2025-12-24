@@ -163,8 +163,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "review-request-automation",
     name: "Review Request Automation",
     description: "Send automatic review requests by email or SMS after each visit.",
+    href: "/apps/review-request-automation",
     category: "reputation",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Open Tool",
     icon: "send",
   },
   

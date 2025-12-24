@@ -150,7 +150,7 @@ export default function BusinessSchemaGeneratorPage() {
                 newAutoFilled.add("state");
               }
               // Services - convert to comma-separated string if array
-              if (newForm.services.length === 0 && profile.services) {
+              if ((newForm.services?.length ?? 0) === 0 && profile.services) {
                 const servicesArray = Array.isArray(profile.services)
                   ? profile.services
                   : typeof profile.services === "string"

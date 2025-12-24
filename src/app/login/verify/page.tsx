@@ -1,21 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-export default function VerifyPage() {
-  const [countdown, setCountdown] = useState(60);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
+function VerifyContent() {
+  const searchParams = useSearchParams();
+  const email = searchParams.get("email") || "";
+  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  
+  // Build login URL with callbackUrl preserved
+  const loginUrl = `/login${callbackUrl && callbackUrl !== "/" ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : ""}`;
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
+    <div className="min-h-[calc(100vh-200px)] bg-slate-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 text-center">
           <div className="mb-6">
@@ -36,7 +34,14 @@ export default function VerifyPage() {
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mb-2">Check your email</h1>
             <p className="text-slate-600">
-              We've sent you a magic link to sign in. Click the link in the email to continue.
+              {email ? (
+                <>We sent a secure, one-time login link to <strong>{email}</strong>.</>
+              ) : (
+                "We sent a secure, one-time login link to your email."
+              )}
+            </p>
+            <p className="text-sm text-slate-500 mt-2">
+              If you don't see it, check spam or wait a minute.
             </p>
           </div>
 
@@ -47,29 +52,43 @@ export default function VerifyPage() {
             <p className="text-xs text-slate-500 mb-4">
               Check your spam folder or wait a moment and try again.
             </p>
-            {countdown > 0 ? (
-              <p className="text-xs text-slate-400">
-                You can request another link in {countdown} seconds
-              </p>
-            ) : (
-              <Link
-                href="/login"
-                className="text-sm text-[#29c4a9] hover:text-[#1EB9A7] font-medium"
-              >
-                Request another link
-              </Link>
-            )}
+            <Link
+              href={loginUrl}
+              className="text-sm text-[#29c4a9] hover:text-[#1EB9A7] font-medium"
+            >
+              Request another link
+            </Link>
           </div>
 
           <Link
-            href="/"
+            href={loginUrl}
             className="text-sm text-[#29c4a9] hover:text-[#1EB9A7] font-medium"
           >
-            ← Back to Dashboard
+            ← Back to login
           </Link>
         </div>
       </div>
-    </main>
+    </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-[calc(100vh-200px)] bg-slate-50 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+            <div className="animate-pulse space-y-4">
+              <div className="h-8 bg-slate-200 rounded w-3/4 mx-auto"></div>
+              <div className="h-10 bg-slate-200 rounded"></div>
+              <div className="h-10 bg-slate-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <VerifyContent />
+    </Suspense>
   );
 }
 

@@ -42,16 +42,12 @@ function LoginForm() {
           errorMessage = "The verification link has expired or has already been used. Please request a new one.";
         }
         setMessage({ type: "error", text: errorMessage });
-      } else if (result?.ok) {
-        // Sign in successful, redirect to callbackUrl
-        router.push(callbackUrl);
-        router.refresh();
+        // Do NOT redirect on error - show error message to user
       } else {
-        setMessage({
-          type: "success",
-          text: "Check your email! We've sent you a secure, one-time login link.",
-        });
-        setEmail("");
+        // Email was sent successfully (no error) - always redirect to verify page
+        // This handles both result.ok === true (unlikely after email send) and result.ok === false (normal case)
+        const verifyPath = `/login/verify?callbackUrl=${encodeURIComponent(callbackUrl)}&email=${encodeURIComponent(email)}`;
+        router.push(verifyPath);
       }
     } catch (error) {
       setMessage({
@@ -64,7 +60,7 @@ function LoginForm() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
+    <div className="min-h-[calc(100vh-200px)] bg-slate-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
@@ -140,14 +136,14 @@ function LoginForm() {
           </Link>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
 export default function LoginFormClient() {
   return (
     <Suspense fallback={
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-12">
+      <div className="min-h-[calc(100vh-200px)] bg-slate-50 flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
             <div className="animate-pulse space-y-4">
@@ -157,7 +153,7 @@ export default function LoginFormClient() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     }>
       <LoginForm />
     </Suspense>

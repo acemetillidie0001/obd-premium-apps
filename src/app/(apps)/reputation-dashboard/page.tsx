@@ -521,7 +521,7 @@ export default function ReputationDashboardPage() {
       }
 
       setCsvPreview(parseResult);
-      setCsvPreviewPage(1);
+      setCsvDisplayLimit(200); // Reset display limit
       setError(null);
     };
 

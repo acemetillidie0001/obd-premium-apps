@@ -191,8 +191,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "local-seo-page-builder",
     name: "Local SEO Page Builder",
     description: "Generate high-converting, search-optimized service pages for Ocala.",
+    href: "/apps/local-seo-page-builder",
     category: "seo",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Build SEO Page",
     icon: "globe",
   },
   {

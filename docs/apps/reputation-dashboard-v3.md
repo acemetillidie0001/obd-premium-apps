@@ -5,7 +5,7 @@
 The Reputation Dashboard is a V3 production-ready OBD Premium App that provides comprehensive reputation analytics for local businesses. It computes KPIs, visualizes trends, analyzes sentiment, and identifies themes from manually entered or CSV-imported reviews.
 
 **Status:** Live (V3)  
-**Route:** `/reputation-dashboard`  
+**Route:** `/apps/reputation-dashboard`  
 **Category:** Reputation
 
 ## V3 Scope (Production Polish)

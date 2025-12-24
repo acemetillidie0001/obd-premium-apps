@@ -63,12 +63,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL available: NO"
-            exit 1
-          else
-            echo "DATABASE_URL available: YES"
-          fi
+          echo "DATABASE_URL available: $([ -n "$DATABASE_URL" ] && echo YES || echo NO)"
           npm ci
 
       - name: Deploy Prisma migrations

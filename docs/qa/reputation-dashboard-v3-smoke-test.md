@@ -4,7 +4,7 @@
 **Purpose:** Quick verification that core functionality works after deployment
 
 ## Pre-Test Setup
-1. Navigate to `/apps/reputation-dashboard`
+1. Navigate to `/reputation-dashboard`
 2. Clear browser console (F12 → Console tab → Clear)
 
 ## Smoke Test Steps

@@ -242,7 +242,7 @@ npm test
 ```
 
 ### Post-Deploy Smoke Test
-1. Navigate to `/apps/reputation-dashboard`
+1. Navigate to `/reputation-dashboard`
 2. Verify empty state message displays
 3. Add a single review manually (click "Add Review", fill form, submit)
 4. Click "Generate Dashboard" and verify results appear

@@ -14,8 +14,10 @@ import { auth } from "@/lib/auth";
  */
 
 export async function GET(request: NextRequest) {
-  // Only allow in development/staging
-  if (process.env.NODE_ENV === "production") {
+  // Only allow in development/staging (block production)
+  // Use toString() to avoid TypeScript type narrowing issues
+  const isProd = process.env.NODE_ENV?.toString() === "production";
+  if (isProd) {
     return NextResponse.json(
       { error: "Debug endpoint not available in production" },
       { status: 403 }
@@ -34,10 +36,10 @@ export async function GET(request: NextRequest) {
       pathname.startsWith("/apps/");
 
     // Check for session cookie (safe - just checking presence, not reading value)
-    const sessionCookieName = process.env.NODE_ENV === "production"
-      ? "__Secure-next-auth.session-token"
-      : "next-auth.session-token";
-    const cookiePresent = request.cookies.has(sessionCookieName);
+    // Check both possible cookie names without branching
+    const cookiePresent =
+      request.cookies.has("__Secure-next-auth.session-token") ||
+      request.cookies.has("next-auth.session-token");
 
     return NextResponse.json({
       hasSession: !!session?.user,
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
       },
       cookies: {
         sessionCookiePresent: cookiePresent,
-        sessionCookieName: sessionCookieName,
+        checkedCookieNames: ["__Secure-next-auth.session-token", "next-auth.session-token"],
         allCookieNames: Array.from(request.cookies.getAll().map(c => c.name)),
       },
       environment: {

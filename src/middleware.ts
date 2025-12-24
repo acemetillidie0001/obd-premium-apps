@@ -14,9 +14,26 @@
  */
 
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 
-export default auth((req) => {
+// Type for the request parameter in NextAuth middleware callback
+// NextAuth's auth() adds an 'auth' property to NextRequest containing the session
+type AuthRequest = NextRequest & {
+  auth: {
+    user?: {
+      id?: string;
+      email?: string | null;
+      role?: string;
+      isPremium?: boolean;
+      name?: string | null;
+      image?: string | null;
+    } | null;
+    expires?: string;
+  } | null;
+};
+
+export default auth((req: AuthRequest) => {
   const { auth: session, nextUrl } = req;
   const { pathname } = nextUrl;
   

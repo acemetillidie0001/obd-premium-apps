@@ -13,9 +13,9 @@ function LoginForm() {
   const router = useRouter();
   
   // Support both "callbackUrl" (from middleware) and "next" (legacy)
-  // Never use /login as callbackUrl
+  // Never use /login or /login/* as callbackUrl to prevent redirect loops
   let callbackUrl = searchParams.get("callbackUrl") || searchParams.get("next") || "/";
-  if (callbackUrl === "/login") {
+  if (callbackUrl.startsWith("/login")) {
     callbackUrl = "/";
   }
 

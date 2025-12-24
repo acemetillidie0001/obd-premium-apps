@@ -1,5 +1,5 @@
 /**
- * Edge-safe middleware for protecting /apps routes and homepage
+ * Middleware for protecting /apps routes and homepage
  * 
  * Verification checklist:
  * - Visiting / should redirect to /login when logged out
@@ -7,54 +7,57 @@
  * - Visiting /apps should redirect to /login when logged out
  * - After login, / and /apps load successfully
  * 
- * IMPORTANT: This middleware uses ONLY Edge-compatible APIs.
- * Do NOT import Prisma, NextAuth config, or env validation modules here.
+ * IMPORTANT: Uses NextAuth v5 auth() helper which handles cookie reading correctly.
+ * This ensures middleware can read sessions even with custom cookie domain/names.
+ * 
+ * HARDENED: Single negative-lookahead matcher ensures /login is NEVER matched.
  */
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { getToken } from "next-auth/jwt";
+import { auth } from "@/lib/auth";
 
-export async function middleware(req: NextRequest) {
-  // Defensive: Check if auth secret is missing (supports both AUTH_SECRET and NEXTAUTH_SECRET)
-  const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("error", "missing_secret");
-    return NextResponse.redirect(url);
-  }
-
-  try {
-    const token = await getToken({
-      req,
-      secret,
-    });
-
-    if (!token) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/login";
-      // Set callbackUrl to the original path (including "/" for homepage)
-      const callbackPath = req.nextUrl.pathname === "/" ? "/" : req.nextUrl.pathname + req.nextUrl.search;
-      url.searchParams.set("callbackUrl", callbackPath);
-      return NextResponse.redirect(url);
-    }
-
+export default auth((req) => {
+  const { auth: session, nextUrl } = req;
+  const { pathname } = nextUrl;
+  
+  // CRITICAL SAFEGUARD: Never process /login or /login/* paths
+  // This should never execute due to matcher exclusion, but adding as defense-in-depth
+  if (pathname.startsWith("/login") || pathname.startsWith("/api/auth") || pathname.startsWith("/_next") || pathname === "/favicon.ico") {
     return NextResponse.next();
-  } catch (error) {
-    // Defensive: If token check fails, redirect to login with error
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("error", "auth_error");
-    return NextResponse.redirect(url);
   }
-}
+  
+  // If user is authenticated, ALWAYS allow access (never redirect to /login)
+  if (session?.user) {
+    return NextResponse.next();
+  }
+
+  // User is not authenticated - check if this is a protected route
+  // Only redirect "/" and "/apps/*" routes to login
+  const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
+  
+  if (!isProtectedRoute) {
+    // Not a protected route, allow through
+    return NextResponse.next();
+  }
+
+  // Protected route without session - redirect to login
+  // Build callbackUrl from pathname and search params
+  // URLSearchParams.set() will automatically encode the value
+  const callbackUrl = pathname + (nextUrl.search || "");
+  
+  const url = new URL("/login", nextUrl.origin);
+  url.searchParams.set("callbackUrl", callbackUrl);
+  
+  return NextResponse.redirect(url);
+});
 
 export const config = {
-  // Protect homepage and all /apps routes
-  // Note: /login and /api/auth/* are automatically excluded (not in matcher)
-  matcher: [
-    "/",
-    "/apps/:path*",
-  ],
+  // Single negative-lookahead matcher excludes:
+  // - /login and /login/* (login pages - CRITICAL to prevent redirect loops)
+  // - /api/auth/* (NextAuth API routes)
+  // - /_next/* (Next.js internals)
+  // - /favicon.ico (favicon)
+  // Pattern ensures /login is NEVER matched by middleware
+  matcher: ["/((?!login|api/auth|_next|favicon.ico).*)"],
 };

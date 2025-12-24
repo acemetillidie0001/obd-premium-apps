@@ -16,6 +16,7 @@ import {
   LocalSEOPageBuilderResponse,
   TargetAudience,
   OutputFormat,
+  TonePreset,
 } from "./types";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
@@ -37,6 +38,7 @@ const defaultFormValues: LocalSEOPageBuilderRequest = {
   pageUrl: "",
   outputFormat: "PlainText",
   includeSchema: false,
+  tonePreset: "Professional",
 };
 
 export default function LocalSEOPageBuilderPage() {
@@ -54,6 +56,8 @@ export default function LocalSEOPageBuilderPage() {
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
   const [lastPayload, setLastPayload] = useState<LocalSEOPageBuilderRequest | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">("Combined");
 
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
@@ -418,21 +422,39 @@ export default function LocalSEOPageBuilderPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `seo-page-${form.businessName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.txt`;
+    // Sanitize filename: remove special characters, limit length
+    const safeName = form.businessName.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").slice(0, 50);
+    a.download = `seo-page-${safeName || "page"}-${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // Show success toast
+    setShowSuccessToast(true);
+    setTimeout(() => setShowSuccessToast(false), 3000);
   };
 
   const handleExportHtml = () => {
     if (!result || form.outputFormat !== "HTML") return;
 
+    // HTML escape function for meta tags
+    const escapeHtml = (text: string): string => {
+      const map: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      };
+      return text.replace(/[&<>"']/g, (m) => map[m]);
+    };
+
     let html = `<!DOCTYPE html>\n<html lang="en">\n<head>\n`;
     html += `  <meta charset="UTF-8">\n`;
     html += `  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n`;
-    html += `  <title>${result.seoPack.metaTitle}</title>\n`;
-    html += `  <meta name="description" content="${result.seoPack.metaDescription}">\n`;
+    html += `  <title>${escapeHtml(result.seoPack.metaTitle)}</title>\n`;
+    html += `  <meta name="description" content="${escapeHtml(result.seoPack.metaDescription)}">\n`;
     html += `</head>\n<body>\n`;
     html += result.pageCopy;
     html += `\n\n<h2>Frequently Asked Questions</h2>\n`;
@@ -446,11 +468,17 @@ export default function LocalSEOPageBuilderPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `seo-page-${form.businessName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.html`;
+    // Sanitize filename: remove special characters, limit length
+    const safeName = form.businessName.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").slice(0, 50);
+    a.download = `seo-page-${safeName || "page"}-${Date.now()}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    // Show success toast
+    setShowSuccessToast(true);
+    setTimeout(() => setShowSuccessToast(false), 3000);
   };
 
   const handleExportJson = () => {
@@ -463,7 +491,9 @@ export default function LocalSEOPageBuilderPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `schema-${form.businessName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}.json`;
+      // Sanitize filename: remove special characters, limit length
+      const safeName = form.businessName.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").slice(0, 50);
+      a.download = `schema-${safeName || "page"}-${Date.now()}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -572,9 +602,21 @@ export default function LocalSEOPageBuilderPage() {
                 <div>
                   <label
                     htmlFor="primaryService"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                    className={`flex items-center gap-2 text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
-                    Primary Service <span className="text-red-500">*</span>
+                    <span>
+                      Primary Service <span className="text-red-500">*</span>
+                    </span>
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
+                        isDark
+                          ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                      }`}
+                      title="This becomes your main page keyword (H1 + title). Be specific."
+                    >
+                      ?
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -591,18 +633,30 @@ export default function LocalSEOPageBuilderPage() {
                   <div>
                     <label
                       htmlFor="city"
-                      className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      className={`flex items-center gap-2 text-sm font-medium mb-2 ${themeClasses.labelText}`}
                     >
-                      City <span className="text-red-500">*</span>
-                      {autoFilledFields.has("city") && (
-                        <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                      <span>
+                        City <span className="text-red-500">*</span>
+                        {autoFilledFields.has("city") && (
+                          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                            isDark
+                              ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
+                              : "bg-teal-50 text-teal-700 border border-teal-200"
+                          }`}>
+                            From Brand Profile
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
                           isDark
-                            ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                            : "bg-teal-50 text-teal-700 border border-teal-200"
-                        }`}>
-                          From Brand Profile
-                        </span>
-                      )}
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                        }`}
+                        title="Used for local SEO targeting and schema location signals."
+                      >
+                        ?
+                      </span>
                     </label>
                     <input
                       type="text"
@@ -618,18 +672,30 @@ export default function LocalSEOPageBuilderPage() {
                   <div>
                     <label
                       htmlFor="state"
-                      className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      className={`flex items-center gap-2 text-sm font-medium mb-2 ${themeClasses.labelText}`}
                     >
-                      State <span className="text-red-500">*</span>
-                      {autoFilledFields.has("state") && (
-                        <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                      <span>
+                        State <span className="text-red-500">*</span>
+                        {autoFilledFields.has("state") && (
+                          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                            isDark
+                              ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
+                              : "bg-teal-50 text-teal-700 border border-teal-200"
+                          }`}>
+                            From Brand Profile
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
                           isDark
-                            ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                            : "bg-teal-50 text-teal-700 border border-teal-200"
-                        }`}>
-                          From Brand Profile
-                        </span>
-                      )}
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                        }`}
+                        title="Used for local SEO targeting and schema location signals."
+                      >
+                        ?
+                      </span>
                     </label>
                     <input
                       type="text"
@@ -694,6 +760,38 @@ export default function LocalSEOPageBuilderPage() {
                     className={getInputClasses(isDark)}
                     placeholder="Downtown Ocala, Silver Springs"
                   />
+                  {neighborhoodsInput.trim() !== "" && (() => {
+                    const parsed = neighborhoodsInput
+                      .split(",")
+                      .map((n) => n.trim())
+                      .filter((n) => n.length > 0);
+                    const unique = Array.from(new Set(parsed)).slice(0, 12);
+                    return unique.length > 0 ? (
+                      <div className={`mt-2 p-3 rounded-lg border ${
+                        isDark
+                          ? "bg-slate-800/50 border-slate-700"
+                          : "bg-slate-50 border-slate-200"
+                      }`}>
+                        <p className={`text-xs font-semibold mb-2 ${
+                          isDark ? "text-slate-300" : "text-slate-700"
+                        }`}>
+                          Local areas referenced
+                        </p>
+                        <ul className="list-disc list-inside space-y-1">
+                          {unique.map((neighborhood, idx) => (
+                            <li key={idx} className={`text-xs ${
+                              isDark ? "text-slate-400" : "text-slate-600"
+                            }`}>
+                              {neighborhood}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                          These will be referenced naturally in your content and FAQs.
+                        </p>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
 
                 <div>
@@ -747,6 +845,9 @@ export default function LocalSEOPageBuilderPage() {
                     className={getInputClasses(isDark)}
                     placeholder="Call now, Request a quote"
                   />
+                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                    Used for buttons and closing call-to-action sections.
+                  </p>
                 </div>
               </div>
             </div>
@@ -762,9 +863,19 @@ export default function LocalSEOPageBuilderPage() {
                 <div>
                   <label
                     htmlFor="outputFormat"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                    className={`flex items-center gap-2 text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
-                    Format
+                    <span>Format</span>
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
+                        isDark
+                          ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                      }`}
+                      title="Choose based on how you plan to paste this content into your site."
+                    >
+                      ?
+                    </span>
                   </label>
                   <select
                     id="outputFormat"
@@ -775,6 +886,43 @@ export default function LocalSEOPageBuilderPage() {
                     <option value="PlainText">Plain Text</option>
                     <option value="WordPress">WordPress</option>
                     <option value="HTML">HTML</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="copyMode"
+                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                  >
+                    Copy Mode
+                  </label>
+                  <select
+                    id="copyMode"
+                    value={copyMode}
+                    onChange={(e) => setCopyMode(e.target.value as "Combined" | "Section Cards")}
+                    className={getInputClasses(isDark)}
+                  >
+                    <option value="Combined">Combined</option>
+                    <option value="Section Cards">Section Cards</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="tonePreset"
+                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                  >
+                    Copy Tone
+                  </label>
+                  <select
+                    id="tonePreset"
+                    value={form.tonePreset || "Professional"}
+                    onChange={(e) => handleFieldChange("tonePreset", e.target.value as TonePreset)}
+                    className={getInputClasses(isDark)}
+                  >
+                    <option value="Professional">Professional</option>
+                    <option value="Friendly">Friendly</option>
+                    <option value="Direct">Direct</option>
                   </select>
                 </div>
               </div>
@@ -825,9 +973,19 @@ export default function LocalSEOPageBuilderPage() {
                 <div>
                   <label
                     htmlFor="pageUrl"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                    className={`flex items-center gap-2 text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
-                    Page URL (recommended for schema)
+                    <span>Page URL (recommended for schema)</span>
+                    <span
+                      className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
+                        isDark
+                          ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                      }`}
+                      title="Used by search engines to connect this content to a real page."
+                    >
+                      ?
+                    </span>
                   </label>
                   <input
                     type="url"
@@ -986,6 +1144,145 @@ export default function LocalSEOPageBuilderPage() {
             </div>
           </div>
 
+          {/* SEO Readiness Score */}
+          {(() => {
+            const checks = [
+              {
+                label: "Meta Title present and ≤ 60 chars",
+                passed: result.seoPack.metaTitle.length > 0 && result.seoPack.metaTitle.length <= 60,
+              },
+              {
+                label: "Meta Description present and ≤ 160 chars",
+                passed: result.seoPack.metaDescription.length > 0 && result.seoPack.metaDescription.length <= 160,
+              },
+              {
+                label: "H1 present",
+                passed: result.seoPack.h1.length > 0,
+              },
+              {
+                label: "City mentioned in content",
+                passed: result.pageCopy.toLowerCase().includes(form.city.toLowerCase()),
+              },
+              {
+                label: "FAQ count ≥ 5",
+                passed: result.faqs.length >= 5,
+              },
+              {
+                label: form.includeSchema
+                  ? result.schemaJsonLd
+                    ? "Schema enabled and generated"
+                    : "Schema not enabled (page URL missing)."
+                  : "Schema not enabled",
+                passed: form.includeSchema ? !!result.schemaJsonLd : false,
+              },
+            ];
+
+            const score = checks.filter((c) => c.passed).length;
+
+            return (
+              <div className={`mb-6 p-4 rounded-xl border ${
+                isDark
+                  ? "bg-slate-800/50 border-slate-700"
+                  : "bg-slate-50 border-slate-200"
+              }`}>
+                <h3 className={`text-base font-semibold mb-4 ${themeClasses.headingText}`}>
+                  SEO Readiness: {score} / 6
+                </h3>
+                <div className="space-y-2">
+                  {checks.map((check, idx) => (
+                    <div key={idx} className="flex items-start gap-2">
+                      <span className={`text-sm mt-0.5 ${
+                        check.passed
+                          ? isDark ? "text-green-400" : "text-green-600"
+                          : isDark ? "text-yellow-400" : "text-yellow-600"
+                      }`}>
+                        {check.passed ? "✓" : "⚠"}
+                      </span>
+                      <span className={`text-sm ${
+                        isDark ? "text-slate-300" : "text-slate-700"
+                      }`}>
+                        {check.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Before Publishing Checklist */}
+          <div className={`mb-6 p-4 rounded-xl border ${
+            isDark
+              ? "bg-slate-800/50 border-slate-700"
+              : "bg-slate-50 border-slate-200"
+          }`}>
+            <h3 className={`text-base font-semibold mb-4 ${themeClasses.headingText}`}>
+              Before Publishing
+            </h3>
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <span className={`text-sm mt-0.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  ☐
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Paste H1 into page heading
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className={`text-sm mt-0.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  ☐
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Add meta title & description in your SEO plugin
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className={`text-sm mt-0.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  ☐
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Paste content into your page builder
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className={`text-sm mt-0.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  ☐
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Add internal links
+                </span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className={`text-sm mt-0.5 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  ☐
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Publish page
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-6">
             {/* SEO Pack */}
             <ResultCard
@@ -1037,22 +1334,124 @@ export default function LocalSEOPageBuilderPage() {
               </div>
             </ResultCard>
 
-            {/* Full Page Copy */}
-            <ResultCard
-              title="Full Page Copy"
-              isDark={isDark}
-              copyText={result.pageCopy}
-            >
-              {form.outputFormat === "HTML" ? (
-                <div className="overflow-x-auto">
-                  <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
-                    <code>{result.pageCopy}</code>
-                  </pre>
-                </div>
-              ) : (
-                <div className="whitespace-pre-wrap">{result.pageCopy}</div>
-              )}
-            </ResultCard>
+            {/* Full Page Copy or Section Cards */}
+            {copyMode === "Combined" ? (
+              <ResultCard
+                title="Full Page Copy"
+                isDark={isDark}
+                copyText={result.pageCopy}
+              >
+                {form.outputFormat === "HTML" ? (
+                  <div className="overflow-x-auto">
+                    <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                      <code>{result.pageCopy}</code>
+                    </pre>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{result.pageCopy}</div>
+                )}
+              </ResultCard>
+            ) : (
+              result.pageSections && (
+                <>
+                  <ResultCard
+                    title="Hero"
+                    isDark={isDark}
+                    copyText={result.pageSections.hero}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.hero}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.hero}</div>
+                    )}
+                  </ResultCard>
+
+                  <ResultCard
+                    title="Intro"
+                    isDark={isDark}
+                    copyText={result.pageSections.intro}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.intro}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.intro}</div>
+                    )}
+                  </ResultCard>
+
+                  <ResultCard
+                    title="Our Services"
+                    isDark={isDark}
+                    copyText={result.pageSections.services}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.services}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.services}</div>
+                    )}
+                  </ResultCard>
+
+                  <ResultCard
+                    title="Why Choose Us"
+                    isDark={isDark}
+                    copyText={result.pageSections.whyChooseUs}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.whyChooseUs}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.whyChooseUs}</div>
+                    )}
+                  </ResultCard>
+
+                  <ResultCard
+                    title="Proudly Serving (Areas)"
+                    isDark={isDark}
+                    copyText={result.pageSections.areasServed}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.areasServed}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.areasServed}</div>
+                    )}
+                  </ResultCard>
+
+                  <ResultCard
+                    title="Closing CTA"
+                    isDark={isDark}
+                    copyText={result.pageSections.closingCta}
+                  >
+                    {form.outputFormat === "HTML" ? (
+                      <div className="overflow-x-auto">
+                        <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
+                          <code>{result.pageSections.closingCta}</code>
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{result.pageSections.closingCta}</div>
+                    )}
+                  </ResultCard>
+                </>
+              )
+            )}
 
             {/* FAQ Section */}
             <ResultCard
@@ -1106,6 +1505,38 @@ export default function LocalSEOPageBuilderPage() {
             </p>
           </div>
         </OBDPanel>
+      )}
+
+      {/* Success Toast */}
+      {showSuccessToast && (
+        <div
+          className={`fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
+            isDark
+              ? "bg-[#29c4a9] border-[#29c4a9] text-white"
+              : "bg-[#29c4a9] border-[#29c4a9] text-white"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <svg
+              className="h-5 w-5 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+            <div className="flex-1">
+              <p className="text-sm">
+                Download started — ready to paste into your site.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </OBDPageContainer>
   );

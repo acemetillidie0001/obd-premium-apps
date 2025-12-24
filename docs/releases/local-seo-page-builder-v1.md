@@ -12,9 +12,15 @@ The Local SEO Page Builder generates complete local landing page content packs f
 ### Core Features
 - **SEO Pack Generation**: Meta title, meta description, slug, and H1
 - **Full Page Copy**: Structured content with hero, services, benefits, service area, and CTA sections
+- **Section-by-Section Copy Mode**: Option to view content as 6 separate cards (Hero, Intro, Services, Why Choose Us, Areas Served, Closing CTA)
+- **Copy Tone Presets**: Choose between Professional, Friendly, or Direct tone (affects phrasing only, not structure)
 - **FAQ Section**: Exactly 6 tailored FAQs per service + city combination
 - **Schema Bundle**: Optional JSON-LD schema (WebPage + FAQPage) when pageUrl is provided
 - **Multiple Output Formats**: PlainText, WordPress, and HTML
+- **SEO Readiness Score**: Automatic scoring (0-6) with checklist for meta tags, H1, city mentions, FAQs, and schema
+- **Publishing Checklist**: Step-by-step guide for deploying content
+- **Inline Tooltips**: Helpful "Why this matters" tooltips for key fields
+- **Neighborhood Preview**: Live preview of parsed neighborhoods
 
 ### Input Fields
 
@@ -35,6 +41,8 @@ The Local SEO Page Builder generates complete local landing page content packs f
 - Website URL
 - Page URL (recommended for schema generation)
 - Output Format (PlainText, WordPress, HTML)
+- Copy Mode (Combined or Section Cards)
+- Copy Tone (Professional, Friendly, Direct)
 - Include Schema Bundle (requires valid pageUrl)
 
 ### Output Formats
@@ -136,15 +144,17 @@ The Local SEO Page Builder generates complete local landing page content packs f
 
 1. **No AI Enhancement**: This is a template-based v1 release. Content is generated from deterministic templates, not AI-generated.
 
-2. **HTML Escaping**: User input in HTML output is not HTML-escaped. This is acceptable for template-based content from validated form fields, but should be reviewed if allowing user-generated content in future versions.
+2. **HTML Escaping**: User input in HTML output is not HTML-escaped in pageCopy (template-based content). Meta tags in HTML export are properly escaped for XSS safety.
 
 3. **Fixed FAQ Count**: Exactly 6 FAQs are generated. No customization of FAQ count in v1.
 
-4. **Template-Based Content**: All content follows fixed templates. No variation or personalization beyond form inputs.
+4. **Template-Based Content**: All content follows fixed templates. No variation or personalization beyond form inputs and tone presets.
 
 5. **No Content Preview**: No live preview of how content will appear on the page.
 
 6. **No Multi-Language**: English only in v1.
+
+7. **Tone Presets**: Only affect phrasing in specific sentences (hero subheadline, intro opening, why choose lead-in, CTA opening). Structure and content remain the same.
 
 ## Technical Details
 
@@ -169,6 +179,7 @@ The Local SEO Page Builder generates complete local landing page content packs f
     "seoPack": { "metaTitle", "metaDescription", "slug", "h1" },
     "pageCopy": "string (formatted)",
     "faqs": [{ "question", "answer" }],
+    "pageSections": { "hero", "intro", "services", "whyChooseUs", "areasServed", "closingCta" } (optional),
     "schemaJsonLd": "string (optional)",
     "meta": { "requestId", "createdAtISO" },
     "warnings": ["string"] (optional)

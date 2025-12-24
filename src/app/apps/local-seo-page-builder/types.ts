@@ -2,6 +2,8 @@ export type TargetAudience = "Residential" | "Commercial" | "Both";
 
 export type OutputFormat = "PlainText" | "WordPress" | "HTML";
 
+export type TonePreset = "Professional" | "Friendly" | "Direct";
+
 export interface LocalSEOPageBuilderRequest {
   businessName: string;
   businessType: string;
@@ -18,6 +20,7 @@ export interface LocalSEOPageBuilderRequest {
   pageUrl?: string;
   outputFormat?: OutputFormat;
   includeSchema?: boolean;
+  tonePreset?: TonePreset;
 }
 
 export interface SEOPack {
@@ -32,11 +35,21 @@ export interface FAQItem {
   answer: string;
 }
 
+export interface PageSections {
+  hero: string;
+  intro: string;
+  services: string;
+  whyChooseUs: string;
+  areasServed: string;
+  closingCta: string;
+}
+
 export interface LocalSEOPageBuilderResponse {
   seoPack: SEOPack;
   pageCopy: string;
   faqs: FAQItem[];
   schemaJsonLd?: string;
+  pageSections?: PageSections;
   meta: {
     requestId: string;
     createdAtISO: string;

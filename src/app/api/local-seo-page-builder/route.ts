@@ -5,6 +5,8 @@ import {
   LocalSEOPageBuilderRequest,
   LocalSEOPageBuilderResponse,
   OutputFormat,
+  TonePreset,
+  PageSections,
 } from "@/app/apps/local-seo-page-builder/types";
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -153,6 +155,34 @@ function smartTrimMetaDescription(desc: string, max = 160): { value: string; tri
   return { value: trimmed, trimmed: true };
 }
 
+// Tone preset helpers - apply subtle phrasing changes
+function getTonePhrase(
+  tone: TonePreset,
+  context: "heroSubheadline" | "introOpening" | "whyChooseLead" | "ctaOpening"
+): string {
+  const phrases = {
+    Professional: {
+      heroSubheadline: "Your trusted partner for",
+      introOpening: "is your trusted",
+      whyChooseLead: "When you choose",
+      ctaOpening: "Ready to get started with professional",
+    },
+    Friendly: {
+      heroSubheadline: "Your friendly neighborhood experts for",
+      introOpening: "is your friendly",
+      whyChooseLead: "When you work with",
+      ctaOpening: "Ready to experience friendly, professional",
+    },
+    Direct: {
+      heroSubheadline: "Expert",
+      introOpening: "delivers expert",
+      whyChooseLead: "Choose",
+      ctaOpening: "Get expert",
+    },
+  };
+  return phrases[tone][context];
+}
+
 // Render page copy in different formats
 function renderPageCopy(
   format: OutputFormat,
@@ -167,6 +197,7 @@ function renderPageCopy(
     targetAudience?: "Residential" | "Commercial" | "Both";
     uniqueSellingPoints?: string;
     ctaPreference?: string;
+    tonePreset?: TonePreset;
   }
 ): string {
   const {
@@ -180,11 +211,16 @@ function renderPageCopy(
     targetAudience,
     uniqueSellingPoints,
     ctaPreference,
+    tonePreset = "Professional",
   } = data;
 
   if (format === "HTML") {
+    const heroSubheadline = getTonePhrase(tonePreset, "heroSubheadline");
+    const introOpening = getTonePhrase(tonePreset, "introOpening");
+    
     let html = `<h1>${primaryService} in ${city}, ${state}</h1>\n`;
-    html += `<p>${businessName} is your trusted ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+    html += `<p>${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.</p>\n`;
+    html += `<p>${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
 
     if (targetAudience === "Residential") {
       html += `We serve homeowners and residents with professional, reliable service. `;
@@ -218,7 +254,8 @@ function renderPageCopy(
     if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
       html += `<p>${uniqueSellingPoints}</p>\n`;
     } else {
-      html += `<p>When you choose ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:</p>\n<ul>\n`;
+      const whyChooseLead = getTonePhrase(tonePreset, "whyChooseLead");
+      html += `<p>${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:</p>\n<ul>\n`;
       html += `  <li><strong>Local Expertise</strong>: We understand the unique needs of ${city} residents and businesses</li>\n`;
       html += `  <li><strong>Professional Service</strong>: Our team is trained, licensed, and insured</li>\n`;
       html += `  <li><strong>Quality Results</strong>: We stand behind our work with a commitment to excellence</li>\n`;
@@ -234,17 +271,22 @@ function renderPageCopy(
     html += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.</p>\n`;
 
     const cta = ctaPreference && ctaPreference.trim() ? ctaPreference : "Contact us today";
+    const ctaOpening = getTonePhrase(tonePreset, "ctaOpening");
 
     html += `\n<h2>${cta}</h2>\n`;
-    html += `<p>Ready to get started with professional ${primaryService.toLowerCase()} services in ${city}? `;
+    html += `<p>${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? `;
     html += `${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!</p>`;
 
     return html;
   }
 
   if (format === "WordPress") {
+    const heroSubheadline = getTonePhrase(tonePreset, "heroSubheadline");
+    const introOpening = getTonePhrase(tonePreset, "introOpening");
+    
     let wp = `${primaryService} in ${city}, ${state}\n\n`;
-    wp += `${businessName} is your trusted ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+    wp += `${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.\n\n`;
+    wp += `${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
 
     if (targetAudience === "Residential") {
       wp += `We serve homeowners and residents with professional, reliable service. `;
@@ -278,7 +320,8 @@ function renderPageCopy(
     if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
       wp += `${uniqueSellingPoints}\n\n`;
     } else {
-      wp += `When you choose ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
+      const whyChooseLead = getTonePhrase(tonePreset, "whyChooseLead");
+      wp += `${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
       wp += `• Local Expertise: We understand the unique needs of ${city} residents and businesses\n`;
       wp += `• Professional Service: Our team is trained, licensed, and insured\n`;
       wp += `• Quality Results: We stand behind our work with a commitment to excellence\n`;
@@ -293,18 +336,23 @@ function renderPageCopy(
     wp += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.\n\n`;
 
     const cta = ctaPreference && ctaPreference.trim() ? ctaPreference : "Contact us today";
+    const ctaOpening = getTonePhrase(tonePreset, "ctaOpening");
 
     wp += `${cta}\n\n`;
-    wp += `Ready to get started with professional ${primaryService.toLowerCase()} services in ${city}? `;
+    wp += `${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? `;
     wp += `${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!`;
 
     return wp;
   }
 
   // PlainText (default)
+  const heroSubheadline = getTonePhrase(tonePreset, "heroSubheadline");
+  const introOpening = getTonePhrase(tonePreset, "introOpening");
+  
   let text = `${primaryService} in ${city}, ${state}\n`;
   text += "=".repeat(50) + "\n\n";
-  text += `${businessName} is your trusted ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+  text += `${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.\n\n`;
+  text += `${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
 
   if (targetAudience === "Residential") {
     text += `We serve homeowners and residents with professional, reliable service. `;
@@ -340,7 +388,8 @@ function renderPageCopy(
   if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
     text += `${uniqueSellingPoints}\n\n`;
   } else {
-    text += `When you choose ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
+    const whyChooseLead = getTonePhrase(tonePreset, "whyChooseLead");
+    text += `${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
     text += `- Local Expertise: We understand the unique needs of ${city} residents and businesses\n`;
     text += `- Professional Service: Our team is trained, licensed, and insured\n`;
     text += `- Quality Results: We stand behind our work with a commitment to excellence\n`;
@@ -356,43 +405,201 @@ function renderPageCopy(
   text += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.\n\n`;
 
   const cta = ctaPreference && ctaPreference.trim() ? ctaPreference : "Contact us today";
+  const ctaOpening = getTonePhrase(tonePreset, "ctaOpening");
 
   text += `${cta}\n`;
   text += "-".repeat(50) + "\n";
-  text += `Ready to get started with professional ${primaryService.toLowerCase()} services in ${city}? `;
+  text += `${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? `;
   text += `${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!`;
 
   return text;
 }
 
-// Render FAQs in different formats
-function renderFAQs(format: OutputFormat, faqs: Array<{ question: string; answer: string }>): string {
+// Render page sections separately
+function renderPageSections(
+  format: OutputFormat,
+  data: {
+    businessName: string;
+    businessType: string;
+    primaryService: string;
+    city: string;
+    state: string;
+    secondaryServices?: string[];
+    neighborhoods?: string[];
+    targetAudience?: "Residential" | "Commercial" | "Both";
+    uniqueSellingPoints?: string;
+    ctaPreference?: string;
+    tonePreset?: TonePreset;
+  }
+): PageSections {
+  const {
+    businessName,
+    businessType,
+    primaryService,
+    city,
+    state,
+    secondaryServices,
+    neighborhoods,
+    targetAudience,
+    uniqueSellingPoints,
+    ctaPreference,
+    tonePreset = "Professional",
+  } = data;
+
+  const heroSubheadline = getTonePhrase(tonePreset, "heroSubheadline");
+  const introOpening = getTonePhrase(tonePreset, "introOpening");
+  const whyChooseLead = getTonePhrase(tonePreset, "whyChooseLead");
+  const ctaOpening = getTonePhrase(tonePreset, "ctaOpening");
+  const cta = ctaPreference && ctaPreference.trim() ? ctaPreference : "Contact us today";
+
   if (format === "HTML") {
-    let html = `<h2>Frequently Asked Questions</h2>\n`;
-    faqs.forEach((faq) => {
-      html += `<h3>${faq.question}</h3>\n`;
-      html += `<p>${faq.answer}</p>\n\n`;
-    });
-    return html;
+    // Hero section
+    const hero = `<h1>${primaryService} in ${city}, ${state}</h1>\n<p>${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.</p>`;
+
+    // Intro section
+    let intro = `<p>${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+    if (targetAudience === "Residential") {
+      intro += `We serve homeowners and residents with professional, reliable service. `;
+    } else if (targetAudience === "Commercial") {
+      intro += `We serve businesses and commercial properties with professional, reliable service. `;
+    } else {
+      intro += `We serve both residential and commercial customers with professional, reliable service. `;
+    }
+    if (neighborhoods && neighborhoods.length > 0) {
+      intro += `Our service area includes ${neighborhoods.join(", ")} and surrounding areas.`;
+    }
+    intro += `</p>`;
+
+    // Services section
+    let services = `<h2>Our ${primaryService} Services</h2>\n<p>At ${businessName}, we provide comprehensive ${primaryService.toLowerCase()} solutions tailored to your needs. `;
+    if (secondaryServices && secondaryServices.length > 0) {
+      services += `In addition to ${primaryService.toLowerCase()}, we also offer:</p>\n<ul>\n`;
+      secondaryServices.forEach((service) => {
+        services += `  <li>${service}</li>\n`;
+      });
+      services += `</ul>`;
+    } else {
+      services += `Our team brings years of experience and local knowledge to every project.</p>`;
+    }
+
+    // Why Choose Us section
+    let whyChooseUs = `<h2>Why Choose ${businessName}?</h2>\n`;
+    if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
+      whyChooseUs += `<p>${uniqueSellingPoints}</p>`;
+    } else {
+      whyChooseUs += `<p>${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:</p>\n<ul>\n`;
+      whyChooseUs += `  <li><strong>Local Expertise</strong>: We understand the unique needs of ${city} residents and businesses</li>\n`;
+      whyChooseUs += `  <li><strong>Professional Service</strong>: Our team is trained, licensed, and insured</li>\n`;
+      whyChooseUs += `  <li><strong>Quality Results</strong>: We stand behind our work with a commitment to excellence</li>\n`;
+      whyChooseUs += `  <li><strong>Customer Focus</strong>: Your satisfaction is our top priority</li>\n`;
+      whyChooseUs += `</ul>`;
+    }
+
+    // Areas Served section
+    let areasServed = `<h2>Serving ${city}, ${state}</h2>\n<p>${businessName} proudly serves ${city}, ${state} and the surrounding communities. `;
+    if (neighborhoods && neighborhoods.length > 0) {
+      areasServed += `We regularly work in ${neighborhoods.join(", ")} and nearby areas. `;
+    }
+    areasServed += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.</p>`;
+
+    // Closing CTA section
+    const closingCta = `<h2>${cta}</h2>\n<p>${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? ${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!</p>`;
+
+    return { hero, intro, services, whyChooseUs, areasServed, closingCta };
   }
 
   if (format === "WordPress") {
-    let wp = `Frequently Asked Questions\n\n`;
-    faqs.forEach((faq) => {
-      wp += `${faq.question}\n\n`;
-      wp += `${faq.answer}\n\n`;
-    });
-    return wp;
+    const hero = `${primaryService} in ${city}, ${state}\n\n${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.`;
+
+    let intro = `${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+    if (targetAudience === "Residential") {
+      intro += `We serve homeowners and residents with professional, reliable service. `;
+    } else if (targetAudience === "Commercial") {
+      intro += `We serve businesses and commercial properties with professional, reliable service. `;
+    } else {
+      intro += `We serve both residential and commercial customers with professional, reliable service. `;
+    }
+    if (neighborhoods && neighborhoods.length > 0) {
+      intro += `Our service area includes ${neighborhoods.join(", ")} and surrounding areas.`;
+    }
+
+    let services = `Our ${primaryService} Services\n\nAt ${businessName}, we provide comprehensive ${primaryService.toLowerCase()} solutions tailored to your needs. `;
+    if (secondaryServices && secondaryServices.length > 0) {
+      services += `In addition to ${primaryService.toLowerCase()}, we also offer:\n\n`;
+      secondaryServices.forEach((service) => {
+        services += `• ${service}\n`;
+      });
+    } else {
+      services += `Our team brings years of experience and local knowledge to every project.`;
+    }
+
+    let whyChooseUs = `Why Choose ${businessName}?\n\n`;
+    if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
+      whyChooseUs += `${uniqueSellingPoints}`;
+    } else {
+      whyChooseUs += `${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
+      whyChooseUs += `• Local Expertise: We understand the unique needs of ${city} residents and businesses\n`;
+      whyChooseUs += `• Professional Service: Our team is trained, licensed, and insured\n`;
+      whyChooseUs += `• Quality Results: We stand behind our work with a commitment to excellence\n`;
+      whyChooseUs += `• Customer Focus: Your satisfaction is our top priority`;
+    }
+
+    let areasServed = `Serving ${city}, ${state}\n\n${businessName} proudly serves ${city}, ${state} and the surrounding communities. `;
+    if (neighborhoods && neighborhoods.length > 0) {
+      areasServed += `We regularly work in ${neighborhoods.join(", ")} and nearby areas. `;
+    }
+    areasServed += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.`;
+
+    const closingCta = `${cta}\n\n${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? ${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!`;
+
+    return { hero, intro, services, whyChooseUs, areasServed, closingCta };
   }
 
   // PlainText
-  let text = `Frequently Asked Questions\n`;
-  text += "=".repeat(50) + "\n\n";
-  faqs.forEach((faq, i) => {
-    text += `Q${i + 1}: ${faq.question}\n`;
-    text += `A${i + 1}: ${faq.answer}\n\n`;
-  });
-  return text;
+  const hero = `${primaryService} in ${city}, ${state}\n${"=".repeat(50)}\n\n${heroSubheadline} ${primaryService.toLowerCase()} in ${city}, ${state}.`;
+
+  let intro = `${businessName} ${introOpening} ${businessType} specializing in ${primaryService.toLowerCase()} services throughout ${city}, ${state}. `;
+  if (targetAudience === "Residential") {
+    intro += `We serve homeowners and residents with professional, reliable service. `;
+  } else if (targetAudience === "Commercial") {
+    intro += `We serve businesses and commercial properties with professional, reliable service. `;
+  } else {
+    intro += `We serve both residential and commercial customers with professional, reliable service. `;
+  }
+  if (neighborhoods && neighborhoods.length > 0) {
+    intro += `Our service area includes ${neighborhoods.join(", ")} and surrounding areas.`;
+  }
+
+  let services = `Our ${primaryService} Services\n${"-".repeat(50)}\nAt ${businessName}, we provide comprehensive ${primaryService.toLowerCase()} solutions tailored to your needs. `;
+  if (secondaryServices && secondaryServices.length > 0) {
+    services += `In addition to ${primaryService.toLowerCase()}, we also offer:\n\n`;
+    secondaryServices.forEach((service) => {
+      services += `- ${service}\n`;
+    });
+  } else {
+    services += `Our team brings years of experience and local knowledge to every project.`;
+  }
+
+  let whyChooseUs = `Why Choose ${businessName}?\n${"-".repeat(50)}\n`;
+  if (uniqueSellingPoints && uniqueSellingPoints.trim()) {
+    whyChooseUs += `${uniqueSellingPoints}`;
+  } else {
+    whyChooseUs += `${whyChooseLead} ${businessName} for your ${primaryService.toLowerCase()} needs in ${city}, you're choosing:\n\n`;
+    whyChooseUs += `- Local Expertise: We understand the unique needs of ${city} residents and businesses\n`;
+    whyChooseUs += `- Professional Service: Our team is trained, licensed, and insured\n`;
+    whyChooseUs += `- Quality Results: We stand behind our work with a commitment to excellence\n`;
+    whyChooseUs += `- Customer Focus: Your satisfaction is our top priority`;
+  }
+
+  let areasServed = `Serving ${city}, ${state}\n${"-".repeat(50)}\n${businessName} proudly serves ${city}, ${state} and the surrounding communities. `;
+  if (neighborhoods && neighborhoods.length > 0) {
+    areasServed += `We regularly work in ${neighborhoods.join(", ")} and nearby areas. `;
+  }
+  areasServed += `Whether you're a homeowner or business owner, we're here to help with all your ${primaryService.toLowerCase()} needs.`;
+
+  const closingCta = `${cta}\n${"-".repeat(50)}\n${ctaOpening} ${primaryService.toLowerCase()} services in ${city}? ${businessName} is here to help. ${cta} to schedule your service or request a free quote. We look forward to serving you!`;
+
+  return { hero, intro, services, whyChooseUs, areasServed, closingCta };
 }
 
 // Generate SEO pack with smart trimming
@@ -536,10 +743,10 @@ const localSEOPageBuilderRequestSchema: z.ZodType<LocalSEOPageBuilderRequest> = 
   pageUrl: z.union([z.string().url("Please enter a valid URL"), z.literal("")]).optional(),
   outputFormat: z.enum(["PlainText", "WordPress", "HTML"]).optional().default("PlainText"),
   includeSchema: z.boolean().optional().default(false),
+  tonePreset: z.enum(["Professional", "Friendly", "Direct"]).optional().default("Professional"),
 });
 
 export async function POST(req: Request) {
-  const startTime = Date.now();
   const requestId = generateRequestId();
 
   try {
@@ -590,6 +797,7 @@ export async function POST(req: Request) {
     );
 
     // Render page copy in chosen format
+    const tonePreset = formValues.tonePreset || "Professional";
     const pageCopy = renderPageCopy(formValues.outputFormat || "PlainText", {
       businessName: formValues.businessName,
       businessType: formValues.businessType,
@@ -601,6 +809,22 @@ export async function POST(req: Request) {
       targetAudience: formValues.targetAudience,
       uniqueSellingPoints: formValues.uniqueSellingPoints,
       ctaPreference: formValues.ctaPreference,
+      tonePreset,
+    });
+
+    // Generate page sections separately
+    const pageSections = renderPageSections(formValues.outputFormat || "PlainText", {
+      businessName: formValues.businessName,
+      businessType: formValues.businessType,
+      primaryService: formValues.primaryService,
+      city: formValues.city,
+      state: formValues.state,
+      secondaryServices: formValues.secondaryServices,
+      neighborhoods: formValues.neighborhoods,
+      targetAudience: formValues.targetAudience,
+      uniqueSellingPoints: formValues.uniqueSellingPoints,
+      ctaPreference: formValues.ctaPreference,
+      tonePreset,
     });
 
     // Generate Schema if enabled and pageUrl exists
@@ -621,16 +845,20 @@ export async function POST(req: Request) {
       }
     }
 
+    // Deduplicate warnings by message string
+    const uniqueWarnings = Array.from(new Set(warnings));
+
     const result: LocalSEOPageBuilderResponse = {
       seoPack,
       pageCopy,
       faqs,
+      pageSections,
       ...(schemaJsonLd ? { schemaJsonLd } : {}),
       meta: {
         requestId,
         createdAtISO: new Date().toISOString(),
       },
-      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(uniqueWarnings.length > 0 ? { warnings: uniqueWarnings } : {}),
     };
 
     return NextResponse.json(

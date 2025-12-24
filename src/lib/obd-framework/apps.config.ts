@@ -153,8 +153,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "reputation-dashboard",
     name: "Reputation Dashboard",
     description: "See all your reviews, trends, and sentiment in one place.",
+    href: "/apps/reputation-dashboard",
     category: "reputation",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Open Dashboard",
     icon: "shield-check",
   },
   {

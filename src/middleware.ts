@@ -1,42 +1,24 @@
 /**
  * Middleware for protecting /apps routes and homepage
  * 
+ * Edge-safe implementation using next-auth/jwt getToken().
+ * Does NOT import @/lib/auth to avoid Node.js dependencies (Prisma, etc.).
+ * 
  * Verification checklist:
  * - Visiting / should redirect to /login when logged out
  * - Visiting /login should work without 500 (not matched by middleware)
  * - Visiting /apps should redirect to /login when logged out
  * - After login, / and /apps load successfully
  * 
- * IMPORTANT: Uses NextAuth v5 auth() helper which handles cookie reading correctly.
- * This ensures middleware can read sessions even with custom cookie domain/names.
- * 
  * HARDENED: Matcher excludes static assets and auth routes. Fail-open on errors.
  */
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { auth } from "@/lib/auth";
+import { getToken } from "next-auth/jwt";
 
-// Type for the request parameter in NextAuth middleware callback
-// NextAuth's auth() adds an 'auth' property to NextRequest containing the session
-type AuthRequest = NextRequest & {
-  auth?: {
-    user?: {
-      id?: string;
-      email?: string | null;
-      role?: string;
-      isPremium?: boolean;
-      name?: string | null;
-      image?: string | null;
-    } | null;
-    expires?: string;
-  } | null;
-};
-
-export default auth((req: AuthRequest) => {
+export default async function middleware(req: NextRequest) {
   try {
-    // Defensive: req.auth may be undefined, treat as null
-    const session = req.auth || null;
     const nextUrl = req.nextUrl;
     const pathname = nextUrl.pathname;
     
@@ -49,9 +31,46 @@ export default auth((req: AuthRequest) => {
       return NextResponse.next();
     }
     
-    // Protected route - check authentication
-    // If user is authenticated, allow access
-    if (session?.user) {
+    // Protected route - check authentication using getToken (Edge-safe)
+    const authSecret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+    
+    if (!authSecret) {
+      // No secret configured, fail open (allow access)
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[Middleware] AUTH_SECRET not configured, allowing access");
+      }
+      return NextResponse.next();
+    }
+    
+    // Try to get token with different cookie names for robustness
+    // Try default first, then fallback to known cookie name variants
+    const cookieNames = [
+      undefined, // default (let getToken determine)
+      "__Secure-authjs.session-token",
+      "authjs.session-token",
+      "__Secure-next-auth.session-token",
+      "next-auth.session-token",
+    ];
+    
+    let token = null;
+    for (const cookieName of cookieNames) {
+      try {
+        token = await getToken({
+          req,
+          secret: authSecret,
+          ...(cookieName && { cookieName }),
+        });
+        if (token) {
+          break; // Found a valid token, stop trying
+        }
+      } catch (err) {
+        // Continue to next cookie name if this one fails
+        continue;
+      }
+    }
+    
+    // If we have a token, user is authenticated - allow access
+    if (token) {
       return NextResponse.next();
     }
 
@@ -71,7 +90,7 @@ export default auth((req: AuthRequest) => {
     }
     return NextResponse.next();
   }
-});
+}
 
 export const config = {
   // Robust matcher excludes:

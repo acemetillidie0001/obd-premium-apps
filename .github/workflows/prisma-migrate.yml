@@ -12,6 +12,8 @@ jobs:
   migrate:
     name: Deploy Prisma Migrations
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     
     steps:
       - name: Checkout code
@@ -29,6 +31,15 @@ jobs:
             echo "skipped=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Verify DATABASE_URL is set
+        if: steps.check-guard.outputs.skipped != 'true'
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "❌ Error: DATABASE_URL secret is not set in GitHub repository secrets"
+            exit 1
+          fi
+          echo "✅ DATABASE_URL secret is configured"
+
       - name: Setup Node.js
         if: steps.check-guard.outputs.skipped != 'true'
         uses: actions/setup-node@v4
@@ -38,21 +49,12 @@ jobs:
 
       - name: Install dependencies
         if: steps.check-guard.outputs.skipped != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npm ci
-
-      - name: Verify DATABASE_URL is set
-        if: steps.check-guard.outputs.skipped != 'true'
-        run: |
-          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
-            echo "❌ Error: DATABASE_URL secret is not set in GitHub repository secrets"
-            exit 1
-          fi
-          echo "✅ DATABASE_URL secret is configured"
 
       - name: Deploy Prisma migrations
         if: steps.check-guard.outputs.skipped != 'true'
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           echo "🚀 Starting Prisma migration deployment..."
           npx prisma migrate deploy
@@ -60,8 +62,6 @@ jobs:
 
       - name: Generate Prisma Client
         if: steps.check-guard.outputs.skipped != 'true'
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           echo "🔧 Generating Prisma Client..."
           npx prisma generate

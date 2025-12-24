@@ -304,6 +304,22 @@ export const authConfig = {
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // If redirecting to /login and user is authenticated, redirect to dashboard instead
+      if (url.includes("/login")) {
+        return baseUrl + "/";
+      }
+      // If url is relative, make it absolute
+      if (url.startsWith("/")) {
+        return baseUrl + url;
+      }
+      // If url is on same origin, allow it
+      if (new URL(url).origin === baseUrl) {
+        return url;
+      }
+      // Default to dashboard
+      return baseUrl + "/";
+    },
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isOnLoginPage = nextUrl.pathname.startsWith("/login");

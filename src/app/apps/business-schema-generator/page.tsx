@@ -470,7 +470,7 @@ export default function BusinessSchemaGeneratorPage() {
           <div className="space-y-6">
             {/* Required Fields */}
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                 Required Information
               </OBDHeading>
               <div className="space-y-4">
@@ -567,7 +567,7 @@ export default function BusinessSchemaGeneratorPage() {
 
             {/* Address */}
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                 Address
               </OBDHeading>
               <div className="space-y-4">
@@ -663,7 +663,7 @@ export default function BusinessSchemaGeneratorPage() {
 
             {/* Contact & Links */}
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                 Contact & Links
               </OBDHeading>
               <div className="space-y-4">
@@ -724,7 +724,7 @@ export default function BusinessSchemaGeneratorPage() {
 
             {/* Social Links */}
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                 Social Media Links
               </OBDHeading>
               <div className="space-y-4">
@@ -822,7 +822,7 @@ export default function BusinessSchemaGeneratorPage() {
 
             {/* Hours */}
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                 Business Hours
               </OBDHeading>
               <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
@@ -860,7 +860,7 @@ export default function BusinessSchemaGeneratorPage() {
               <>
                 <div className={getDividerClass(isDark)}></div>
                 <div>
-                  <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+                  <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                     FAQ Schema
                   </OBDHeading>
                   <div className="mb-4">
@@ -957,7 +957,7 @@ export default function BusinessSchemaGeneratorPage() {
               <>
                 <div className={getDividerClass(isDark)}></div>
                 <div>
-                  <OBDHeading level={3} isDark={isDark} className="mb-4 text-base">
+                  <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
                     WebPage Schema
                   </OBDHeading>
                   <div className="space-y-4">

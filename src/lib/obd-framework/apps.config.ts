@@ -210,9 +210,11 @@ export const OBD_APPS: ObdAppDefinition[] = [
   {
     id: "seo-audit-roadmap",
     name: "SEO Audit & Roadmap",
-    description: "Get a prioritized checklist to improve your rankings over the next 90 days.",
+    description: "Audit a local page and get a prioritized SEO improvement plan with deterministic scoring.",
     category: "seo",
-    status: "coming-soon",
+    status: "live",
+    href: "/apps/seo-audit-roadmap",
+    ctaLabel: "Run SEO Audit",
     icon: "bar-chart-3",
   },
   

@@ -9,6 +9,21 @@ import {
   CategoryStatus,
 } from "@/app/apps/seo-audit-roadmap/types";
 
+/**
+ * FIXTURE TEST HELPER
+ * 
+ * For deterministic QA, paste these HTML snippets into the pageContent field:
+ * 
+ * BAD (0-30 points):
+ * <html><head><title>Test</title></head><body><h1>Hello</h1><p>Short content.</p></body></html>
+ * 
+ * MID (40-60 points):
+ * <html><head><title>Plumbing Services in Ocala - 30 chars</title><meta name="description" content="Professional plumbing services in Ocala, Florida. We provide quality work."></head><body><h1>Plumbing Services Ocala</h1><h2>Our Services</h2><p>We offer plumbing services in Ocala, Florida. Our team provides quality plumbing work for residential and commercial clients. Contact us for plumbing needs in Ocala.</p><img src="plumber.jpg" alt="Plumber"><a href="/about">About</a></body></html>
+ * 
+ * GREAT (80-100 points):
+ * <html><head><title>Plumbing Services in Ocala, Florida - Expert Repairs</title><meta name="description" content="Expert plumbing services in Ocala, Florida. Licensed plumbers providing quality repairs, installations, and maintenance for residential and commercial properties."><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body><h1>Expert Plumbing Services in Ocala, Florida</h1><h2>Our Services</h2><p>We provide comprehensive plumbing services in Ocala, Florida. Our licensed plumbers specialize in residential and commercial plumbing work. Whether you need emergency repairs, installations, or maintenance, our Ocala plumbing team is ready to help. Contact us today for quality plumbing services in Ocala, Florida.</p><h2>Why Choose Us</h2><p>Our Ocala plumbing professionals have years of experience serving Florida residents and businesses.</p><img src="plumber.jpg" alt="Licensed plumber in Ocala"><img src="work.jpg" alt="Plumbing work"><a href="/services">Services</a><a href="/about">About</a><a href="/contact">Contact</a><a href="tel:+1234567890">Call Us</a><a href="mailto:info@example.com">Email</a></body></html>
+ */
+
 // Request validation schema
 const seoAuditRoadmapRequestSchema = z.object({
   pageUrl: z.string().url().refine(
@@ -444,8 +459,8 @@ function runAudit(
   let h1Fix = "";
 
   if (data.h1Texts.length === 0) {
-    h1Explanation = "H1 tag is missing";
-    h1Fix = "Add exactly one H1 tag that includes your primary service and city";
+    h1Explanation = "H1 tag is missing. Note: Some themes inject H1 tags dynamically via JavaScript, which may not be detected in static HTML.";
+    h1Fix = "Add exactly one H1 tag that includes your primary service and city. If your theme adds H1 dynamically, ensure it includes your keywords.";
   } else if (data.h1Texts.length > 1) {
     h1Points = 5;
     h1Status = "needs-improvement";
@@ -858,6 +873,7 @@ function generateRoadmap(
     roadmap.push({
       id: `item-${itemId++}`,
       priority,
+      category: category.key, // Store category key for sorting
       title: `Fix ${category.label}`,
       whatIsWrong: category.shortExplanation,
       whyItMatters: whyItMatters, // Use deterministic copy, not fixRecommendation
@@ -868,12 +884,31 @@ function generateRoadmap(
     });
   }
 
-  // Sort by priority
+  // Sort by priority, then by points available, then by structural priority (structural SEO before metadata)
   const priorityOrder = { HIGH: 0, MEDIUM: 1, OPTIONAL: 2 };
+  // Structural SEO items (H1, headings, content) should come before metadata (title, meta description)
+  // When multiple HIGH priority items have equal pointsAvailable, prefer structural SEO items
+  const structuralPriority: Record<string, number> = {
+    "h1-tag": 1,
+    "heading-structure": 2,
+    "content-length": 3,
+    "title-tag": 4,
+    "meta-description": 5,
+    "images-alt": 6,
+    "internal-links": 7,
+    "local-keywords": 8,
+    "mobile-friendly": 9,
+    "conversion-signals": 10,
+  };
   roadmap.sort((a, b) => {
     const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
     if (priorityDiff !== 0) return priorityDiff;
-    return b.pointsAvailable - a.pointsAvailable; // Higher points available first within same priority
+    const pointsDiff = b.pointsAvailable - a.pointsAvailable;
+    if (pointsDiff !== 0) return pointsDiff;
+    // When priority and points are equal, prefer structural SEO items (H1) before metadata (Title)
+    const aStructural = structuralPriority[a.category] || 99;
+    const bStructural = structuralPriority[b.category] || 99;
+    return aStructural - bStructural;
   });
 
   return roadmap;

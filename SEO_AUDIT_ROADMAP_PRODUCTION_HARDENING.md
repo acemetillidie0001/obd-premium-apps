@@ -236,7 +236,76 @@ All 9 production hardening fixes applied successfully. The API route is now more
 
 ---
 
+---
+
+## Polish Pass Changes (Latest)
+
+### 10. ✅ H1 Missing Clarification Note
+**Issue:** Users might not understand why H1 is marked missing if their theme injects it via JavaScript.
+
+**Fix:**
+- Added clarification note in H1 missing explanation: "Note: Some themes inject H1 tags dynamically via JavaScript, which may not be detected in static HTML."
+- No scoring change, purely informational
+- Helps users understand static HTML analysis limitations
+
+**Code Location:** `runAudit()` H1 category (line ~462)
+
+---
+
+### 11. ✅ Roadmap Sorting: Structural-First Ordering
+**Issue:** When multiple HIGH priority items have equal `pointsAvailable`, sorting was non-deterministic.
+
+**Fix:**
+- Added `category` field to `RoadmapItem` type for deterministic sorting
+- When priority and points are equal, prefer structural SEO items (H1, headings, content) before metadata (title, meta description)
+- Structural priority order: H1 → Heading Structure → Content Length → Title → Meta → Images → Links → Keywords → Mobile → Conversion
+
+**Code Location:**
+- `types.ts` - Added `category: string` to `RoadmapItem` (line ~36)
+- `generateRoadmap()` - Added `category: category.key` (line ~876)
+- `generateRoadmap()` - Updated sort function with structural priority (lines ~887-912)
+
+**Impact:** More logical roadmap ordering, structural SEO prioritized over metadata when points are equal.
+
+---
+
+### 12. ✅ Single-Page Audit Notice
+**Issue:** Users might expect site-wide analysis, not understanding single-page limitation.
+
+**Fix:**
+- Added informational notice above results UI
+- Displays: "Note: This audit analyzes a single page only. For a complete site-wide SEO assessment, audit multiple pages individually."
+- Styled with blue background (light mode) / slate background (dark mode)
+- Positioned above results for visibility
+
+**Code Location:** `page.tsx` (lines ~396-401)
+
+**Impact:** Clear communication of single-page limitation, sets proper expectations.
+
+---
+
+## Summary
+
+All 12 production hardening and polish pass fixes applied successfully. The API route is now more robust, secure, accurate, and user-friendly:
+
+- ✅ XOR validation prevents ambiguous inputs
+- ✅ Status semantics correctly reflect presence vs. quality
+- ✅ Images scoring aligns with audit expectations
+- ✅ Local keyword matching handles special characters
+- ✅ Internal link detection excludes non-page links
+- ✅ Redirect SSRF protection prevents bypass
+- ✅ H1 extraction handles nested tags
+- ✅ Meta extraction handles attribute order
+- ✅ Roadmap copy separates "why" from "what"
+- ✅ H1 missing clarification improves user understanding
+- ✅ Roadmap sorting prioritizes structural SEO
+- ✅ Single-page notice sets proper expectations
+
+**Status:** ✅ **PRODUCTION READY**
+
+---
+
 **Hardened By:** AI Assistant  
 **Date:** 2024-12-14  
-**Status:** ✅ All Fixes Applied
+**Status:** ✅ All Fixes Applied (Including Polish Pass)
 

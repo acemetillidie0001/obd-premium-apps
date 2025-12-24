@@ -1,0 +1,89 @@
+name: Prisma Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+
+jobs:
+  migrate:
+    name: Deploy Prisma Migrations
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check auto-migrations guard
+        id: check-guard
+        run: |
+          AUTO_MIGRATIONS_ENABLED="${{ vars.AUTO_MIGRATIONS_ENABLED }}"
+          if [ "$AUTO_MIGRATIONS_ENABLED" = "false" ]; then
+            echo "⚠️  Auto-migrations are disabled via AUTO_MIGRATIONS_ENABLED variable"
+            echo "skipped=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Auto-migrations are enabled (default behavior)"
+            echo "skipped=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js
+        if: steps.check-guard.outputs.skipped != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        if: steps.check-guard.outputs.skipped != 'true'
+        run: npm ci
+
+      - name: Verify DATABASE_URL is set
+        if: steps.check-guard.outputs.skipped != 'true'
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "❌ Error: DATABASE_URL secret is not set in GitHub repository secrets"
+            exit 1
+          fi
+          echo "✅ DATABASE_URL secret is configured"
+
+      - name: Deploy Prisma migrations
+        if: steps.check-guard.outputs.skipped != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "🚀 Starting Prisma migration deployment..."
+          npx prisma migrate deploy
+          echo "✅ Migrations deployed successfully"
+
+      - name: Generate Prisma Client
+        if: steps.check-guard.outputs.skipped != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "🔧 Generating Prisma Client..."
+          npx prisma generate
+          echo "✅ Prisma Client generated successfully"
+
+      - name: Migration summary
+        if: steps.check-guard.outputs.skipped != 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Prisma migration workflow completed"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "• Migrations deployed: prisma migrate deploy"
+          echo "• Client generated: prisma generate"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Skip notification
+        if: steps.check-guard.outputs.skipped == 'true'
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "⏸️  Migration workflow skipped"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Auto-migrations are disabled via repository variable."
+          echo "Set AUTO_MIGRATIONS_ENABLED to 'true' or remove the variable to enable."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+

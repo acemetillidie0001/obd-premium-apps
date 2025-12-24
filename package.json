@@ -8,6 +8,7 @@
     "vercel-build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "postinstall": "prisma generate",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma migrate deploy && prisma generate",
     "verify:db": "tsx scripts/verify-db.ts",
@@ -40,12 +41,14 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/ui": "^4.0.16",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.8",
     "prisma": "^7.1.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.16"
   }
 }

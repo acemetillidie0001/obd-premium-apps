@@ -17,6 +17,7 @@ import {
   DateRangeMode,
 } from "@/lib/apps/reputation-dashboard/types";
 import { parseCSV, generateCSVTemplate, exportReviewsToCSV, CSVParseResult } from "@/lib/apps/reputation-dashboard/csv-utils";
+import { generateInsights, type Insight } from "@/lib/reputation/insights";
 
 // Simple SVG Chart Component with tooltips
 function SimpleLineChart({
@@ -284,6 +285,27 @@ export default function ReputationDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReputationDashboardResponse | null>(null);
   const [lastComputed, setLastComputed] = useState<string | null>(null);
+  
+  // Review Request Automation integration state
+  const [reviewRequestData, setReviewRequestData] = useState<{
+    datasetId: string;
+    campaignId: string;
+    businessName: string;
+    computedAt: string;
+    isCurrent?: boolean;
+    isCurrentForCampaign?: boolean;
+    metrics: {
+      sent: number;
+      clicked: number;
+      reviewed: number;
+      clickedRate: number;
+      reviewedRate: number;
+    };
+    totalsJson?: Record<string, unknown> | null;
+    warningsJson?: Record<string, unknown> | null;
+  } | null>(null);
+  const [loadingReviewRequest, setLoadingReviewRequest] = useState(false);
+  const [reviewRequestDbStatus, setReviewRequestDbStatus] = useState<"connected" | "fallback" | "empty" | "checking">("checking");
 
   // Modal state
   const [showAddReviewModal, setShowAddReviewModal] = useState(false);
@@ -347,6 +369,45 @@ export default function ReputationDashboardPage() {
       // Silently fail - localStorage may be unavailable or quota exceeded
     }
   }, [businessName, businessType, dateRangeMode, startDate, endDate, reviews, lastComputed]);
+
+  // Fetch Review Request Automation data on mount and when businessName changes
+  useEffect(() => {
+    const fetchReviewRequestData = async () => {
+      setLoadingReviewRequest(true);
+      setReviewRequestDbStatus("checking");
+      try {
+        const res = await fetch("/api/review-request-automation/latest");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok && !data.empty && data.dataset) {
+            setReviewRequestData(data.dataset);
+            setReviewRequestDbStatus("connected");
+          } else {
+            setReviewRequestData(null);
+            setReviewRequestDbStatus("empty");
+          }
+        } else {
+          // If 401, user not logged in - treat as empty
+          if (res.status === 401) {
+            setReviewRequestData(null);
+            setReviewRequestDbStatus("empty");
+          } else {
+            // Other errors suggest DB/migration issues
+            setReviewRequestData(null);
+            setReviewRequestDbStatus("fallback");
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching review request data:", err);
+        setReviewRequestData(null);
+        setReviewRequestDbStatus("fallback");
+      } finally {
+        setLoadingReviewRequest(false);
+      }
+    };
+
+    fetchReviewRequestData();
+  }, [businessName]); // Re-fetch when business name changes (optional matching)
 
   // ESC key handler for modals
   useEffect(() => {
@@ -1529,6 +1590,261 @@ export default function ReputationDashboardPage() {
               </>
             )}
           </div>
+
+          {/* Review Requests Performance Panel */}
+          <OBDPanel isDark={isDark}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                  Review Requests Performance
+                </h3>
+                {/* DB Status Pill */}
+                <span
+                  className={`text-xs px-2 py-1 rounded-full ${
+                    reviewRequestDbStatus === "connected"
+                      ? isDark
+                        ? "bg-green-900/50 text-green-300 border border-green-700"
+                        : "bg-green-50 text-green-700 border border-green-200"
+                      : reviewRequestDbStatus === "fallback"
+                      ? isDark
+                        ? "bg-yellow-900/50 text-yellow-300 border border-yellow-700"
+                        : "bg-yellow-50 text-yellow-700 border border-yellow-200"
+                      : reviewRequestDbStatus === "empty"
+                      ? isDark
+                        ? "bg-slate-800 text-slate-400 border border-slate-700"
+                        : "bg-slate-100 text-slate-600 border border-slate-200"
+                      : isDark
+                      ? "bg-slate-800 text-slate-400 border border-slate-700"
+                      : "bg-slate-100 text-slate-600 border border-slate-200"
+                  }`}
+                  title={
+                    reviewRequestDbStatus === "connected"
+                      ? "Connected to database"
+                      : reviewRequestDbStatus === "fallback"
+                      ? "Database unavailable. Run prisma migrate deploy and confirm DATABASE_URL is set."
+                      : reviewRequestDbStatus === "empty"
+                      ? "No review request campaigns saved yet"
+                      : "Checking connection..."
+                  }
+                >
+                  {reviewRequestDbStatus === "connected"
+                    ? "✓ Connected"
+                    : reviewRequestDbStatus === "fallback"
+                    ? "⚠ Fallback / Not Connected"
+                    : reviewRequestDbStatus === "empty"
+                    ? "○ No campaigns"
+                    : "○ Checking..."}
+                </span>
+              </div>
+              {reviewRequestData && (
+                <div className="flex items-center gap-2">
+                  {/* Current badge */}
+                  {reviewRequestData.isCurrent !== false && (
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${
+                        isDark
+                          ? "bg-blue-900/50 text-blue-300 border border-blue-700"
+                          : "bg-blue-50 text-blue-700 border border-blue-200"
+                      }`}
+                      title="This is your latest campaign run"
+                    >
+                      Current
+                    </span>
+                  )}
+                  <a
+                    href="/apps/review-request-automation"
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      isDark
+                        ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                        : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                    }`}
+                    title="Open Review Request Automation"
+                  >
+                    Open Review Request Automation
+                  </a>
+                </div>
+              )}
+            </div>
+            {/* Newer campaign exists notice (for future dataset browsing) */}
+            {reviewRequestData && reviewRequestData.isCurrent === false && (
+              <div className={`mb-4 p-3 rounded-lg border ${
+                isDark
+                  ? "bg-blue-900/20 border-blue-700"
+                  : "bg-blue-50 border-blue-200"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className={`text-sm ${isDark ? "text-blue-300" : "text-blue-700"}`}>
+                    A newer campaign run exists — view latest
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Reload latest dataset
+                      window.location.reload();
+                    }}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      isDark
+                        ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                        : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                    }`}
+                  >
+                    View latest
+                  </button>
+                </div>
+              </div>
+            )}
+            {loadingReviewRequest ? (
+              <div className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
+                Loading...
+              </div>
+            ) : reviewRequestData ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className={`text-2xl font-bold ${themeClasses.headingText}`}>
+                      {reviewRequestData.metrics.sent}
+                    </div>
+                    <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>Sent</div>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${themeClasses.headingText}`}>
+                      {reviewRequestData.metrics.clicked}
+                    </div>
+                    <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>Clicked</div>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${themeClasses.headingText}`}>
+                      {reviewRequestData.metrics.reviewed}
+                    </div>
+                    <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>Reviewed</div>
+                  </div>
+                  <div>
+                    <div className={`text-2xl font-bold ${themeClasses.headingText}`}>
+                      {reviewRequestData.metrics.clickedRate.toFixed(1)}%
+                    </div>
+                    <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>Click Rate</div>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-slate-300 dark:border-slate-700">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className={`text-xs ${themeClasses.mutedText}`}>
+                      Conversion: {reviewRequestData.metrics.reviewedRate.toFixed(1)}% ({reviewRequestData.metrics.reviewed} reviewed / {reviewRequestData.metrics.sent} sent)
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs ${themeClasses.mutedText}`}>
+                        Last computed: {formatTimestamp(reviewRequestData.computedAt)}
+                      </span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        isDark ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600"
+                      }`}>
+                        {reviewRequestData.datasetId.substring(0, 8)}...
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
+                No review request campaigns saved yet.{" "}
+                <a
+                  href="/apps/review-request-automation"
+                  className="text-[#29c4a9] hover:underline font-medium"
+                >
+                  Create your first campaign
+                </a>
+                {" "}to see performance metrics here.
+              </div>
+            )}
+          </OBDPanel>
+
+          {/* Insights & Recommendations Panel */}
+          {reviewRequestData && reviewRequestData.totalsJson && (
+            <OBDPanel isDark={isDark}>
+              <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
+                Insights & Recommendations
+              </h3>
+              {(() => {
+                const insights = generateInsights({
+                  totalsJson: reviewRequestData.totalsJson || null,
+                  warningsJson: reviewRequestData.warningsJson || null,
+                });
+
+                if (insights.length === 0) {
+                  return (
+                    <div className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
+                      No issues detected. Your review request strategy looks healthy.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {insights.map((insight) => {
+                      const severityConfig = {
+                        critical: {
+                          icon: "🔴",
+                          bg: isDark
+                            ? "bg-red-900/20 border-red-700"
+                            : "bg-red-50 border-red-200",
+                          text: isDark ? "text-red-300" : "text-red-700",
+                          title: isDark ? "text-red-200" : "text-red-800",
+                        },
+                        warning: {
+                          icon: "⚠️",
+                          bg: isDark
+                            ? "bg-yellow-900/20 border-yellow-700"
+                            : "bg-yellow-50 border-yellow-200",
+                          text: isDark ? "text-yellow-300" : "text-yellow-700",
+                          title: isDark ? "text-yellow-200" : "text-yellow-800",
+                        },
+                        info: {
+                          icon: "ℹ️",
+                          bg: isDark
+                            ? "bg-blue-900/20 border-blue-700"
+                            : "bg-blue-50 border-blue-200",
+                          text: isDark ? "text-blue-300" : "text-blue-700",
+                          title: isDark ? "text-blue-200" : "text-blue-800",
+                        },
+                      };
+
+                      const config = severityConfig[insight.severity];
+
+                      return (
+                        <div
+                          key={insight.id}
+                          className={`p-4 rounded-lg border ${config.bg}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-lg flex-shrink-0">{config.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <h4 className={`font-semibold mb-1 ${config.title}`}>
+                                {insight.title}
+                              </h4>
+                              <p className={`text-sm ${config.text} mb-2`}>
+                                {insight.message}
+                              </p>
+                              {insight.recommendedAction && (
+                                <a
+                                  href={insight.recommendedAction.deepLink}
+                                  className={`inline-block text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                                    isDark
+                                      ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                                      : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                                  }`}
+                                >
+                                  {insight.recommendedAction.label}
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </OBDPanel>
+          )}
 
           {/* Quality Signals Panel */}
           {result.qualitySignals.length > 0 && (

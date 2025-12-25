@@ -48,6 +48,101 @@ The Reputation Dashboard is a V3 production-ready OBD Premium App that provides 
 - **Real-time Monitoring**: No automated review fetching or alerts
 - **Multi-user Support**: Single-session dashboard (no saved dashboards per user)
 
+## Review Request Automation Integration
+
+The Reputation Dashboard now includes a read-only "Review Requests Performance" panel that displays metrics from saved Review Request Automation campaigns.
+
+### Review Requests Performance Panel
+
+**Location:** Displayed in results view, between KPI tiles and Quality Signals panel
+
+**Features:**
+- **Metrics Display**: Shows sent, clicked, and reviewed counts from the latest saved campaign
+- **Conversion Rates**: Displays click rate (clicked/sent) and review rate (reviewed/sent) as percentages
+- **Last Computed**: Shows timestamp of when the dataset was computed
+- **Dataset ID Badge**: Short form dataset identifier for reference
+- **Deep Link Button**: "Open Review Request Automation" button that navigates to `/apps/review-request-automation`
+
+**Data Source:**
+- Automatically fetches latest dataset via `GET /api/review-request-automation/latest` on page load
+- Latest dataset is determined by maximum `computedAt` timestamp (not campaign `createdAt`)
+- Data is refreshed when business name changes (optional matching)
+- Requires Review Request Automation campaigns to be saved with "Save to Database" toggle enabled
+
+**DB Status Pill:**
+The panel header includes a status indicator:
+- **✓ Connected**: Successfully loaded dataset from database
+- **⚠ Fallback / Not Connected**: Database unavailable (tooltip: "Run prisma migrate deploy and confirm DATABASE_URL is set.")
+- **○ No campaigns**: No datasets found (user hasn't saved any campaigns yet)
+- **○ Checking...**: Initial connection check in progress
+
+**Empty State:**
+- Shows "No review request campaigns saved yet" with link to create first campaign
+- Appears when user has no saved campaigns in the database (`empty: true` response)
+
+**Integration Behavior:**
+- Panel loads independently of main dashboard results
+- Errors in fetching review request data do not block dashboard display
+- All data is read-only (no editing capabilities in this view)
+- Returns empty state payload (`{ ok: true, empty: true }`) instead of errors when no data exists
+
+## Insights & Recommendations Panel (V3.5)
+
+The Reputation Dashboard now includes an "Insights & Recommendations" panel that provides actionable intelligence based on Review Request Automation dataset analysis.
+
+### Location
+
+Displayed below the "Review Requests Performance" panel, automatically appears when review request data is available.
+
+### Features
+
+**Insight Types:**
+- **Critical Insights** (🔴):
+  - Missing review link: Campaign lacks a review URL
+  - No customer contacts: Customers missing both email and phone information
+
+- **Warning Insights** (⚠️):
+  - Follow-up too aggressive: Follow-up delay less than 2 days
+  - SMS too long: Templates exceed 300 characters
+  - High queue skip rate: More than 25% of items skipped
+  - Low click-through rate: Less than 10% of sent requests clicked
+  - Low review conversion: Less than 5% conversion despite clicks
+  - High opt-out rate: More than 5% of customers opting out
+
+- **Info Insights** (ℹ️):
+  - Strong performance: Healthy conversion rates (15%+ reviewed, 20%+ clicked)
+  - Awaiting responses: Requests sent but no reviews yet
+
+**Display Behavior:**
+- Insights sorted by severity (Critical → Warning → Info)
+- Each insight shows: icon, title, plain-English message, and optional action button
+- Action buttons navigate to Review Request Automation with deep linking
+- Empty/healthy state: "No issues detected. Your review request strategy looks healthy."
+
+**Deep Linking:**
+- Action buttons include query parameters for precise navigation:
+  - `tab`: Opens specific tab in Review Request Automation
+  - `focus`: Highlights specific field/section
+  - `from=rd`: Triggers context banner in Review Request Automation
+
+**Examples:**
+- "Add review link" → Opens Campaign tab and highlights review link field
+- "Adjust follow-up timing" → Opens Campaign tab and highlights follow-up delay field
+- "Review message templates" → Opens Templates tab and highlights SMS section
+
+### Data Source
+
+- Uses `totalsJson` and `warningsJson` from the latest Review Request Automation dataset
+- Analyzes metrics including sent, clicked, reviewed counts and rates
+- Computes insights client-side using lightweight heuristics
+- Updates automatically when new dataset is loaded
+
+### Technical Implementation
+
+- Insight generation logic: `src/lib/reputation/insights.ts`
+- Type-safe implementation with severity classification
+- Non-blocking: Insights are informational only and don't prevent saving
+
 ## Data Format
 
 ### Manual Review Entry

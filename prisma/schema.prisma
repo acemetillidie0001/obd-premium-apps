@@ -32,6 +32,9 @@ model User {
   reviewRequestCustomers ReviewRequestCustomer[]
   reviewRequestQueueItems ReviewRequestQueueItem[]
   reviewRequestDatasets   ReviewRequestDataset[]
+  socialAutoposterSettings SocialAutoposterSettings?
+  socialQueueItems        SocialQueueItem[]
+  socialDeliveryAttempts  SocialDeliveryAttempt[]
 
   @@index([email])
 }
@@ -295,4 +298,104 @@ model ReviewRequestDataset {
   @@index([campaignId])
   @@index([userId, computedAt])
   @@index([snapshotId])
+}
+
+// ----------------------------------------------
+// Social Auto-Poster Enums
+// ----------------------------------------------
+enum SocialPlatform {
+  facebook
+  instagram
+  x
+  googleBusiness
+}
+
+enum PostingMode {
+  review
+  auto
+  campaign
+}
+
+enum QueueStatus {
+  draft
+  approved
+  scheduled
+  posted
+  failed
+}
+
+// ----------------------------------------------
+// Social Auto-Poster Tables
+// ----------------------------------------------
+model SocialAutoposterSettings {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  brandVoice        String?  @db.Text
+  postingMode       String   @default("review") // "review" | "auto" | "campaign"
+  frequency         String?  // e.g., "daily", "weekly", "3x per week"
+  allowedDays       String[] @default([]) // ["monday", "tuesday", ...]
+  timeWindowStart   String?  // HH:mm format
+  timeWindowEnd     String?  // HH:mm format
+  timezone         String?  @default("America/New_York")
+  enabledPlatforms String[] @default([]) // ["facebook", "instagram", ...]
+  platformsEnabled  Json?    // Per-platform enable/disable: { facebook: boolean, instagram: boolean, x: boolean, googleBusiness: boolean }
+  platformOverrides Json?   // Per-platform overrides: { facebook: { emojiModeOverride?, hashtagLimitOverride?, ctaStyleOverride? }, ... }
+  contentPillarSettings Json? // Content pillar settings: { contentPillarMode, defaultPillar, rotatePillars }
+  hashtagBankSettings Json?  // Hashtag bank settings: { includeLocalHashtags, hashtagBankMode }
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SocialQueueItem {
+  id                String        @id @default(cuid())
+  userId            String
+  platform          SocialPlatform
+  content           String        @db.Text
+  status            QueueStatus   @default(draft)
+  scheduledAt       DateTime?
+  postedAt          DateTime?
+  errorMessage      String?       @db.Text
+  attemptCount      Int           @default(0)
+  metadata          Json?         // Additional platform-specific data (images, hashtags, etc.)
+  contentTheme      String?       // Theme: "education","promotion","social_proof","community","seasonal","general"
+  contentHash       String?       // Stable hash for similarity detection (required for generated posts)
+  contentFingerprint String?      // Short stable fingerprint for quick comparisons
+  reason            String?       @db.Text // Why this post was created
+  isSimilar         Boolean       @default(false) // Flag if similar to recent post
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveryAttempts  SocialDeliveryAttempt[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@index([scheduledAt])
+  @@index([userId, scheduledAt])
+  @@index([userId, platform, contentHash])
+  @@index([contentHash])
+}
+
+model SocialDeliveryAttempt {
+  id            String   @id @default(cuid())
+  userId        String
+  queueItemId   String
+  platform      SocialPlatform
+  success       Boolean
+  errorMessage  String?  @db.Text
+  responseData  Json?    // Platform API response (if any)
+  attemptedAt   DateTime @default(now())
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  queueItem SocialQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([queueItemId])
+  @@index([userId, attemptedAt])
+  @@index([success])
 }

@@ -227,8 +227,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "social-auto-poster",
     name: "OBD Social Auto-Poster",
     description: "Schedule posts to Facebook, Instagram, Google Business, and more from one screen.",
+    href: "/apps/social-auto-poster",
     category: "productivity",
-    status: "coming-soon",
+    status: "in-progress",
+    ctaLabel: "Open Tool",
     icon: "share-2",
   },
   {

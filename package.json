@@ -12,7 +12,12 @@
     "postinstall": "prisma generate",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma migrate deploy && prisma generate",
     "verify:db": "tsx scripts/verify-db.ts",
-    "check:deploy": "tsx scripts/check-deployment-status.ts"
+    "check:deploy": "tsx scripts/check-deployment-status.ts",
+    "db:generate": "prisma generate",
+    "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "db:studio": "prisma studio",
+    "db:exec": "prisma db execute --file"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",

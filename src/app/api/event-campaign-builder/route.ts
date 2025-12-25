@@ -676,7 +676,9 @@ export async function POST(req: Request) {
     }
 
     // Handle network/timeout errors
-    if (err?.name === "AbortError" || err?.code === "ECONNABORTED") {
+    const errName = err instanceof Error && "name" in err ? (err as Error & { name?: string }).name : undefined;
+    const errCode = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+    if (errName === "AbortError" || errCode === "ECONNABORTED") {
       return errorResponse(
         "Request timed out. Please try again.",
         504,
@@ -684,14 +686,17 @@ export async function POST(req: Request) {
     }
 
     // Generic fallback
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : undefined;
+    const errNameForDev = err instanceof Error ? err.name : undefined;
     return errorResponse(
       "Something went wrong while generating your event campaign.",
       500,
       isDev
         ? {
-            message: err?.message ?? String(err),
-            stack: err?.stack,
-            name: err?.name,
+            message: errMessage,
+            stack: errStack,
+            name: errNameForDev,
           }
         : undefined,
     );

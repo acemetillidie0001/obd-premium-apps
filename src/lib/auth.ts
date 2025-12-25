@@ -142,7 +142,8 @@ export const authConfig = {
   // NextAuth v5 Email provider REQUIRES an adapter
   // Use static import - PrismaAdapter(prisma) wired directly
   // Type assertion needed due to NextAuth v5 beta type compatibility
-  adapter: PrismaAdapter(prisma) as unknown,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  adapter: PrismaAdapter(prisma) as any,
   providers: [
     Email({
       from: getEmailFrom(),
@@ -288,7 +289,7 @@ export const authConfig = {
             token.role = dbUser.role === "admin" ? "admin" : "user";
             token.isPremium = dbUser.isPremium;
           }
-        } catch (error) {
+        } catch {
           // If database query fails, skip update
           // This is fine since we're using JWT strategy and the token already has the data
         }

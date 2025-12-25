@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasPremiumAccess } from "@/lib/premium";
 import { Prisma } from "@prisma/client";
 import type {
   SaveSettingsRequest,
@@ -12,6 +13,13 @@ import type {
   PlatformOverridesMap,
   PlatformsEnabled,
 } from "@/lib/apps/social-auto-poster/types";
+import {
+  isValidSocialPlatformArray,
+  isValidPlatformsEnabled,
+  isValidPlatformOverridesMap,
+  isValidContentPillarSettings,
+  isValidHashtagBankSettings,
+} from "@/lib/apps/social-auto-poster/utils";
 
 /**
  * GET /api/social-auto-poster/settings
@@ -25,6 +33,14 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const hasAccess = await hasPremiumAccess();
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: "Premium access required" },
+        { status: 403 }
+      );
+    }
+
     const userId = session.user.id;
 
     const settings = await prisma.socialAutoposterSettings.findUnique({
@@ -33,6 +49,57 @@ export async function GET() {
 
     if (!settings) {
       return NextResponse.json({ settings: null } as GetSettingsResponse);
+    }
+
+    // Validate and parse Prisma JSON fields with runtime checks
+    let enabledPlatforms: SocialPlatform[];
+    if (isValidSocialPlatformArray(settings.enabledPlatforms)) {
+      enabledPlatforms = settings.enabledPlatforms;
+    } else {
+      if (settings.enabledPlatforms !== null && settings.enabledPlatforms !== undefined) {
+        console.warn("[Settings GET] Invalid enabledPlatforms, using empty array");
+      }
+      enabledPlatforms = [];
+    }
+
+    let platformsEnabled: PlatformsEnabled | undefined;
+    if (isValidPlatformsEnabled(settings.platformsEnabled)) {
+      platformsEnabled = settings.platformsEnabled;
+    } else {
+      if (settings.platformsEnabled !== null && settings.platformsEnabled !== undefined) {
+        console.warn("[Settings GET] Invalid platformsEnabled, using undefined");
+      }
+      platformsEnabled = undefined;
+    }
+
+    let platformOverrides: PlatformOverridesMap | undefined;
+    if (isValidPlatformOverridesMap(settings.platformOverrides)) {
+      platformOverrides = settings.platformOverrides;
+    } else {
+      if (settings.platformOverrides !== null && settings.platformOverrides !== undefined) {
+        console.warn("[Settings GET] Invalid platformOverrides, using undefined");
+      }
+      platformOverrides = undefined;
+    }
+
+    let contentPillarSettings: ContentPillarSettings | undefined;
+    if (isValidContentPillarSettings(settings.contentPillarSettings)) {
+      contentPillarSettings = settings.contentPillarSettings;
+    } else {
+      if (settings.contentPillarSettings !== null && settings.contentPillarSettings !== undefined) {
+        console.warn("[Settings GET] Invalid contentPillarSettings, using undefined");
+      }
+      contentPillarSettings = undefined;
+    }
+
+    let hashtagBankSettings: HashtagBankSettings | undefined;
+    if (isValidHashtagBankSettings(settings.hashtagBankSettings)) {
+      hashtagBankSettings = settings.hashtagBankSettings;
+    } else {
+      if (settings.hashtagBankSettings !== null && settings.hashtagBankSettings !== undefined) {
+        console.warn("[Settings GET] Invalid hashtagBankSettings, using undefined");
+      }
+      hashtagBankSettings = undefined;
     }
 
     // Transform Prisma model to API response format
@@ -51,11 +118,11 @@ export async function GET() {
           },
           timezone: settings.timezone || "America/New_York",
         },
-        enabledPlatforms: (settings.enabledPlatforms as SocialPlatform[]) || [],
-        platformsEnabled: (settings.platformsEnabled as PlatformsEnabled | null) || undefined,
-        platformOverrides: (settings.platformOverrides as PlatformOverridesMap | null) || undefined,
-        contentPillarSettings: (settings.contentPillarSettings as ContentPillarSettings | null) || undefined,
-        hashtagBankSettings: (settings.hashtagBankSettings as HashtagBankSettings | null) || undefined,
+        enabledPlatforms,
+        platformsEnabled,
+        platformOverrides,
+        contentPillarSettings,
+        hashtagBankSettings,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },
@@ -81,6 +148,14 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const hasAccess = await hasPremiumAccess();
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: "Premium access required" },
+        { status: 403 }
+      );
     }
 
     const userId = session.user.id;
@@ -181,6 +256,57 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Validate and parse Prisma JSON fields with runtime checks
+    let responseEnabledPlatforms: SocialPlatform[];
+    if (isValidSocialPlatformArray(settings.enabledPlatforms)) {
+      responseEnabledPlatforms = settings.enabledPlatforms;
+    } else {
+      if (settings.enabledPlatforms !== null && settings.enabledPlatforms !== undefined) {
+        console.warn("[Settings POST] Invalid enabledPlatforms, using empty array");
+      }
+      responseEnabledPlatforms = [];
+    }
+
+    let responsePlatformsEnabled: PlatformsEnabled | undefined;
+    if (isValidPlatformsEnabled(settings.platformsEnabled)) {
+      responsePlatformsEnabled = settings.platformsEnabled;
+    } else {
+      if (settings.platformsEnabled !== null && settings.platformsEnabled !== undefined) {
+        console.warn("[Settings POST] Invalid platformsEnabled, using undefined");
+      }
+      responsePlatformsEnabled = undefined;
+    }
+
+    let responsePlatformOverrides: PlatformOverridesMap | undefined;
+    if (isValidPlatformOverridesMap(settings.platformOverrides)) {
+      responsePlatformOverrides = settings.platformOverrides;
+    } else {
+      if (settings.platformOverrides !== null && settings.platformOverrides !== undefined) {
+        console.warn("[Settings POST] Invalid platformOverrides, using undefined");
+      }
+      responsePlatformOverrides = undefined;
+    }
+
+    let responseContentPillarSettings: ContentPillarSettings | undefined;
+    if (isValidContentPillarSettings(settings.contentPillarSettings)) {
+      responseContentPillarSettings = settings.contentPillarSettings;
+    } else {
+      if (settings.contentPillarSettings !== null && settings.contentPillarSettings !== undefined) {
+        console.warn("[Settings POST] Invalid contentPillarSettings, using undefined");
+      }
+      responseContentPillarSettings = undefined;
+    }
+
+    let responseHashtagBankSettings: HashtagBankSettings | undefined;
+    if (isValidHashtagBankSettings(settings.hashtagBankSettings)) {
+      responseHashtagBankSettings = settings.hashtagBankSettings;
+    } else {
+      if (settings.hashtagBankSettings !== null && settings.hashtagBankSettings !== undefined) {
+        console.warn("[Settings POST] Invalid hashtagBankSettings, using undefined");
+      }
+      responseHashtagBankSettings = undefined;
+    }
+
     const response: SaveSettingsResponse = {
       settings: {
         id: settings.id,
@@ -196,11 +322,11 @@ export async function POST(request: NextRequest) {
           },
           timezone: settings.timezone || "America/New_York",
         },
-        enabledPlatforms: (settings.enabledPlatforms as SocialPlatform[]) || [],
-        platformsEnabled: (settings.platformsEnabled as PlatformsEnabled | null) || undefined,
-        platformOverrides: (settings.platformOverrides as PlatformOverridesMap | null) || undefined,
-        contentPillarSettings: (settings.contentPillarSettings as ContentPillarSettings | null) || undefined,
-        hashtagBankSettings: (settings.hashtagBankSettings as HashtagBankSettings | null) || undefined,
+        enabledPlatforms: responseEnabledPlatforms,
+        platformsEnabled: responsePlatformsEnabled,
+        platformOverrides: responsePlatformOverrides,
+        contentPillarSettings: responseContentPillarSettings,
+        hashtagBankSettings: responseHashtagBankSettings,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },

@@ -49,19 +49,19 @@ export async function GET() {
   } catch (err: unknown) {
     const error = err instanceof Error ? err : { message: String(err) };
     console.error("[Test DB] Database test failed:", {
-      message: error.message,
-      code: "code" in error ? error.code : undefined,
-      name: error.name,
-      stack: error.stack,
+      message: error instanceof Error ? error.message : String(error),
+      code: error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined,
+      name: error instanceof Error ? error.name : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
     });
 
     return NextResponse.json(
       {
         ok: false,
         error: {
-          message: err?.message || "Unknown database error",
-          code: err?.code || "UNKNOWN",
-          name: err?.name || "Error",
+          message: err instanceof Error ? err.message : String(err) || "Unknown database error",
+          code: err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code || "UNKNOWN") : "UNKNOWN",
+          name: err instanceof Error ? err.name : "Error",
         },
         hasDatabaseUrl,
         hasSslmode,

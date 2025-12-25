@@ -60,7 +60,7 @@ All represented with "Coming Q1 2026" tiles in the dashboard.
 
 **Productivity & Automation**
 
-- OBD Social Auto-Poster
+- OBD Social Auto-Poster ✅ (V3A++ complete, V3+++ Images in progress)
 - OBD Scheduler & Booking
 - OBD CRM
 - OBD AI Chatbot
@@ -130,9 +130,11 @@ These rules guide visual consistency across the dashboard.
 
 ### Phase 1 – Complete In-Development Tools
 
+- ✅ Social Auto-Poster V3A++ (Production ready, pre-Images)
 - Finalize Local Keyword Research Tool
 - Complete dashboards for Reputation, SEO, and Productivity categories
 - Implement Coming Soon card animation polish (glass blur, micro-shadows)
+- Social Auto-Poster V3+++ (Images phase - OAuth, real posting, image generation)
 
 ### Phase 2 – App Infrastructure
 

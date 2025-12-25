@@ -5,6 +5,7 @@ import { getOpenAIClient } from "@/lib/openai-client";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
+  LocalKeywordIdea,
 } from "./types";
 import { fetchKeywordMetrics } from "@/lib/local-keyword-metrics";
 
@@ -184,7 +185,7 @@ function sanitizeAndClampRequest(body: Record<string, unknown>): LocalKeywordReq
     websiteUrl: body.websiteUrl
       ? body.websiteUrl.toString().slice(0, 300)
       : undefined,
-    primaryGoal: (["SEO", "Content", "Ads", "Mixed"].includes(body.primaryGoal)
+    primaryGoal: (typeof body.primaryGoal === "string" && ["SEO", "Content", "Ads", "Mixed"].includes(body.primaryGoal)
       ? body.primaryGoal
       : "SEO") as LocalKeywordRequest["primaryGoal"],
     radiusMiles,
@@ -207,13 +208,13 @@ function sanitizeAndClampRequest(body: Record<string, unknown>): LocalKeywordReq
       "Bold",
       "High-Energy",
       "Luxury",
-    ].includes(body.personalityStyle)
-      ? body.personalityStyle
+    ].includes(typeof body.personalityStyle === "string" ? body.personalityStyle : "")
+      ? (typeof body.personalityStyle === "string" ? body.personalityStyle : "None")
       : "None") as LocalKeywordRequest["personalityStyle"],
     brandVoice: body.brandVoice
       ? body.brandVoice.toString().slice(0, 2000)
       : undefined,
-    language: (["English", "Spanish", "Bilingual"].includes(body.language)
+    language: (typeof body.language === "string" && ["English", "Spanish", "Bilingual"].includes(body.language)
       ? body.language
       : "English") as LocalKeywordRequest["language"],
     includeBlogIdeas:
@@ -357,20 +358,23 @@ export async function POST(req: Request) {
       if (!Array.isArray(parsed.topPriorityKeywords)) parsed.topPriorityKeywords = [];
       
       // Ensure opportunityScore is within valid range and preserve metrics
-      const normalizeKeyword = (k: Record<string, unknown>) => ({
-        ...k,
-        opportunityScore: Math.max(1, Math.min(100, Number(k.opportunityScore) || 50)),
-        // Preserve metrics if present
-        monthlySearchesExact: typeof k.monthlySearchesExact === "number" ? k.monthlySearchesExact : k.monthlySearchesExact ?? null,
-        cpcUsd: typeof k.cpcUsd === "number" ? k.cpcUsd : k.cpcUsd ?? null,
-        adsCompetitionIndex: typeof k.adsCompetitionIndex === "number" ? k.adsCompetitionIndex : k.adsCompetitionIndex ?? null,
-        dataSource: k.dataSource || null,
-      });
+      const normalizeKeyword = (k: unknown): LocalKeywordIdea => {
+        const kw = k as Record<string, unknown>;
+        return {
+          ...kw,
+          opportunityScore: Math.max(1, Math.min(100, Number(kw.opportunityScore) || 50)),
+          // Preserve metrics if present
+          monthlySearchesExact: typeof kw.monthlySearchesExact === "number" ? kw.monthlySearchesExact : kw.monthlySearchesExact ?? null,
+          cpcUsd: typeof kw.cpcUsd === "number" ? kw.cpcUsd : kw.cpcUsd ?? null,
+          adsCompetitionIndex: typeof kw.adsCompetitionIndex === "number" ? kw.adsCompetitionIndex : kw.adsCompetitionIndex ?? null,
+          dataSource: kw.dataSource || null,
+        } as LocalKeywordIdea;
+      };
       
-      parsed.topPriorityKeywords = parsed.topPriorityKeywords.map(normalizeKeyword);
-      parsed.keywordClusters = parsed.keywordClusters.map((cluster) => ({
+      parsed.topPriorityKeywords = (parsed.topPriorityKeywords as unknown[]).map(normalizeKeyword) as LocalKeywordIdea[];
+      parsed.keywordClusters = parsed.keywordClusters.map((cluster: any) => ({
         ...cluster,
-        keywords: (cluster.keywords || []).map(normalizeKeyword),
+        keywords: ((cluster.keywords || []) as unknown[]).map(normalizeKeyword) as LocalKeywordIdea[],
       }));
     } catch (err) {
       console.error("Failed to parse final JSON from model:", err, finalContent);

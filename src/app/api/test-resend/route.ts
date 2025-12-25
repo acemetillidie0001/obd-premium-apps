@@ -30,10 +30,10 @@ export async function GET() {
   } catch (err: unknown) {
     const error = err instanceof Error ? err : { message: String(err) };
     const errorObj = {
-      message: error.message,
-      name: error.name,
-      statusCode: "statusCode" in error ? error.statusCode : undefined,
-      response: "response" in error ? error.response : undefined,
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : undefined,
+      statusCode: error && typeof error === "object" && "statusCode" in error ? (error as { statusCode?: unknown }).statusCode : undefined,
+      response: error && typeof error === "object" && "response" in error ? (error as { response?: unknown }).response : undefined,
     };
     console.error("[Test Resend] Error:", errorObj);
     return NextResponse.json(

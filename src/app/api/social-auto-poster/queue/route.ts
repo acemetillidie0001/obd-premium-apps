@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hasPremiumAccess } from "@/lib/premium";
 import type { QueueListResponse, QueueStatus } from "@/lib/apps/social-auto-poster/types";
 
 /**
@@ -15,6 +16,14 @@ export async function GET(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const hasAccess = await hasPremiumAccess();
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: "Premium access required" },
+        { status: 403 }
+      );
     }
 
     const userId = session.user.id;

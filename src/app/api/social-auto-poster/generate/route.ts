@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
 import { auth } from "@/lib/auth";
+import { hasPremiumAccess } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
+import {
+  isValidPlatformsEnabled,
+  isValidPlatformOverridesMap,
+  isValidContentPillarSettings,
+  isValidHashtagBankSettings,
+} from "@/lib/apps/social-auto-poster/utils";
 import type {
   GeneratePostsRequest,
   GeneratePostsResponse,
   SocialPostPreview,
   SocialPlatform,
   ContentTheme,
+  ContentPillar,
 } from "@/lib/apps/social-auto-poster/types";
 import {
   computeContentHash,
@@ -16,6 +24,7 @@ import {
   pickNextPillar,
   getHashtagSetForBusiness,
 } from "@/lib/apps/social-auto-poster/utils";
+import { generatePostsResponseSchema } from "@/lib/apps/social-auto-poster/aiSchema";
 
 const PLATFORM_MAX_CHARS: Record<SocialPlatform, number> = {
   facebook: 5000,
@@ -47,13 +56,32 @@ async function generatePosts(
     where: { userId },
   });
 
-  // Filter out disabled platforms
-  const platformsEnabled = (settings?.platformsEnabled as Record<string, boolean> | null) || {};
-  const platformOverrides = (settings?.platformOverrides as Record<string, {
+  // Validate and parse Prisma JSON fields with runtime checks
+  let platformsEnabled: Record<string, boolean> = {};
+  if (settings?.platformsEnabled) {
+    if (isValidPlatformsEnabled(settings.platformsEnabled)) {
+      platformsEnabled = settings.platformsEnabled as Record<string, boolean>;
+    } else {
+      console.warn("[Generate] Invalid platformsEnabled, using empty object");
+    }
+  }
+
+  let platformOverrides: Record<string, {
     emojiModeOverride?: string;
     hashtagLimitOverride?: number;
     ctaStyleOverride?: string;
-  }> | null) || {};
+  }> = {};
+  if (settings?.platformOverrides) {
+    if (isValidPlatformOverridesMap(settings.platformOverrides)) {
+      platformOverrides = settings.platformOverrides as Record<string, {
+        emojiModeOverride?: string;
+        hashtagLimitOverride?: number;
+        ctaStyleOverride?: string;
+      }>;
+    } else {
+      console.warn("[Generate] Invalid platformOverrides, using empty object");
+    }
+  }
   const enabledPlatforms = request.platforms.filter((platform) => {
     const isEnabled = platformsEnabled[platform] !== false; // Default to enabled if not set
     return isEnabled;
@@ -66,11 +94,18 @@ async function generatePosts(
   const openai = getOpenAIClient();
 
   // Determine pillar (use override if provided, otherwise pick from settings)
-  const pillarSettings = (settings?.contentPillarSettings as {
-    contentPillarMode?: "single" | "rotate";
+  let pillarSettings: {
+    contentPillarMode: "single" | "rotate";
     defaultPillar?: string;
-    rotatePillars?: string[];
-  } | null) || { contentPillarMode: "single" };
+    rotatePillars?: ContentPillar[];
+  } = { contentPillarMode: "single" };
+  if (settings?.contentPillarSettings) {
+    if (isValidContentPillarSettings(settings.contentPillarSettings)) {
+      pillarSettings = settings.contentPillarSettings;
+    } else {
+      console.warn("[Generate] Invalid contentPillarSettings, using defaults");
+    }
+  }
 
   let selectedPillar: string;
   if (request.pillarOverride) {
@@ -78,7 +113,7 @@ async function generatePosts(
   } else if (pillarSettings.contentPillarMode === "rotate") {
     selectedPillar = await pickNextPillar(userId, {
       contentPillarMode: "rotate",
-      rotatePillars: pillarSettings.rotatePillars as ("education" | "promotion" | "social_proof" | "community" | "seasonal")[] | undefined,
+      rotatePillars: pillarSettings.rotatePillars,
     });
   } else {
     selectedPillar = pillarSettings.defaultPillar || "education";
@@ -95,10 +130,17 @@ async function generatePosts(
   );
 
   // Get hashtag sets for each platform if enabled
-  const hashtagSettings = (settings?.hashtagBankSettings as {
-    includeLocalHashtags?: boolean;
-    hashtagBankMode?: "auto" | "manual";
-  } | null) || { includeLocalHashtags: false };
+  let hashtagSettings: {
+    includeLocalHashtags: boolean;
+    hashtagBankMode: "auto" | "manual";
+  } = { includeLocalHashtags: false, hashtagBankMode: "auto" };
+  if (settings?.hashtagBankSettings) {
+    if (isValidHashtagBankSettings(settings.hashtagBankSettings)) {
+      hashtagSettings = settings.hashtagBankSettings;
+    } else {
+      console.warn("[Generate] Invalid hashtagBankSettings, using defaults");
+    }
+  }
 
   const platformHashtags: Record<SocialPlatform, string[]> = {
     facebook: [],
@@ -113,7 +155,9 @@ async function generatePosts(
       
       // Apply platform-specific limits
       const overrides = platformOverrides[platform];
-      const limit = overrides?.hashtagLimitOverride as number | undefined;
+      const limit = overrides?.hashtagLimitOverride !== undefined && typeof overrides.hashtagLimitOverride === "number"
+        ? overrides.hashtagLimitOverride
+        : undefined;
       const defaultLimits: Record<SocialPlatform, number> = {
         facebook: 4,
         instagram: 6,
@@ -356,14 +400,26 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
   const jsonString = stripMarkdownFences(rawResponse);
 
   try {
-    const parsed: GeneratePostsResponse & { variants?: Record<SocialPlatform, Array<{
-      platform: SocialPlatform;
-      content: string;
-      characterCount: number;
-      reason: string;
-      theme: ContentTheme;
-      metadata?: Record<string, unknown>;
-    }>> } = JSON.parse(jsonString);
+    const parsedRaw = JSON.parse(jsonString);
+
+    // Validate AI response structure with Zod
+    const validationResult = generatePostsResponseSchema.safeParse(parsedRaw);
+    
+    if (!validationResult.success) {
+      // Log detailed validation errors for debugging (server-side only)
+      console.warn("[Generate] AI response validation failed:", {
+        errors: validationResult.error.issues,
+        rawResponse: jsonString.substring(0, 500), // First 500 chars only
+      });
+      
+      // Throw error to be caught by POST handler and returned as 422
+      const validationError = new Error("INVALID_AI_RESPONSE") as Error & { statusCode: number };
+      validationError.statusCode = 422;
+      throw validationError;
+    }
+
+    // Use validated and normalized data
+    const parsed = validationResult.data;
 
     // Check for similarity and enrich previews
     const enrichedPreviews: SocialPostPreview[] = await Promise.all(
@@ -470,6 +526,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const hasAccess = await hasPremiumAccess();
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: "Premium access required" },
+        { status: 403 }
+      );
+    }
+
     const userId = session.user.id;
     const body: GeneratePostsRequest = await request.json();
 
@@ -498,6 +562,16 @@ export async function POST(request: NextRequest) {
     const response = await generatePosts(body, userId);
     return NextResponse.json(response);
   } catch (error) {
+    // Handle AI validation errors with 422 status
+    if (error instanceof Error && "statusCode" in error && (error as Error & { statusCode: number }).statusCode === 422) {
+      return NextResponse.json(
+        {
+          error: "AI returned an invalid response format. Please try again.",
+        },
+        { status: 422 }
+      );
+    }
+
     console.error("Error generating social posts:", error);
     return NextResponse.json(
       {

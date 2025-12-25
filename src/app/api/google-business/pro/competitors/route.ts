@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
           ) {
             return false;
           }
-          const subScores = score.subScores;
+          const subScores = score.subScores as Record<string, unknown>;
           return (
             typeof subScores.visibility === "number" &&
             subScores.visibility >= 0 &&

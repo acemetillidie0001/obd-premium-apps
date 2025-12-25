@@ -4,8 +4,137 @@
  * Content normalization, hashing, and similarity detection utilities.
  */
 
-import type { SocialPlatform, ContentTheme, ContentPillar, AnalyticsSummary } from "./types";
+import { createHash } from "crypto";
+import type { SocialPlatform, ContentTheme, ContentPillar, AnalyticsSummary, PlatformsEnabled, PlatformOverridesMap, ContentPillarSettings, HashtagBankSettings, PlatformOverrides } from "./types";
 import { prisma } from "@/lib/prisma";
+
+// ============================================
+// Runtime Type Guards for Prisma JSON Fields
+// ============================================
+
+const VALID_PLATFORMS: SocialPlatform[] = ["facebook", "instagram", "x", "googleBusiness"];
+const VALID_CONTENT_PILLARS: ContentPillar[] = ["education", "promotion", "social_proof", "community", "seasonal"];
+const VALID_PILLAR_MODES = ["single", "rotate"] as const;
+const VALID_HASHTAG_MODES = ["auto", "manual"] as const;
+const VALID_EMOJI_MODES = ["allow", "limit", "none"] as const;
+const VALID_CTA_STYLES = ["none", "soft", "direct"] as const;
+
+/**
+ * Type guard for SocialPlatform array
+ */
+export function isValidSocialPlatformArray(value: unknown): value is SocialPlatform[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((v) => typeof v === "string" && VALID_PLATFORMS.includes(v as SocialPlatform));
+}
+
+/**
+ * Type guard for PlatformsEnabled object
+ */
+export function isValidPlatformsEnabled(value: unknown): value is PlatformsEnabled {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  // Check that all keys are valid platforms and values are booleans (or undefined)
+  return Object.keys(obj).every((key) => {
+    if (!VALID_PLATFORMS.includes(key as SocialPlatform)) return false;
+    const val = obj[key];
+    return val === undefined || typeof val === "boolean";
+  });
+}
+
+/**
+ * Type guard for PlatformOverrides object
+ */
+function isValidPlatformOverrides(value: unknown): value is PlatformOverrides {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  
+  if (obj.emojiModeOverride !== undefined) {
+    if (typeof obj.emojiModeOverride !== "string" || !(VALID_EMOJI_MODES as readonly string[]).includes(obj.emojiModeOverride)) {
+      return false;
+    }
+  }
+  
+  if (obj.hashtagLimitOverride !== undefined) {
+    if (typeof obj.hashtagLimitOverride !== "number" || obj.hashtagLimitOverride < 0) {
+      return false;
+    }
+  }
+  
+  if (obj.ctaStyleOverride !== undefined) {
+    if (typeof obj.ctaStyleOverride !== "string" || !(VALID_CTA_STYLES as readonly string[]).includes(obj.ctaStyleOverride)) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Type guard for PlatformOverridesMap object
+ */
+export function isValidPlatformOverridesMap(value: unknown): value is PlatformOverridesMap {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  // Check that all keys are valid platforms and values are PlatformOverrides (or undefined)
+  return Object.keys(obj).every((key) => {
+    if (!VALID_PLATFORMS.includes(key as SocialPlatform)) return false;
+    const val = obj[key];
+    return val === undefined || isValidPlatformOverrides(val);
+  });
+}
+
+/**
+ * Type guard for ContentPillarSettings object
+ */
+export function isValidContentPillarSettings(value: unknown): value is ContentPillarSettings {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  
+  // contentPillarMode is required
+  if (typeof obj.contentPillarMode !== "string" || !(VALID_PILLAR_MODES as readonly string[]).includes(obj.contentPillarMode)) {
+    return false;
+  }
+  
+  // defaultPillar is optional but must be valid if present
+  if (obj.defaultPillar !== undefined) {
+    if (typeof obj.defaultPillar !== "string" || !VALID_CONTENT_PILLARS.includes(obj.defaultPillar as ContentPillar)) {
+      return false;
+    }
+  }
+  
+  // rotatePillars is optional but must be valid array if present
+  if (obj.rotatePillars !== undefined) {
+    if (!Array.isArray(obj.rotatePillars)) return false;
+    if (!obj.rotatePillars.every((p) => typeof p === "string" && VALID_CONTENT_PILLARS.includes(p as ContentPillar))) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Type guard for HashtagBankSettings object
+ */
+export function isValidHashtagBankSettings(value: unknown): value is HashtagBankSettings {
+  if (value === null || value === undefined) return false;
+  if (typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  
+  // includeLocalHashtags is required
+  if (typeof obj.includeLocalHashtags !== "boolean") return false;
+  
+  // hashtagBankMode is required
+  if (typeof obj.hashtagBankMode !== "string" || !(VALID_HASHTAG_MODES as readonly string[]).includes(obj.hashtagBankMode)) {
+    return false;
+  }
+  
+  return true;
+}
 
 /**
  * Normalizes text for hashing/comparison:
@@ -42,7 +171,7 @@ export function normalizeText(text: string, options?: { removePunctuation?: bool
 
 /**
  * Computes a stable hash for content similarity detection.
- * Uses a simple hash function (djb2-like) for consistency.
+ * Uses SHA-256 for collision resistance and security.
  */
 export function computeContentHash(
   content: string,
@@ -52,15 +181,8 @@ export function computeContentHash(
   const normalized = normalizeText(content, { removePunctuation: true, removeStopWords: true });
   const combined = `${platform}:${theme || "general"}:${normalized}`;
   
-  // Simple hash function (djb2 variant)
-  let hash = 5381;
-  for (let i = 0; i < combined.length; i++) {
-    hash = ((hash << 5) + hash) + combined.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  
-  // Convert to positive hex string
-  return Math.abs(hash).toString(16);
+  // Use SHA-256 for secure, collision-resistant hashing
+  return createHash("sha256").update(combined, "utf8").digest("hex");
 }
 
 /**

@@ -5,6 +5,27 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Social Auto-Poster — V3A++ — 2025-12-25
+
+**Status:** Production Ready (Pre-Images)
+
+### Highlights
+
+- Premium access enforced on all Social Auto-Poster API routes (403 on non-premium)
+- Activity route N+1 query eliminated (bulk fetch)
+- Runtime-safe Prisma JSON access via type guards
+- AI output schema validated with Zod (422 on invalid responses)
+- QueueStatus imports unified to single source of truth
+- Content similarity hash upgraded to SHA-256
+- Composer defaults correctly initialized from saved settings
+- Build-blocking TypeScript issues resolved via safe type narrowing
+
+### Notes
+
+- No breaking changes
+- No schema changes
+- Ready for Images (V3+++)
+
 ## [3.6.0] - 2025-01-XX
 
 ### Added - Review Request Automation (Email Sending)

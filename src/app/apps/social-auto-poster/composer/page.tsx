@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -33,24 +33,7 @@ export default function SocialAutoPosterComposerPage() {
   const [previews, setPreviews] = useState<SocialPostPreview[]>([]);
   const [variants, setVariants] = useState<Record<SocialPlatform, SocialPostDraft[]>>({} as Record<SocialPlatform, SocialPostDraft[]>);
   const [selectedVariants, setSelectedVariants] = useState<Record<SocialPlatform, number>>({} as Record<SocialPlatform, number>);
-
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
-    try {
-      const res = await fetch("/api/social-auto-poster/settings");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.settings) {
-          setSettings(data.settings);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load settings:", err);
-    }
-  };
+  const defaultsInitialized = useRef(false);
 
   const [formData, setFormData] = useState<GeneratePostsRequest>({
     businessName: "",
@@ -65,9 +48,54 @@ export default function SocialAutoPosterComposerPage() {
     regenerateHashtags: false,
   });
   const [settings, setSettings] = useState<{
+    enabledPlatforms?: SocialPlatform[];
+    brandVoice?: string;
     contentPillarSettings?: { contentPillarMode?: string; defaultPillar?: string };
-    hashtagBankSettings?: { includeLocalHashtags?: boolean };
   } | null>(null);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  // Apply defaults from settings once when they load
+  useEffect(() => {
+    if (settings && !defaultsInitialized.current) {
+      setFormData((prev) => {
+        const updates: Partial<GeneratePostsRequest> = {};
+        
+        // Pre-select enabled platforms from settings
+        if (settings.enabledPlatforms && settings.enabledPlatforms.length > 0) {
+          updates.platforms = settings.enabledPlatforms;
+        }
+        
+        // Prefill brand voice from settings
+        if (settings.brandVoice) {
+          updates.brandVoice = settings.brandVoice;
+        }
+        
+        return { ...prev, ...updates };
+      });
+      defaultsInitialized.current = true;
+    }
+  }, [settings]);
+
+  const loadSettings = async () => {
+    try {
+      const res = await fetch("/api/social-auto-poster/settings");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.settings) {
+          setSettings({
+            enabledPlatforms: data.settings.enabledPlatforms,
+            brandVoice: data.settings.brandVoice,
+            contentPillarSettings: data.settings.contentPillarSettings,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

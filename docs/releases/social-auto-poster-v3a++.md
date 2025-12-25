@@ -123,3 +123,17 @@
 - Full production deployment
 
 **Note:** Images phase to be built in separate development cycle.
+
+---
+
+## Next Phase: V3+++ Images
+
+The next development phase will focus on image generation and posting capabilities:
+
+- **Image Generation**: Generate thumbnails/preview images for platforms
+- **Alt Text Enforcement**: Automated alt text generation and validation
+- **Image Prompt Templates**: Template system for consistent image generation
+- **Storage Strategy**: Image storage and CDN integration
+- **OAuth Integration**: Real platform connections for posting with images
+
+**Note:** A new chat will start for V3+++ Images development to keep history clean and focused.

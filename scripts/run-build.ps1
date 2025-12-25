@@ -1,10 +1,20 @@
-# Force build to run from repo root
-# This script ensures the working directory is correct before running npm build
+# Build Utility Script
 # 
-# Usage: powershell -ExecutionPolicy Bypass -File .\scripts\run-build.ps1
+# Purpose: Ensures npm build runs from the repository root directory.
 # 
-# Useful for CI/CD environments or when build commands are executed from
-# unexpected working directories (e.g., Cursor auto-run).
+# When to use:
+# - Manual build execution when unsure of current working directory
+# - Debugging build failures related to path issues
+# - Local development when build commands fail due to directory context
+# 
+# IMPORTANT: This script does NOT run automatically in CI/CD.
+# CI/CD systems should use standard npm scripts (npm run build) directly.
+# 
+# Usage:
+#   powershell -ExecutionPolicy Bypass -File .\scripts\run-build.ps1
+# 
+# This script changes to the repo root, verifies package.json exists,
+# and then runs npm run build from the correct directory.
 
 $scriptPath = $PSScriptRoot
 $repoRoot = Split-Path $scriptPath -Parent

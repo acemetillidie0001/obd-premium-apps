@@ -134,7 +134,13 @@ These rules guide visual consistency across the dashboard.
 - Finalize Local Keyword Research Tool
 - Complete dashboards for Reputation, SEO, and Productivity categories
 - Implement Coming Soon card animation polish (glass blur, micro-shadows)
-- Social Auto-Poster V3+++ (Images phase - OAuth, real posting, image generation)
+- **Next: Social Auto-Poster V3+++ (Images phase)**
+  - Generate thumbnails/preview images for platforms
+  - Enforce alt text generation and validation
+  - Image prompt templates
+  - Storage strategy for image assets
+  - OAuth integration for real posting with images
+  - *Note: New chat will start for V3+++ Images to keep history clean*
 
 ### Phase 2 – App Infrastructure
 

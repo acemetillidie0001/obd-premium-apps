@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No schema changes
 - Ready for Images (V3+++)
 
+### Quality & Process
+
+- Introduced formal lint quality tracking policy
+- Release-scoped lint enforcement added
+- Global lint backlog documented (non-blocking)
+
 ## [3.6.0] - 2025-01-XX
 
 ### Added - Review Request Automation (Email Sending)

@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import type {
   CreateQueueItemRequest,
   CreateQueueItemResponse,
+  PostImage,
 } from "@/lib/apps/social-auto-poster/types";
 import {
   computeContentHash,
@@ -60,6 +61,64 @@ export async function POST(request: NextRequest) {
     const contentHash = body.contentHash || computeContentHash(body.content, body.platform, body.theme || undefined);
     const contentFingerprint = body.contentFingerprint || computeContentFingerprint(body.content, body.platform);
 
+    // Extract image metadata from image field if present (new structure)
+    // Also support legacy metadata structure for backward compatibility
+    let imageStatus: "skipped" | "generated" | "fallback" | null = null;
+    let imageUrl: string | null = null;
+    let imageAltText: string | null = null;
+    let imageProvider: string | null = null;
+    let imageAspect: string | null = null;
+    let imageCategory: string | null = null;
+    let imageErrorCode: string | null = null;
+    let imageFallbackReason: string | null = null;
+    let imageRequestId: string | null = null;
+
+    // Check for new image field structure first
+    const image = (body as { image?: PostImage }).image;
+    if (image) {
+      imageStatus = image.status;
+      imageUrl = image.url || null;
+      imageAltText = image.altText || null;
+      imageProvider = image.provider || null;
+      imageAspect = image.aspect || null;
+      imageCategory = image.category || null;
+      imageErrorCode = image.errorCode || null;
+      imageFallbackReason = image.fallbackReason || null;
+      imageRequestId = image.requestId || null;
+    } else {
+      // Fallback to legacy metadata structure for backward compatibility
+      const metadata = body.metadata as Record<string, unknown> | undefined;
+      if (metadata) {
+        imageStatus = (metadata.imageStatus as "skipped" | "generated" | "fallback" | undefined) || null;
+        imageUrl = (metadata.imageUrl as string | undefined) || null;
+        imageAltText = (metadata.imageAltText as string | undefined) || null;
+        imageProvider = (metadata.imageProvider as string | undefined) || null;
+        imageAspect = (metadata.imageAspect as string | undefined) || null;
+        imageCategory = (metadata.imageCategory as string | undefined) || null;
+        imageErrorCode = (metadata.imageErrorCode as string | undefined) || null;
+        imageFallbackReason = (metadata.imageFallbackReason as string | undefined) || null;
+        imageRequestId = (metadata.imageRequestId as string | undefined) || null;
+      }
+    }
+
+    // If no image data at all, default to skipped
+    if (!imageStatus) {
+      imageStatus = "skipped";
+    }
+
+    // Clean metadata (remove image fields since they're stored separately)
+    const metadata = body.metadata as Record<string, unknown> | undefined;
+    const cleanedMetadata: Record<string, unknown> = metadata ? { ...metadata } : {};
+    delete cleanedMetadata.imageStatus;
+    delete cleanedMetadata.imageUrl;
+    delete cleanedMetadata.imageAltText;
+    delete cleanedMetadata.imageProvider;
+    delete cleanedMetadata.imageAspect;
+    delete cleanedMetadata.imageCategory;
+    delete cleanedMetadata.imageErrorCode;
+    delete cleanedMetadata.imageFallbackReason;
+    delete cleanedMetadata.imageRequestId;
+
     const item = await prisma.socialQueueItem.create({
       data: {
         userId,
@@ -67,12 +126,21 @@ export async function POST(request: NextRequest) {
         content: body.content.trim(),
         status: "draft",
         scheduledAt,
-        metadata: body.metadata as Prisma.InputJsonValue | undefined,
+        metadata: Object.keys(cleanedMetadata).length > 0 ? (cleanedMetadata as Prisma.InputJsonValue) : undefined,
         reason: body.reason || null,
         contentTheme: body.theme || null,
         contentHash,
         contentFingerprint,
         isSimilar: body.isSimilar || false,
+        imageStatus,
+        imageUrl,
+        imageAltText,
+        imageProvider,
+        imageAspect,
+        imageCategory,
+        imageErrorCode,
+        imageFallbackReason,
+        imageRequestId,
       },
     });
 
@@ -93,6 +161,15 @@ export async function POST(request: NextRequest) {
         contentFingerprint: item.contentFingerprint,
         reason: item.reason,
         isSimilar: item.isSimilar,
+        imageStatus: item.imageStatus as "skipped" | "generated" | "fallback" | null,
+        imageUrl: item.imageUrl,
+        imageAltText: item.imageAltText,
+        imageProvider: item.imageProvider,
+        imageAspect: item.imageAspect,
+        imageCategory: item.imageCategory,
+        imageErrorCode: item.imageErrorCode,
+        imageFallbackReason: item.imageFallbackReason,
+        imageRequestId: item.imageRequestId,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       },

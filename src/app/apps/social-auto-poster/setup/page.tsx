@@ -78,11 +78,54 @@ export default function SocialAutoPosterSetupPage() {
       includeLocalHashtags: false,
       hashtagBankMode: "auto",
     },
+    imageSettings: {
+      enableImages: false,
+      imageCategoryMode: "auto",
+      allowTextOverlay: false,
+    },
   });
   const [expandedPlatforms, setExpandedPlatforms] = useState<Set<SocialPlatform>>(new Set());
 
+  // Meta connection state
+  const [connectionStatus, setConnectionStatus] = useState<{
+    configured: boolean;
+    facebook: { connected: boolean; pageName?: string; pageId?: string };
+    instagram: {
+      connected: boolean;
+      available: boolean;
+      username?: string;
+      igBusinessId?: string;
+      reasonIfUnavailable?: string;
+    };
+  } | null>(null);
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [testPostLoading, setTestPostLoading] = useState(false);
+  const [testPostResults, setTestPostResults] = useState<{
+    facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string };
+    instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string };
+  } | null>(null);
+
   useEffect(() => {
     loadSettings();
+    loadConnectionStatus();
+    
+    // Check for callback success/error
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    
+    if (connected === "1") {
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+      loadConnectionStatus();
+    } else if (error) {
+      setError(decodeURIComponent(error));
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   const loadSettings = async () => {
@@ -93,6 +136,10 @@ export default function SocialAutoPosterSetupPage() {
       if (!res.ok) {
         if (res.status === 404) {
           // No settings yet, use defaults
+          return;
+        }
+        if (res.status === 403) {
+          setError("Premium access required. Please upgrade to use Social Auto-Poster.");
           return;
         }
         throw new Error("Failed to load settings");
@@ -137,11 +184,14 @@ export default function SocialAutoPosterSetupPage() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        if (res.status === 403) {
+          throw new Error("Premium access required. Please upgrade to save settings.");
+        }
         throw new Error(errorData.error || "Failed to save settings");
       }
 
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setSuccess(false), 5000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings");
     } finally {
@@ -212,6 +262,94 @@ export default function SocialAutoPosterSetupPage() {
     setExpandedPlatforms(newExpanded);
   };
 
+  const loadConnectionStatus = async () => {
+    setConnectionLoading(true);
+    try {
+      const res = await fetch("/api/social-connections/meta/status");
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionStatus(data);
+      }
+    } catch (err) {
+      console.error("Failed to load connection status:", err);
+    } finally {
+      setConnectionLoading(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/connect", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to initiate connection");
+      }
+      const data = await res.json();
+      if (data.authUrl) {
+        // Redirect to Meta OAuth
+        window.location.href = data.authUrl;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect");
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm("Are you sure you want to disconnect Facebook and Instagram?")) {
+      return;
+    }
+    setConnectionLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/disconnect", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      await loadConnectionStatus();
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setConnectionLoading(false);
+    }
+  };
+
+  const handleTestPost = async () => {
+    setTestPostLoading(true);
+    setError(null);
+    setTestPostResults(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/test-post", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to send test post");
+      }
+      const data = await res.json();
+      setTestPostResults(data.results || {});
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send test post");
+    } finally {
+      setTestPostLoading(false);
+    }
+  };
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -229,6 +367,219 @@ export default function SocialAutoPosterSetupPage() {
         ) : (
           <form onSubmit={handleSave}>
             <div className="space-y-6">
+              {/* Connect Accounts */}
+              <OBDPanel isDark={isDark}>
+                <OBDHeading level={2} isDark={isDark} className="mb-4">
+                  Connect Accounts
+                </OBDHeading>
+                <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                  Connect your Facebook and Instagram accounts to enable automatic posting.
+                </p>
+
+                {connectionLoading ? (
+                  <p className={themeClasses.mutedText}>Loading connection status...</p>
+                ) : connectionStatus ? (
+                  <div className="space-y-4">
+                    {/* Configuration check */}
+                    {!connectionStatus.configured && (
+                      <div className={`p-3 rounded-lg border ${
+                        isDark
+                          ? "bg-yellow-900/20 border-yellow-700 text-yellow-400"
+                          : "bg-yellow-50 border-yellow-200 text-yellow-700"
+                      }`}>
+                        <p className="text-sm">
+                          Meta connection not configured. Please contact support.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Facebook Status */}
+                    <div className={`p-4 rounded-xl border ${
+                      isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">📘</span>
+                          <div>
+                            <div className={`font-medium ${themeClasses.headingText}`}>
+                              Facebook
+                            </div>
+                            {connectionStatus.facebook.connected ? (
+                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                Connected ✅ {connectionStatus.facebook.pageName && `(${connectionStatus.facebook.pageName})`}
+                              </div>
+                            ) : (
+                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                Not connected
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Instagram Status */}
+                    <div className={`p-4 rounded-xl border ${
+                      isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">📸</span>
+                          <div>
+                            <div className={`font-medium ${themeClasses.headingText}`}>
+                              Instagram
+                            </div>
+                            {connectionStatus.instagram.connected ? (
+                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                Connected ✅ {connectionStatus.instagram.username && `(@${connectionStatus.instagram.username})`}
+                              </div>
+                            ) : connectionStatus.instagram.available ? (
+                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                Not connected
+                              </div>
+                            ) : (
+                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                Not available {connectionStatus.instagram.reasonIfUnavailable && `(${connectionStatus.instagram.reasonIfUnavailable})`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-3 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={handleConnect}
+                        disabled={connecting || !connectionStatus.configured || connectionStatus.facebook.connected}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                          connecting || !connectionStatus.configured || connectionStatus.facebook.connected
+                            ? isDark
+                              ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                              : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                            : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                        }`}
+                      >
+                        {connecting ? "Connecting..." : "Connect Facebook/Instagram"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDisconnect}
+                        disabled={connectionLoading || !connectionStatus.facebook.connected}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                          connectionLoading || !connectionStatus.facebook.connected
+                            ? isDark
+                              ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                              : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                            : isDark
+                            ? "bg-red-900/20 text-red-400 border border-red-700 hover:bg-red-900/30"
+                            : "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                        }`}
+                      >
+                        Disconnect
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTestPost}
+                        disabled={testPostLoading || !connectionStatus.facebook.connected}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                          testPostLoading || !connectionStatus.facebook.connected
+                            ? isDark
+                              ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                              : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                            : "bg-blue-600 text-white hover:bg-blue-700"
+                        }`}
+                      >
+                        {testPostLoading ? "Sending..." : "Send Test Post"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={loadConnectionStatus}
+                        disabled={connectionLoading}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                          connectionLoading
+                            ? isDark
+                              ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                              : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                            : isDark
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        {connectionLoading ? "Refreshing..." : "Refresh Status"}
+                      </button>
+                    </div>
+
+                    {/* Test Post Results */}
+                    {testPostResults && (
+                      <div className={`mt-4 p-4 rounded-xl border ${
+                        isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
+                      }`}>
+                        <div className={`font-medium mb-3 ${themeClasses.headingText}`}>
+                          Test Post Results
+                        </div>
+                        <div className="space-y-2">
+                          {testPostResults.facebook && (
+                            <div className="flex items-center gap-2">
+                              <span>{testPostResults.facebook.ok ? "✅" : "❌"}</span>
+                              <span className={themeClasses.labelText}>Facebook:</span>
+                              {testPostResults.facebook.ok ? (
+                                testPostResults.facebook.permalink ? (
+                                  <a
+                                    href={testPostResults.facebook.permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
+                                  >
+                                    View Post
+                                  </a>
+                                ) : (
+                                  <span className={themeClasses.mutedText}>Posted successfully</span>
+                                )
+                              ) : (
+                                <span className={`text-sm ${themeClasses.mutedText}`}>
+                                  {testPostResults.facebook.error}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {testPostResults.instagram && (
+                            <div className="flex items-center gap-2">
+                              <span>{testPostResults.instagram.ok ? "✅" : "❌"}</span>
+                              <span className={themeClasses.labelText}>Instagram:</span>
+                              {testPostResults.instagram.ok ? (
+                                testPostResults.instagram.permalink ? (
+                                  <a
+                                    href={testPostResults.instagram.permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
+                                  >
+                                    View Post
+                                  </a>
+                                ) : (
+                                  <span className={themeClasses.mutedText}>Posted successfully</span>
+                                )
+                              ) : (
+                                <span className={`text-sm ${themeClasses.mutedText}`}>
+                                  {testPostResults.instagram.error}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className={themeClasses.mutedText}>Failed to load connection status</p>
+                )}
+              </OBDPanel>
+
               {/* Brand Voice */}
               <OBDPanel isDark={isDark}>
                 <OBDHeading level={2} isDark={isDark} className="mb-4">
@@ -641,6 +992,103 @@ export default function SocialAutoPosterSetupPage() {
                         Auto mode rotates hashtag sets to avoid using the same set within 7 days
                       </p>
                     </div>
+                  )}
+                </div>
+              </OBDPanel>
+
+              {/* Image Settings */}
+              <OBDPanel isDark={isDark}>
+                <OBDHeading level={2} isDark={isDark} className="mb-4">
+                  Image Generation (Optional)
+                </OBDHeading>
+                <div className="space-y-4">
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.imageSettings?.enableImages || false}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            imageSettings: {
+                              ...settings.imageSettings!,
+                              enableImages: e.target.checked,
+                            },
+                          })
+                        }
+                        className="rounded"
+                      />
+                      <span className={`font-medium ${themeClasses.headingText}`}>
+                        Include images (optional)
+                      </span>
+                    </label>
+                    <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
+                      If image generation fails, posts will still publish normally.
+                    </p>
+                  </div>
+
+                  {settings.imageSettings?.enableImages && (
+                    <>
+                      <div>
+                        <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                          Image Category Mode
+                        </label>
+                        <select
+                          value={settings.imageSettings?.imageCategoryMode || "auto"}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              imageSettings: {
+                                ...settings.imageSettings!,
+                                imageCategoryMode: e.target.value as
+                                  | "auto"
+                                  | "educational"
+                                  | "promotion"
+                                  | "social_proof"
+                                  | "local_abstract"
+                                  | "evergreen",
+                              },
+                            })
+                          }
+                          className={getInputClasses(isDark)}
+                        >
+                          <option value="auto">Auto (inferred from post content)</option>
+                          <option value="educational">Educational</option>
+                          <option value="promotion">Promotion</option>
+                          <option value="social_proof">Social Proof</option>
+                          <option value="local_abstract">Local Abstract</option>
+                          <option value="evergreen">Evergreen</option>
+                        </select>
+                        <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                          Auto mode maps post content to appropriate image category
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.imageSettings?.allowTextOverlay || false}
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                imageSettings: {
+                                  ...settings.imageSettings!,
+                                  allowTextOverlay: e.target.checked,
+                                },
+                              })
+                            }
+                            className="rounded"
+                          />
+                          <span className={`font-medium ${themeClasses.headingText}`}>
+                            Allow Text Overlay
+                          </span>
+                        </label>
+                        <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
+                          Allow minimal text overlays on generated images (category rules still apply)
+                        </p>
+                      </div>
+                    </>
                   )}
                 </div>
               </OBDPanel>

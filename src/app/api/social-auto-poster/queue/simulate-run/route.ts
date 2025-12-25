@@ -3,12 +3,16 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import type { SimulateRunRequest, SimulateRunResponse } from "@/lib/apps/social-auto-poster/types";
+import { processScheduledPost } from "@/lib/apps/social-auto-poster/processScheduledPost";
 
 /**
  * POST /api/social-auto-poster/queue/simulate-run
  * 
- * Mock Provider: Simulates posting by marking items as posted or failed.
- * This is for V3A (Mock Provider) - real OAuth posting will come in V3B.
+ * Processes scheduled posts:
+ * - Uses real Meta publishing if Facebook/Instagram connections exist
+ * - Falls back to simulation if no connections
+ * 
+ * Can be called manually or by the automated runner.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -68,74 +72,22 @@ export async function POST(request: NextRequest) {
     let succeeded = 0;
     let failed = 0;
 
-    // Simulate posting: 80% success rate, 20% failure
+    // Process each item (uses real publishing if Meta connected, otherwise simulates)
     for (const item of itemsToProcess) {
-      const success = Math.random() > 0.2; // 80% success rate
-
-      if (success) {
-        // Mark as posted
-        await prisma.socialQueueItem.update({
-          where: { id: item.id },
-          data: {
-            status: "posted",
-            postedAt: new Date(),
-            attemptCount: item.attemptCount + 1,
-          },
-        });
-
-        // Create a successful delivery attempt
-        await prisma.socialDeliveryAttempt.create({
-          data: {
-            userId,
-            queueItemId: item.id,
-            platform: item.platform,
-            success: true,
-            responseData: {
-              mock: true,
-              message: "Post simulated successfully",
-              timestamp: new Date().toISOString(),
-            },
-          },
-        });
-
+      const result = await processScheduledPost(item.id, userId);
+      
+      if (result.success) {
         succeeded++;
         results.push({
           queueItemId: item.id,
           success: true,
         });
       } else {
-        // Mark as failed
-        const errorMessage = "Simulated posting failure (Mock Provider)";
-        await prisma.socialQueueItem.update({
-          where: { id: item.id },
-          data: {
-            status: "failed",
-            errorMessage,
-            attemptCount: item.attemptCount + 1,
-          },
-        });
-
-        // Create a failed delivery attempt
-        await prisma.socialDeliveryAttempt.create({
-          data: {
-            userId,
-            queueItemId: item.id,
-            platform: item.platform,
-            success: false,
-            errorMessage,
-            responseData: {
-              mock: true,
-              error: errorMessage,
-              timestamp: new Date().toISOString(),
-            },
-          },
-        });
-
         failed++;
         results.push({
           queueItemId: item.id,
           success: false,
-          errorMessage,
+          errorMessage: result.errorMessage,
         });
       }
     }

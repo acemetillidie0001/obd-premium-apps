@@ -4,6 +4,10 @@
     {
       "path": "/api/google-business/pro/cleanup",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/social-auto-poster/cron",
+      "schedule": "* * * * *"
     }
   ]
 }

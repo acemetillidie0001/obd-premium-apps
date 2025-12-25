@@ -229,7 +229,7 @@ export const OBD_APPS: ObdAppDefinition[] = [
     description: "Schedule posts to Facebook, Instagram, Google Business, and more from one screen.",
     href: "/apps/social-auto-poster",
     category: "productivity",
-    status: "in-progress",
+    status: "live",
     ctaLabel: "Open Tool",
     icon: "share-2",
   },

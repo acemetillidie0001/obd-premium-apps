@@ -1,7 +1,3 @@
-// -----------------------------------------------------
-// OBD Premium Apps — Prisma Schema for Railway Postgres
-// -----------------------------------------------------
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,31 +6,30 @@ datasource db {
   provider = "postgresql"
 }
 
-// ----------------------------------------------
-// Authentication Tables (NextAuth.js)
-// ----------------------------------------------
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  role          String    @default("user") // "user" | "admin"
-  isPremium     Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  accounts      Account[]
-  sessions      Session[]
-  usageCounters UsageCounter[]
-  brandProfile  BrandProfile?
-  reviewRequestCampaigns ReviewRequestCampaign[]
-  reviewRequestCustomers ReviewRequestCustomer[]
-  reviewRequestQueueItems ReviewRequestQueueItem[]
-  reviewRequestDatasets   ReviewRequestDataset[]
+  id                       String                    @id @default(cuid())
+  name                     String?
+  email                    String                    @unique
+  emailVerified            DateTime?
+  image                    String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  role                     String                    @default("user")
+  isPremium                Boolean                   @default(false)
+  accounts                 Account[]
+  brandProfile             BrandProfile?
+  reviewRequestCampaigns   ReviewRequestCampaign[]
+  reviewRequestCustomers   ReviewRequestCustomer[]
+  reviewRequestDatasets    ReviewRequestDataset[]
+  reviewRequestQueueItems  ReviewRequestQueueItem[]
+  sessions                 Session[]
   socialAutoposterSettings SocialAutoposterSettings?
-  socialQueueItems        SocialQueueItem[]
-  socialDeliveryAttempts  SocialDeliveryAttempt[]
+  socialDeliveryAttempts   SocialDeliveryAttempt[]
+  socialQueueItems         SocialQueueItem[]
+  usageCounters            UsageCounter[]
+  socialAccountConnections SocialAccountConnection[]
+  socialPostingDestinations SocialPostingDestination[]
+  socialPublishAttempts    SocialPublishAttempt[]
 
   @@index([email])
 }
@@ -45,15 +40,14 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
   @@index([userId])
@@ -77,103 +71,257 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// ----------------------------------------------
-// Table: Google Business Pro Reports
-// ----------------------------------------------
 model ProReport {
-  id        String    @id @default(cuid())
-  shareId   String    @unique
-  html      String
-  pdfBase64 String? // optional PDF export
-  createdAt DateTime  @default(now())
-  expiresAt DateTime?
-
-  // metadata
+  id           String    @id @default(cuid())
+  shareId      String    @unique
+  html         String
+  pdfBase64    String?
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
   businessName String
   city         String
   state        String
   score        Int
-  accessToken  String? // null = public access
+  accessToken  String?
 
   @@index([shareId])
   @@index([businessName, city, state])
   @@index([expiresAt])
 }
 
-// ----------------------------------------------
-// Table: App Usage Counters (Daily Quotas)
-// ----------------------------------------------
 model UsageCounter {
   id            String   @id @default(cuid())
   userId        String
-  appId         String // e.g., "ai-logo-generator"
-  dayKey        String // YYYY-MM-DD format
+  appId         String
+  dayKey        String
   conceptsCount Int      @default(0)
   imagesCount   Int      @default(0)
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, appId, dayKey])
   @@index([userId, appId, dayKey])
   @@index([dayKey])
 }
 
-// ----------------------------------------------
-// Table: Brand Profile (Saved Brand Kits)
-// ----------------------------------------------
 model BrandProfile {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Business Basics
-  businessName String?
-  businessType String?
-  city         String?
-  state        String?
-
-  // Brand Direction
-  brandPersonality  String? // BrandPersonality enum as string
-  targetAudience    String? @db.Text
-  differentiators   String? @db.Text
-  inspirationBrands String? @db.Text
-  avoidStyles       String? @db.Text
-
-  // Voice & Language
-  brandVoice String? @db.Text
-  toneNotes  String? @db.Text
-  language   String? // LanguageOption enum as string
-
-  // Output Controls
-  industryKeywords String? @db.Text
-  vibeKeywords     String? @db.Text
-  variationMode    String? // VariationMode enum as string
-  includeHashtags  Boolean @default(false)
-  hashtagStyle     String? // HashtagStyle enum as string
-
-  // Extras toggles
-  includeSocialPostTemplates Boolean @default(false)
-  includeFAQStarter          Boolean @default(false)
-  includeGBPDescription      Boolean @default(false)
-  includeMetaDescription     Boolean @default(false)
-
-  // JSON fields for complex data
-  colorsJson     Json? // ColorInfo[] array
-  typographyJson Json? // TypographyPairing object
-  messagingJson  Json? // messaging object
-  kitJson        Json? // Full BrandKitBuilderResponse snapshot
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                         String   @id @default(cuid())
+  userId                     String   @unique
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  businessName               String?
+  businessType               String?
+  city                       String?
+  state                      String?
+  brandPersonality           String?
+  targetAudience             String?
+  differentiators            String?
+  inspirationBrands          String?
+  avoidStyles                String?
+  brandVoice                 String?
+  toneNotes                  String?
+  language                   String?
+  industryKeywords           String?
+  vibeKeywords               String?
+  variationMode              String?
+  includeHashtags            Boolean  @default(false)
+  hashtagStyle               String?
+  includeSocialPostTemplates Boolean  @default(false)
+  includeFAQStarter          Boolean  @default(false)
+  includeGBPDescription      Boolean  @default(false)
+  includeMetaDescription     Boolean  @default(false)
+  colorsJson                 Json?
+  typographyJson             Json?
+  messagingJson              Json?
+  kitJson                    Json?
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
-// ----------------------------------------------
-// Review Request Automation Enums
-// ----------------------------------------------
+model ReviewRequestCampaign {
+  id                String                   @id @default(cuid())
+  userId            String
+  businessName      String
+  businessType      String?
+  campaignName      String?
+  platform          String
+  reviewLinkUrl     String
+  languageMode      String
+  toneStyle         String
+  brandVoice        String?
+  channelMode       String
+  triggerType       String
+  sendDelayHours    Int                      @default(24)
+  followUpEnabled   Boolean                  @default(false)
+  followUpDelayDays Int?
+  frequencyCapDays  Int                      @default(30)
+  quietHoursStart   String?
+  quietHoursEnd     String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customers         ReviewRequestCustomer[]
+  datasets          ReviewRequestDataset[]
+  queueItems        ReviewRequestQueueItem[]
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model ReviewRequestCustomer {
+  id            String                   @id @default(cuid())
+  userId        String
+  campaignId    String
+  name          String
+  email         String?
+  phone         String?
+  tags          String[]                 @default([])
+  lastVisitDate DateTime?
+  serviceType   String?
+  jobId         String?
+  optedOut      Boolean                  @default(false)
+  createdAt     DateTime                 @default(now())
+  campaign      ReviewRequestCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  queueItems    ReviewRequestQueueItem[]
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([userId, createdAt])
+}
+
+model ReviewRequestQueueItem {
+  id            String                @id @default(cuid())
+  userId        String
+  campaignId    String
+  customerId    String
+  scheduledAt   DateTime
+  channel       ReviewRequestChannel
+  variant       ReviewRequestVariant
+  status        ReviewRequestStatus   @default(PENDING)
+  skippedReason String?
+  sentAt        DateTime?
+  clickedAt     DateTime?
+  reviewedAt    DateTime?
+  optedOutAt    DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  campaign      ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer      ReviewRequestCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([customerId])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model ReviewRequestDataset {
+  id           String                @id @default(cuid())
+  userId       String
+  campaignId   String
+  snapshotId   String
+  computedAt   DateTime              @default(now())
+  totalsJson   Json
+  warningsJson Json?
+  createdAt    DateTime              @default(now())
+  campaign     ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([userId, computedAt])
+  @@index([snapshotId])
+}
+
+model SocialAutoposterSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  brandVoice            String?
+  postingMode           String   @default("review")
+  frequency             String?
+  allowedDays           String[] @default([])
+  timeWindowStart       String?
+  timeWindowEnd         String?
+  timezone              String?  @default("America/New_York")
+  enabledPlatforms      String[] @default([])
+  platformsEnabled      Json?
+  platformOverrides     Json?
+  contentPillarSettings Json?
+  hashtagBankSettings   Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  imageSettings         Json?
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SocialQueueItem {
+  id                  String                  @id @default(cuid())
+  userId              String
+  platform            SocialPlatform
+  content             String
+  status              QueueStatus             @default(draft)
+  scheduledAt         DateTime?
+  postedAt            DateTime?
+  errorMessage        String?
+  attemptCount        Int                     @default(0)
+  nextAttemptAt       DateTime?
+  lastErrorCode       String?
+  metadata            Json?
+  contentTheme        String?
+  contentHash         String?
+  contentFingerprint  String?
+  reason              String?
+  isSimilar           Boolean                 @default(false)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  imageStatus         String?
+  imageUrl            String?
+  imageAltText        String?
+  imageProvider       String?
+  imageAspect         String?
+  imageCategory       String?
+  imageErrorCode      String?
+  imageFallbackReason String?
+  imageRequestId      String?
+  imageRequest        ImageRequest?           @relation(fields: [imageRequestId], references: [requestId])
+  deliveryAttempts    SocialDeliveryAttempt[]
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
+  @@index([scheduledAt])
+  @@index([userId, scheduledAt])
+  @@index([nextAttemptAt])
+  @@index([userId, nextAttemptAt])
+  @@index([userId, platform, contentHash])
+  @@index([contentHash])
+}
+
+model SocialDeliveryAttempt {
+  id           String          @id @default(cuid())
+  userId       String
+  queueItemId  String
+  platform     SocialPlatform
+  success      Boolean
+  errorMessage String?
+  responseData Json?
+  attemptedAt  DateTime        @default(now())
+  queueItem    SocialQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([queueItemId])
+  @@index([userId, attemptedAt])
+  @@index([success])
+}
+
 enum ReviewRequestChannel {
   EMAIL
   SMS
@@ -196,113 +344,6 @@ enum ReviewRequestStatus {
   SKIPPED
 }
 
-// ----------------------------------------------
-// Review Request Automation Tables
-// ----------------------------------------------
-model ReviewRequestCampaign {
-  id              String    @id @default(cuid())
-  userId          String
-  businessName    String
-  businessType    String?
-  campaignName    String?
-  platform        String    // "Google" | "Facebook" | "Yelp" | "Other"
-  reviewLinkUrl   String
-  languageMode    String    // "English" | "Spanish" | "Bilingual"
-  toneStyle       String    // "Friendly" | "Professional" | "Bold" | "Luxury"
-  brandVoice      String?   @db.Text
-  channelMode     String    // "sms" | "email" | "both"
-  triggerType     String    // "manual" | "after_service" | "after_payment"
-  sendDelayHours  Int       @default(24)
-  followUpEnabled Boolean   @default(false)
-  followUpDelayDays Int?
-  frequencyCapDays Int      @default(30)
-  quietHoursStart String?   // HH:mm format
-  quietHoursEnd   String?   // HH:mm format
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  user     User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  customers ReviewRequestCustomer[]
-  queueItems ReviewRequestQueueItem[]
-  datasets  ReviewRequestDataset[]
-
-  @@index([userId])
-  @@index([userId, createdAt])
-}
-
-model ReviewRequestCustomer {
-  id            String    @id @default(cuid())
-  userId        String
-  campaignId    String
-  name          String
-  email         String?
-  phone         String?
-  tags          String[]  @default([])
-  lastVisitDate DateTime?
-  serviceType   String?
-  jobId         String?
-  optedOut      Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-
-  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign   ReviewRequestCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  queueItems ReviewRequestQueueItem[]
-
-  @@index([userId])
-  @@index([campaignId])
-  @@index([userId, createdAt])
-}
-
-model ReviewRequestQueueItem {
-  id            String               @id @default(cuid())
-  userId        String
-  campaignId    String
-  customerId    String
-  scheduledAt   DateTime
-  channel       ReviewRequestChannel
-  variant       ReviewRequestVariant
-  status        ReviewRequestStatus  @default(PENDING)
-  skippedReason String?              @db.Text
-  sentAt        DateTime?
-  clickedAt     DateTime?
-  reviewedAt    DateTime?
-  optedOutAt    DateTime?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-
-  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  customer ReviewRequestCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([campaignId])
-  @@index([customerId])
-  @@index([userId, createdAt])
-  @@index([status])
-}
-
-model ReviewRequestDataset {
-  id          String   @id @default(cuid())
-  userId      String
-  campaignId  String
-  snapshotId  String   // short identifier like "RRA-12345678"
-  computedAt  DateTime @default(now())
-  totalsJson  Json     // metrics summary: { sent, clicked, reviewed, conversion rates, etc. }
-  warningsJson Json?   // template health / compliance / quality notes
-  createdAt   DateTime @default(now())
-
-  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([campaignId])
-  @@index([userId, computedAt])
-  @@index([snapshotId])
-}
-
-// ----------------------------------------------
-// Social Auto-Poster Enums
-// ----------------------------------------------
 enum SocialPlatform {
   facebook
   instagram
@@ -324,78 +365,146 @@ enum QueueStatus {
   failed
 }
 
-// ----------------------------------------------
-// Social Auto-Poster Tables
-// ----------------------------------------------
-model SocialAutoposterSettings {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  brandVoice        String?  @db.Text
-  postingMode       String   @default("review") // "review" | "auto" | "campaign"
-  frequency         String?  // e.g., "daily", "weekly", "3x per week"
-  allowedDays       String[] @default([]) // ["monday", "tuesday", ...]
-  timeWindowStart   String?  // HH:mm format
-  timeWindowEnd     String?  // HH:mm format
-  timezone         String?  @default("America/New_York")
-  enabledPlatforms String[] @default([]) // ["facebook", "instagram", ...]
-  platformsEnabled  Json?    // Per-platform enable/disable: { facebook: boolean, instagram: boolean, x: boolean, googleBusiness: boolean }
-  platformOverrides Json?   // Per-platform overrides: { facebook: { emojiModeOverride?, hashtagLimitOverride?, ctaStyleOverride? }, ... }
-  contentPillarSettings Json? // Content pillar settings: { contentPillarMode, defaultPillar, rotatePillars }
-  hashtagBankSettings Json?  // Hashtag bank settings: { includeLocalHashtags, hashtagBankMode }
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
+enum ImagePlatform {
+  instagram
+  facebook
+  x
+  gbp
 }
 
-model SocialQueueItem {
-  id                String        @id @default(cuid())
-  userId            String
-  platform          SocialPlatform
-  content           String        @db.Text
-  status            QueueStatus   @default(draft)
-  scheduledAt       DateTime?
-  postedAt          DateTime?
-  errorMessage      String?       @db.Text
-  attemptCount      Int           @default(0)
-  metadata          Json?         // Additional platform-specific data (images, hashtags, etc.)
-  contentTheme      String?       // Theme: "education","promotion","social_proof","community","seasonal","general"
-  contentHash       String?       // Stable hash for similarity detection (required for generated posts)
-  contentFingerprint String?      // Short stable fingerprint for quick comparisons
-  reason            String?       @db.Text // Why this post was created
-  isSimilar         Boolean       @default(false) // Flag if similar to recent post
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+enum ImageCategory {
+  educational
+  promotion
+  social_proof
+  local_abstract
+  evergreen
+}
 
-  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deliveryAttempts  SocialDeliveryAttempt[]
+enum ImageStatus {
+  queued
+  generated
+  fallback
+  failed
+  skipped
+}
 
-  @@index([userId])
+enum ImageProvider {
+  nanoBananaFlash
+  stub
+}
+
+enum ImageStorage {
+  localDev
+  vercelBlob
+}
+
+model ImageRequest {
+  requestId         String       @id
+  status            ImageStatus   @default(queued)
+
+  platform          ImagePlatform
+  category          ImageCategory
+  aspect            String
+  width             Int
+  height            Int
+
+  provider          ImageProvider?
+  storage           ImageStorage?
+
+  imageUrl          String?
+  altText           String?
+
+  errorCode         String?
+  errorMessageSafe  String?
+  fallbackReason    String?
+
+  decisionJson      Json?
+  promptHash        String?
+  inputHash         String?
+
+  // Optional retention
+  expiresAt         DateTime?
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  events            ImageEvent[]
+  socialQueueItems  SocialQueueItem[]
+
   @@index([status])
-  @@index([userId, status])
-  @@index([scheduledAt])
-  @@index([userId, scheduledAt])
-  @@index([userId, platform, contentHash])
-  @@index([contentHash])
+  @@index([platform, category])
+  @@index([createdAt])
 }
 
-model SocialDeliveryAttempt {
-  id            String   @id @default(cuid())
-  userId        String
-  queueItemId   String
-  platform      SocialPlatform
-  success       Boolean
-  errorMessage  String?  @db.Text
-  responseData  Json?    // Platform API response (if any)
-  attemptedAt   DateTime @default(now())
+model ImageEvent {
+  id               String      @id @default(cuid())
+  requestId         String
+  type              String      // e.g. "provider_call", "storage_write", "fallback", "consumer_request"
+  ok                Boolean     @default(true)
+  messageSafe       String?
+  data              Json?
 
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  queueItem SocialQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+  createdAt         DateTime    @default(now())
+
+  request           ImageRequest @relation(fields: [requestId], references: [requestId], onDelete: Cascade)
+  @@index([requestId])
+  @@index([createdAt])
+}
+
+enum SocialConnectionPlatform {
+  facebook
+  instagram
+  google_business
+  x
+}
+
+model SocialAccountConnection {
+  id                String                  @id @default(cuid())
+  userId            String
+  platform          SocialConnectionPlatform
+  providerAccountId String                   // page id, ig business id, etc
+  displayName       String
+  accessToken       String                   // store securely; do NOT log; encrypt-at-rest if you have a helper
+  tokenExpiresAt    DateTime?
+  refreshToken      String?
+  metaJson          Json?                   // safe metadata only
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform, providerAccountId])
+  @@index([userId])
+  @@index([userId, platform])
+}
+
+model SocialPostingDestination {
+  id                  String                  @id @default(cuid())
+  userId              String
+  platform            SocialConnectionPlatform
+  selectedAccountId   String                   // selected page id or ig business id
+  selectedDisplayName String
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@index([userId])
+  @@index([userId, platform])
+}
+
+model SocialPublishAttempt {
+  id                String                  @id @default(cuid())
+  userId            String
+  platform          SocialConnectionPlatform
+  kind              String                  @default("test") // "test" or future types
+  status            String                  // "success" | "failed"
+  providerPostId    String?
+  providerPermalink String?
+  errorMessage      String?                 // Safe, user-readable error
+  createdAt         DateTime                @default(now())
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([queueItemId])
-  @@index([userId, attemptedAt])
-  @@index([success])
+  @@index([userId, createdAt])
+  @@index([platform])
 }

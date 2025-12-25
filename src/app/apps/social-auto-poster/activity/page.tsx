@@ -155,6 +155,28 @@ export default function SocialAutoPosterActivityPage() {
                                   {formatDate(attempt.attemptedAt)}
                                 </span>
                               </div>
+                              {attempt.responseData && typeof attempt.responseData === "object" && "imageSource" in attempt.responseData && (
+                                <p className={`text-xs ${themeClasses.mutedText} mt-1`}>
+                                  Image: {attempt.responseData.imageSource as string}
+                                </p>
+                              )}
+                              {(() => {
+                                const permalink = attempt.responseData && typeof attempt.responseData === "object" && "providerPermalink" in attempt.responseData
+                                  ? (attempt.responseData.providerPermalink as string)
+                                  : null;
+                                return permalink ? (
+                                  <div className="mt-2">
+                                    <a
+                                      href={permalink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={`text-xs text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
+                                    >
+                                      View Post →
+                                    </a>
+                                  </div>
+                                ) : null;
+                              })()}
                               {attempt.errorMessage && (
                                 <p className={`text-xs text-red-400 mt-1`}>{attempt.errorMessage}</p>
                               )}

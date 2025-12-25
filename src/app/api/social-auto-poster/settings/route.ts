@@ -12,6 +12,7 @@ import type {
   HashtagBankSettings,
   PlatformOverridesMap,
   PlatformsEnabled,
+  ImageSettings,
 } from "@/lib/apps/social-auto-poster/types";
 import {
   isValidSocialPlatformArray,
@@ -102,6 +103,19 @@ export async function GET() {
       hashtagBankSettings = undefined;
     }
 
+    let imageSettings: ImageSettings | undefined;
+    if (settings.imageSettings) {
+      const imgSettings = settings.imageSettings as unknown;
+      if (
+        typeof imgSettings === "object" &&
+        imgSettings !== null &&
+        "enableImages" in imgSettings &&
+        typeof (imgSettings as { enableImages: unknown }).enableImages === "boolean"
+      ) {
+        imageSettings = imgSettings as ImageSettings;
+      }
+    }
+
     // Transform Prisma model to API response format
     const response: GetSettingsResponse = {
       settings: {
@@ -123,6 +137,7 @@ export async function GET() {
         platformOverrides,
         contentPillarSettings,
         hashtagBankSettings,
+        imageSettings,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },
@@ -239,6 +254,7 @@ export async function POST(request: NextRequest) {
         platformOverrides: body.platformOverrides ? (body.platformOverrides as unknown as Prisma.InputJsonValue) : undefined,
         contentPillarSettings: body.contentPillarSettings ? (body.contentPillarSettings as unknown as Prisma.InputJsonValue) : undefined,
         hashtagBankSettings: body.hashtagBankSettings ? (body.hashtagBankSettings as unknown as Prisma.InputJsonValue) : undefined,
+        imageSettings: body.imageSettings ? (body.imageSettings as unknown as Prisma.InputJsonValue) : undefined,
       },
       update: {
         brandVoice: body.brandVoice || null,
@@ -253,6 +269,7 @@ export async function POST(request: NextRequest) {
         platformOverrides: body.platformOverrides ? (body.platformOverrides as unknown as Prisma.InputJsonValue) : undefined,
         contentPillarSettings: body.contentPillarSettings ? (body.contentPillarSettings as unknown as Prisma.InputJsonValue) : undefined,
         hashtagBankSettings: body.hashtagBankSettings ? (body.hashtagBankSettings as unknown as Prisma.InputJsonValue) : undefined,
+        imageSettings: body.imageSettings ? (body.imageSettings as unknown as Prisma.InputJsonValue) : undefined,
       },
     });
 
@@ -307,6 +324,19 @@ export async function POST(request: NextRequest) {
       responseHashtagBankSettings = undefined;
     }
 
+    let responseImageSettings: ImageSettings | undefined;
+    if (settings.imageSettings) {
+      const imgSettings = settings.imageSettings as unknown;
+      if (
+        typeof imgSettings === "object" &&
+        imgSettings !== null &&
+        "enableImages" in imgSettings &&
+        typeof (imgSettings as { enableImages: unknown }).enableImages === "boolean"
+      ) {
+        responseImageSettings = imgSettings as ImageSettings;
+      }
+    }
+
     const response: SaveSettingsResponse = {
       settings: {
         id: settings.id,
@@ -327,6 +357,7 @@ export async function POST(request: NextRequest) {
         platformOverrides: responsePlatformOverrides,
         contentPillarSettings: responseContentPillarSettings,
         hashtagBankSettings: responseHashtagBankSettings,
+        imageSettings: responseImageSettings,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },

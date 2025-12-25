@@ -25,6 +25,10 @@ import {
   getHashtagSetForBusiness,
 } from "@/lib/apps/social-auto-poster/utils";
 import { generatePostsResponseSchema } from "@/lib/apps/social-auto-poster/aiSchema";
+import { generateImage } from "@/lib/apps/social-auto-poster/imageEngineClient";
+import { buildImageRequest } from "@/lib/apps/social-auto-poster/imageRequestBuilder";
+import { imageGenerationLimiter } from "@/lib/apps/social-auto-poster/imageConcurrencyLimiter";
+import type { ImageSettings, PostImage } from "@/lib/apps/social-auto-poster/types";
 
 const PLATFORM_MAX_CHARS: Record<SocialPlatform, number> = {
   facebook: 5000,
@@ -421,26 +425,154 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
     // Use validated and normalized data
     const parsed = validationResult.data;
 
-    // Check for similarity and enrich previews
-    const enrichedPreviews: SocialPostPreview[] = await Promise.all(
-      parsed.previews.map(async (preview) => {
-        const maxChars = PLATFORM_MAX_CHARS[preview.platform];
-        const contentHash = computeContentHash(preview.content, preview.platform, preview.theme || theme);
-        const similarity = await similarityCheckRecent(userId, preview.platform, contentHash, 14);
+  // Load image settings
+  let imageSettings: ImageSettings | undefined;
+  if (settings?.imageSettings) {
+    const imgSettings = settings.imageSettings as unknown;
+    if (
+      typeof imgSettings === "object" &&
+      imgSettings !== null &&
+      "enableImages" in imgSettings &&
+      typeof (imgSettings as { enableImages: unknown }).enableImages === "boolean"
+    ) {
+      imageSettings = imgSettings as ImageSettings;
+    }
+  }
 
-        // If similar, try regeneration once
-        let isSimilar = similarity.isSimilar;
-        if (isSimilar && !preview.isSimilar) {
-          // Request regeneration with "make distinctly different" instruction
-          // For now, we'll just flag it - in a full implementation, we'd regenerate
-          isSimilar = true;
+  // Default image settings if not set
+  if (!imageSettings) {
+    imageSettings = {
+      enableImages: false,
+      imageCategoryMode: "auto",
+      allowTextOverlay: false,
+    };
+  }
+
+  // Load brand profile for brand kit data (optional)
+  let brandKit: {
+    primaryColorHex?: string;
+    secondaryColorHex?: string;
+    accentColorHex?: string;
+    styleTone?: "modern" | "luxury" | "friendly" | "bold" | "clean";
+    industry?: string;
+  } | undefined;
+
+  try {
+    const brandProfile = await prisma.brandProfile.findUnique({
+      where: { userId },
+    });
+    if (brandProfile?.colorsJson) {
+      const colors = brandProfile.colorsJson as unknown;
+      if (Array.isArray(colors) && colors.length > 0) {
+        const firstColor = colors[0] as { hex?: string; role?: string };
+        if (firstColor.hex) {
+          brandKit = { primaryColorHex: firstColor.hex };
         }
+      }
+    }
+    if (brandProfile?.brandPersonality) {
+      // Map brand personality to style tone
+      const personalityToTone: Record<string, "modern" | "luxury" | "friendly" | "bold" | "clean"> = {
+        Soft: "friendly",
+        Bold: "bold",
+        "High-Energy": "bold",
+        Luxury: "luxury",
+      };
+      const tone = personalityToTone[brandProfile.brandPersonality];
+      if (tone) {
+        brandKit = { ...brandKit, styleTone: tone };
+      }
+    }
+    if (brandProfile?.businessType) {
+      brandKit = { ...brandKit, industry: brandProfile.businessType };
+    }
+  } catch (error) {
+    // Brand profile load failed - continue without it
+    console.warn("[Generate] Failed to load brand profile:", error);
+  }
+
+  // Check for similarity and enrich previews with image generation
+  const enrichedPreviews: SocialPostPreview[] = await Promise.all(
+    parsed.previews.map(async (preview, index) => {
+      const maxChars = PLATFORM_MAX_CHARS[preview.platform];
+      const contentHash = computeContentHash(preview.content, preview.platform, preview.theme || theme);
+      const similarity = await similarityCheckRecent(userId, preview.platform, contentHash, 14);
+
+      // If similar, try regeneration once
+      let isSimilar = similarity.isSimilar;
+      if (isSimilar && !preview.isSimilar) {
+        // Request regeneration with "make distinctly different" instruction
+        // For now, we'll just flag it - in a full implementation, we'd regenerate
+        isSimilar = true;
+      }
 
         // Add hashtags to metadata if available
         const hashtagsForPlatform = platformHashtags[preview.platform] || [];
-        const metadata = preview.metadata || {};
+        const metadata: Record<string, unknown> = preview.metadata ? { ...preview.metadata } : {};
         if (hashtagsForPlatform.length > 0) {
           metadata.hashtags = hashtagsForPlatform;
+        }
+
+        // Generate image if enabled (non-blocking, with concurrency limit)
+        let image: PostImage | undefined;
+        
+        if (!imageSettings.enableImages) {
+          image = { status: "skipped" };
+        } else {
+          try {
+            // Build stable requestId using contentHash (preferred) or compute from content
+            const requestId = contentHash
+              ? `sap-${userId}-${preview.platform}-${contentHash.substring(0, 16)}`
+              : `sap-${userId}-${preview.platform}-${Date.now()}-${index}`;
+
+            // Build image request
+            const imageRequest = buildImageRequest(
+              {
+                platform: preview.platform,
+                content: preview.content,
+                theme: preview.theme || theme,
+                reason: preview.reason || reason,
+              },
+              requestId,
+              imageSettings,
+              brandKit,
+              request.campaignType
+            );
+
+            // Request image generation with concurrency limit (never throws)
+            const imageResult = await imageGenerationLimiter.execute(() =>
+              generateImage(imageRequest)
+            );
+
+            if (imageResult.ok && imageResult.image) {
+              image = {
+                status: "generated",
+                url: imageResult.image.url,
+                altText: imageResult.image.altText,
+                provider: imageResult.decision.providerPlan.providerId,
+                aspect: imageResult.decision.aspect,
+                category: imageResult.decision.category,
+                requestId: imageRequest.requestId,
+              };
+            } else {
+              image = {
+                status: "fallback",
+                fallbackReason: imageResult.fallback?.reason || imageResult.error?.message || "Image generation failed",
+                errorCode: imageResult.error?.code || "GENERATION_FAILED",
+                category: imageResult.decision.category,
+                aspect: imageResult.decision.aspect,
+                requestId: imageRequest.requestId,
+              };
+            }
+          } catch (error) {
+            // Image generation error - mark as fallback but don't block
+            image = {
+              status: "fallback",
+              fallbackReason: "Unexpected error during image generation",
+              errorCode: "UNEXPECTED_ERROR",
+            };
+            console.warn("[Generate] Image generation error:", error);
+          }
         }
 
         return {
@@ -451,10 +583,11 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
           reason: preview.reason || reason,
           theme: (preview.theme || theme) as ContentTheme,
           isSimilar,
-          metadata,
+          image, // Explicit image field
+          metadata, // Hashtags and other metadata (no image data)
         };
-      })
-    );
+    })
+  );
 
     // Process variants if present
     const processedVariants: Record<SocialPlatform, Array<{
@@ -492,18 +625,26 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
       }
     }
 
-    // Add hashtags to drafts as well
+    // Add hashtags to drafts as well (and copy image from corresponding preview)
     const enrichedDrafts = parsed.drafts.map((draft) => {
       const hashtagsForPlatform = platformHashtags[draft.platform] || [];
-      const metadata = draft.metadata || {};
+      const metadata: Record<string, unknown> = draft.metadata ? { ...draft.metadata } : {};
       if (hashtagsForPlatform.length > 0) {
         metadata.hashtags = hashtagsForPlatform;
       }
+
+      // Copy image from corresponding preview if available
+      const correspondingPreview = enrichedPreviews.find(
+        (p) => p.platform === draft.platform && p.reason === draft.reason
+      );
+      const image = correspondingPreview?.image;
+
       return {
         ...draft,
         reason: draft.reason || reason,
         theme: (draft.theme || theme) as ContentTheme,
-        metadata,
+        image, // Copy image field from preview
+        metadata, // Hashtags and other metadata (no image data)
       };
     });
 

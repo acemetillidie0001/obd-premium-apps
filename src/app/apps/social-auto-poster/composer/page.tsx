@@ -197,6 +197,7 @@ export default function SocialAutoPosterComposerPage() {
           platform: preview.platform,
           content: contentToUse,
           metadata: preview.metadata,
+          image: preview.image, // Include image field from preview
           reason: reasonToUse,
           theme: themeToUse,
           isSimilar: preview.isSimilar,
@@ -445,6 +446,37 @@ export default function SocialAutoPosterComposerPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* Image Status Badge */}
+                      {preview.image && (
+                        <span
+                          className={`px-2 py-1 text-xs rounded-full border ${
+                            preview.image.status === "generated"
+                              ? isDark
+                                ? "bg-green-500/20 text-green-400 border-green-500"
+                                : "bg-green-50 text-green-700 border-green-300"
+                              : preview.image.status === "fallback"
+                              ? isDark
+                                ? "bg-amber-500/20 text-amber-400 border-amber-500"
+                                : "bg-amber-50 text-amber-700 border-amber-300"
+                              : isDark
+                              ? "bg-slate-500/20 text-slate-400 border-slate-500"
+                              : "bg-slate-50 text-slate-600 border-slate-300"
+                          }`}
+                          title={
+                            preview.image.status === "fallback" && preview.image.fallbackReason
+                              ? preview.image.fallbackReason
+                              : preview.image.status === "generated"
+                              ? "Image generated successfully"
+                              : "Image generation skipped"
+                          }
+                        >
+                          {preview.image.status === "generated"
+                            ? "🖼️ Generated"
+                            : preview.image.status === "fallback"
+                            ? "⚠️ Fallback"
+                            : "⏭️ Skipped"}
+                        </span>
+                      )}
                       {preview.isSimilar && (
                         <span className="px-2 py-1 text-xs rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
                           Similar to recent post
@@ -455,6 +487,16 @@ export default function SocialAutoPosterComposerPage() {
                       )}
                     </div>
                   </div>
+                  {/* Image Preview */}
+                  {preview.image?.status === "generated" && preview.image.url && (
+                    <div className="mb-3">
+                      <img
+                        src={preview.image.url}
+                        alt={preview.image.altText || "Generated image"}
+                        className="max-w-xs max-h-32 rounded-lg border"
+                      />
+                    </div>
+                  )}
                   <div
                     className={`p-4 rounded-xl mb-3 ${
                       isDark ? "bg-slate-800 border border-slate-700" : "bg-slate-50 border border-slate-200"

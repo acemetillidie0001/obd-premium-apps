@@ -90,6 +90,13 @@ export async function GET() {
           responseData: attempt.responseData as Record<string, unknown> | undefined,
           attemptedAt: attempt.attemptedAt,
         })),
+        metadata: item.metadata as Record<string, unknown> | undefined,
+        // Include image fields if present (for exports)
+        ...(item.imageUrl && {
+          imageUrl: item.imageUrl,
+          imageAltText: item.imageAltText,
+          imageRequestId: item.imageRequestId,
+        }),
         createdAt: item.createdAt,
       };
     });

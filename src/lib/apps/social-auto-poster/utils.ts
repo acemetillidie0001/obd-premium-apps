@@ -537,6 +537,7 @@ export async function computeAnalyticsSummary(userId: string): Promise<Analytics
   const totalScheduled = allItems.filter((item) => item.status === "scheduled" || item.status === "posted").length;
   const totalPosted = allItems.filter((item) => item.status === "posted").length;
   const totalFailed = allItems.filter((item) => item.status === "failed").length;
+  const totalQueueItems = allItems.length;
 
   const successfulAttempts = attempts.filter((a) => a.success).length;
   const totalAttempts = attempts.length;
@@ -566,6 +567,7 @@ export async function computeAnalyticsSummary(userId: string): Promise<Analytics
     totalScheduled,
     totalPosted,
     totalFailed,
+    totalQueueItems,
   };
 }
 

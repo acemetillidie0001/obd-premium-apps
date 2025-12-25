@@ -35,11 +35,144 @@ export default function SocialAutoPosterQueuePage() {
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedItem, setSelectedItem] = useState<SocialQueueItem | null>(null);
   const [showDrawer, setShowDrawer] = useState(false);
+  const [imageInfoMap, setImageInfoMap] = useState<Record<string, {
+    source: "engine" | "legacy";
+    image?: {
+      requestId?: string;
+      status: string;
+      url?: string;
+      altText?: string;
+      provider?: string;
+      storage?: string;
+      updatedAt?: string;
+    };
+    events?: Array<{
+      type: string;
+      ok: boolean;
+      messageSafe?: string;
+      createdAt: string;
+    }>;
+  }>>({});
+  const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   useEffect(() => {
     loadQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Load image info for items with imageRequestId
+  useEffect(() => {
+    const loadImageInfo = async () => {
+      const itemsWithRequestId = items.filter((item) => item.imageRequestId);
+      if (itemsWithRequestId.length === 0) return;
+
+      // Batch fetch image info for all items with imageRequestId
+      const imageInfoPromises = itemsWithRequestId.map(async (item) => {
+        try {
+          const res = await fetch(`/api/social-auto-poster/queue/image?queueItemId=${item.id}`);
+          if (!res.ok) {
+            return { itemId: item.id, info: null };
+          }
+          const data = await res.json();
+          return { itemId: item.id, info: data.ok ? { source: data.source, image: data.image, events: data.events } : null };
+        } catch (err) {
+          console.warn(`Failed to load image info for ${item.id}:`, err);
+          return { itemId: item.id, info: null };
+        }
+      });
+
+      const results = await Promise.all(imageInfoPromises);
+      const newMap: Record<string, typeof imageInfoMap[string]> = {};
+      results.forEach(({ itemId, info }) => {
+        if (info) {
+          newMap[itemId] = info;
+        }
+      });
+      setImageInfoMap((prev) => ({ ...prev, ...newMap }));
+    };
+
+    if (items.length > 0) {
+      loadImageInfo();
+    }
+  }, [items]);
+
+  // Refresh image info for a specific item
+  const refreshImageInfo = async (itemId: string) => {
+    try {
+      const res = await fetch(`/api/social-auto-poster/queue/image?queueItemId=${itemId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setImageInfoMap((prev) => ({
+            ...prev,
+            [itemId]: { source: data.source, image: data.image, events: data.events },
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn(`Failed to refresh image info for ${itemId}:`, err);
+    }
+  };
+
+  // Handle image regeneration
+  const handleRegenerateImage = async (itemId: string) => {
+    setRegeneratingIds((prev) => new Set(prev).add(itemId));
+
+    try {
+      const res = await fetch("/api/social-auto-poster/queue/image/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queueItemId: itemId }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok) {
+        setToast({ message: "Regenerated", type: "success" });
+        // Re-fetch canonical image info for this item
+        await refreshImageInfo(itemId);
+        // Also refresh the queue to get updated queue item fields
+        await loadQueue();
+      } else {
+        // Show safe error message
+        const errorMessage = data.errorCode === "NO_IMAGE_REQUEST"
+          ? "No image request found"
+          : data.errorCode === "ENGINE_FETCH_FAILED"
+          ? "Failed to connect to image engine"
+          : data.errorCode === "ENGINE_ERROR"
+          ? "Image engine error"
+          : data.errorCode || "Failed to regenerate image";
+        
+        setToast({
+          message: errorMessage,
+          type: "error",
+        });
+        // UI remains stable - don't clear existing image info on failure
+      }
+    } catch (err) {
+      // Non-blocking: show error but keep UI stable
+      setToast({
+        message: "Failed to regenerate image",
+        type: "error",
+      });
+      // UI remains stable - don't clear existing image info on failure
+    } finally {
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  };
+
+  // Auto-dismiss toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const loadQueue = async () => {
     setLoading(true);
@@ -59,12 +192,16 @@ export default function SocialAutoPosterQueuePage() {
     }
   };
 
-  const handleStatusChange = async (itemId: string, newStatus: QueueStatus) => {
+  const handleStatusChange = async (itemId: string, newStatus: QueueStatus, scheduledAt?: Date | null) => {
     try {
       const res = await fetch("/api/social-auto-poster/queue/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: itemId, status: newStatus }),
+        body: JSON.stringify({ 
+          id: itemId, 
+          status: newStatus,
+          ...(scheduledAt !== undefined && { scheduledAt: scheduledAt ? scheduledAt.toISOString() : null }),
+        }),
       });
 
       if (!res.ok) {
@@ -76,6 +213,29 @@ export default function SocialAutoPosterQueuePage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to update status");
     }
+  };
+
+  const handleSchedule = async (itemId: string) => {
+    const dateStr = prompt("Enter schedule date/time (YYYY-MM-DD HH:MM) or leave empty to schedule now:");
+    if (dateStr === null) return; // User cancelled
+    
+    let scheduledAt: Date | null = null;
+    if (dateStr.trim()) {
+      try {
+        scheduledAt = new Date(dateStr);
+        if (isNaN(scheduledAt.getTime())) {
+          alert("Invalid date format. Use YYYY-MM-DD HH:MM");
+          return;
+        }
+      } catch {
+        alert("Invalid date format. Use YYYY-MM-DD HH:MM");
+        return;
+      }
+    } else {
+      scheduledAt = new Date(); // Schedule now
+    }
+    
+    await handleStatusChange(itemId, "scheduled", scheduledAt);
   };
 
   const formatDate = (date: Date | string | null | undefined): string => {
@@ -216,7 +376,110 @@ export default function SocialAutoPosterQueuePage() {
                           {item.status}
                         </span>
                         <span className={themeClasses.mutedText}>{PLATFORM_LABELS[item.platform] || item.platform}</span>
+                        {/* Image Status Badge */}
+                        {(() => {
+                          const imageInfo = imageInfoMap[item.id];
+                          const canonicalStatus = imageInfo?.image?.status;
+                          const displayStatus = canonicalStatus || item.imageStatus;
+                          const lastEvents = imageInfo?.events?.slice(0, 3) || [];
+                          
+                          if (!displayStatus) return null;
+
+                          const statusColors = {
+                            generated: isDark
+                              ? "bg-green-500/20 text-green-400 border-green-500"
+                              : "bg-green-50 text-green-700 border-green-300",
+                            fallback: isDark
+                              ? "bg-amber-500/20 text-amber-400 border-amber-500"
+                              : "bg-amber-50 text-amber-700 border-amber-300",
+                            skipped: isDark
+                              ? "bg-slate-500/20 text-slate-400 border-slate-500"
+                              : "bg-slate-50 text-slate-600 border-slate-300",
+                            failed: isDark
+                              ? "bg-red-500/20 text-red-400 border-red-500"
+                              : "bg-red-50 text-red-700 border-red-300",
+                            queued: isDark
+                              ? "bg-blue-500/20 text-blue-400 border-blue-500"
+                              : "bg-blue-50 text-blue-700 border-blue-300",
+                          };
+
+                          const statusLabel = {
+                            generated: "🖼️ Generated",
+                            fallback: "⚠️ Fallback",
+                            skipped: "⏭️ Skipped",
+                            failed: "❌ Failed",
+                            queued: "⏳ Queued",
+                          };
+
+                          const tooltipText = lastEvents.length > 0
+                            ? `Last events:\n${lastEvents.map((e) => `${e.type} (${e.ok ? "✓" : "✗"}): ${e.messageSafe || "N/A"}`).join("\n")}`
+                            : item.imageStatus === "fallback" && item.imageFallbackReason
+                            ? item.imageFallbackReason
+                            : displayStatus === "generated"
+                            ? "Image generated successfully"
+                            : displayStatus === "fallback"
+                            ? "Image generation fallback"
+                            : "Image generation skipped";
+
+                          return (
+                            <span
+                              className={`px-2 py-1 text-xs rounded-full border ${
+                                statusColors[displayStatus as keyof typeof statusColors] || statusColors.skipped
+                              }`}
+                              title={tooltipText}
+                            >
+                              {statusLabel[displayStatus as keyof typeof statusLabel] || `⏭️ ${displayStatus}`}
+                            </span>
+                          );
+                        })()}
                       </div>
+                      {/* Image Preview and Regenerate Button */}
+                      {(() => {
+                        const imageInfo = imageInfoMap[item.id];
+                        const canonicalUrl = imageInfo?.image?.url;
+                        const canonicalAltText = imageInfo?.image?.altText;
+                        const displayUrl = canonicalUrl || item.imageUrl;
+                        const displayAltText = canonicalAltText || item.imageAltText;
+                        // Use canonical status (preferred) or fallback to queue item status
+                        const canonicalStatus = imageInfo?.image?.status;
+                        const displayStatus = canonicalStatus || item.imageStatus;
+                        const hasImageRequestId = !!item.imageRequestId;
+                        const isRegenerating = regeneratingIds.has(item.id);
+                        // Show regenerate button only when imageRequestId exists AND status is failed/fallback/skipped
+                        const shouldShowRegenerate = hasImageRequestId && (
+                          displayStatus === "failed" ||
+                          displayStatus === "fallback" ||
+                          displayStatus === "skipped"
+                        );
+
+                        return (
+                          <div className="mb-2 flex items-start gap-2">
+                            {displayStatus === "generated" && displayUrl && (
+                              <img
+                                src={displayUrl}
+                                alt={displayAltText || "Generated image"}
+                                className="max-w-xs max-h-32 rounded-lg border"
+                              />
+                            )}
+                            {shouldShowRegenerate && (
+                              <button
+                                onClick={() => handleRegenerateImage(item.id)}
+                                disabled={isRegenerating}
+                                className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                                  isRegenerating
+                                    ? "bg-slate-400 text-white cursor-not-allowed"
+                                    : isDark
+                                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                                    : "bg-blue-500 text-white hover:bg-blue-600"
+                                }`}
+                                title="Regenerate image"
+                              >
+                                {isRegenerating ? "Regenerating..." : "🔄 Regenerate"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <p className={`${themeClasses.inputText} mb-2 whitespace-pre-wrap`}>{item.content}</p>
                       <div className={`text-xs ${themeClasses.mutedText}`}>
                         <p>Scheduled: {formatDate(item.scheduledAt)}</p>
@@ -237,7 +500,7 @@ export default function SocialAutoPosterQueuePage() {
                     )}
                     {item.status === "approved" && (
                       <button
-                        onClick={() => handleStatusChange(item.id, "scheduled")}
+                        onClick={() => handleSchedule(item.id)}
                         className="px-3 py-1 bg-yellow-500 text-white rounded-full text-sm hover:bg-yellow-600 transition-colors"
                       >
                         Schedule
@@ -321,7 +584,7 @@ export default function SocialAutoPosterQueuePage() {
                   {selectedItem.status === "approved" && (
                     <button
                       onClick={async () => {
-                        await handleStatusChange(selectedItem.id, "scheduled");
+                        await handleSchedule(selectedItem.id);
                         closeDrawer();
                       }}
                       className="px-3 py-1 bg-yellow-500 text-white rounded-full text-sm hover:bg-yellow-600 transition-colors"
@@ -368,6 +631,19 @@ export default function SocialAutoPosterQueuePage() {
           </div>
         )}
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-lg z-50 ${
+            toast.type === "success"
+              ? "bg-green-500 text-white"
+              : "bg-red-500 text-white"
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
     </OBDPageContainer>
   );
 }

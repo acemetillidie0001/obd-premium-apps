@@ -70,12 +70,9 @@ export default function SocialAutoPosterDashboardPage() {
             <div className="text-center py-8">
               <p className={themeClasses.mutedText}>Loading analytics...</p>
             </div>
-          ) : !analytics || (analytics.totalScheduled === 0 && analytics.totalPosted === 0) ? (
+          ) : !analytics ? (
             <div className="text-center py-8">
-              <p className={`text-lg mb-2 ${themeClasses.headingText}`}>No data yet</p>
-              <p className={themeClasses.mutedText}>
-                Start generating and scheduling posts to see analytics here.
-              </p>
+              <p className={themeClasses.mutedText}>Loading analytics...</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -130,7 +127,13 @@ export default function SocialAutoPosterDashboardPage() {
               </div>
 
               {/* Totals */}
-              <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-600">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-600">
+                <div className="text-center">
+                  <p className={`text-xl font-semibold ${themeClasses.headingText}`}>
+                    {analytics.totalQueueItems}
+                  </p>
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>Total Queue Items</p>
+                </div>
                 <div className="text-center">
                   <p className={`text-xl font-semibold ${themeClasses.headingText}`}>
                     {analytics.totalScheduled}

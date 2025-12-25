@@ -63,6 +63,12 @@ export interface SchedulingRules {
   timezone: string; // IANA timezone, e.g., "America/New_York"
 }
 
+export interface ImageSettings {
+  enableImages: boolean;
+  imageCategoryMode: "auto" | "educational" | "promotion" | "social_proof" | "local_abstract" | "evergreen";
+  allowTextOverlay: boolean;
+}
+
 export interface SocialAutoposterSettings {
   id?: string;
   userId: string;
@@ -74,6 +80,7 @@ export interface SocialAutoposterSettings {
   platformOverrides?: PlatformOverridesMap;
   contentPillarSettings?: ContentPillarSettings;
   hashtagBankSettings?: HashtagBankSettings;
+  imageSettings?: ImageSettings;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -82,6 +89,18 @@ export interface SocialAutoposterSettings {
 // Post Generation Types
 // ============================================
 
+export interface PostImage {
+  status: "skipped" | "generated" | "fallback";
+  url?: string | null;
+  altText?: string | null;
+  provider?: string | null;
+  aspect?: string | null;
+  category?: string | null;
+  fallbackReason?: string | null;
+  errorCode?: string | null;
+  requestId?: string | null;
+}
+
 export interface SocialPostDraft {
   platform: SocialPlatform;
   content: string;
@@ -89,10 +108,10 @@ export interface SocialPostDraft {
   reason?: string; // Why this post was created
   theme?: ContentTheme; // Content theme
   isSimilar?: boolean; // Flag if similar to recent post
+  image?: PostImage; // Optional image metadata (ephemeral)
   metadata?: {
     hashtags?: string[];
     mentions?: string[];
-    imageUrl?: string;
     linkUrl?: string;
   };
 }
@@ -107,10 +126,10 @@ export interface SocialPostPreview {
   reason?: string; // Why this post was created
   theme?: ContentTheme; // Content theme
   isSimilar?: boolean; // Flag if similar to recent post
+  image?: PostImage; // Optional image metadata (ephemeral)
   metadata?: {
     hashtags?: string[];
     mentions?: string[];
-    imageUrl?: string;
     linkUrl?: string;
   };
 }
@@ -155,6 +174,15 @@ export interface SocialQueueItem {
   contentFingerprint?: string | null;
   reason?: string | null;
   isSimilar?: boolean;
+  imageStatus?: "skipped" | "generated" | "fallback" | null;
+  imageUrl?: string | null;
+  imageAltText?: string | null;
+  imageProvider?: string | null;
+  imageAspect?: string | null;
+  imageCategory?: string | null;
+  imageErrorCode?: string | null;
+  imageFallbackReason?: string | null;
+  imageRequestId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -233,6 +261,7 @@ export interface SaveSettingsRequest {
   platformOverrides?: PlatformOverridesMap;
   contentPillarSettings?: ContentPillarSettings;
   hashtagBankSettings?: HashtagBankSettings;
+  imageSettings?: ImageSettings;
 }
 
 export interface SaveSettingsResponse {
@@ -271,5 +300,6 @@ export interface AnalyticsSummary {
   totalScheduled: number;
   totalPosted: number;
   totalFailed: number;
+  totalQueueItems: number;
 }
 

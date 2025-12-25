@@ -2,9 +2,9 @@
 
 ## Overview
 
-The Review Request Automation is a V3 production-ready OBD Premium App that generates review request templates and manages a send queue for automated review request campaigns. V3 does NOT send SMS/email externally; instead, it generates templates and produces a "Send Queue" with copy buttons and manual status tracking.
+The Review Request Automation is a V3 production-ready OBD Premium App that generates review request templates and manages a send queue for review request campaigns. V3.6 adds real email sending via Resend (manual trigger), while SMS templates remain manual copy/paste. The app generates templates, produces a "Send Queue", and provides manual email sending with click/review tracking.
 
-**Status:** Live (V3)  
+**Status:** Live (V3.6)  
 **Route:** `/apps/review-request-automation`  
 **Category:** Reputation
 
@@ -33,6 +33,7 @@ The Review Request Automation is a V3 production-ready OBD Premium App that gene
   - **Bulk Actions**: Select multiple items and mark as sent/clicked/reviewed
   - Copy button per row (fills tokens)
   - Manual status tracking: "Mark Sent", "Mark Clicked", "Mark Reviewed", "Mark Opted Out"
+  - **Email Sending (V3.6)**: "Send Emails Now" button and per-item send for EMAIL queue items via Resend
   - Status changes update metrics and remove/advance follow-up items
   - Export queue to CSV
 - **Results + Insights**: 
@@ -44,8 +45,10 @@ The Review Request Automation is a V3 production-ready OBD Premium App that gene
   - Export send queue to CSV
   - Export campaign JSON (includes campaign, customers, events, and results)
 - **Data Persistence**: 
-  - Automatic localStorage save/restore
-  - Clear data functionality
+  - Automatic localStorage save/restore (fallback)
+  - Database persistence via Prisma (canonical storage)
+  - "Save to Database" toggle (default ON)
+  - Integration with Reputation Dashboard
 - **Accessibility**:
   - All buttons have tooltips and aria-labels
   - Keyboard support (Enter/Space for button activation)
@@ -54,21 +57,50 @@ The Review Request Automation is a V3 production-ready OBD Premium App that gene
 - **Unit Tests**: Comprehensive test coverage for engine functions
 - **CSV Utilities**: Tolerant parsing with column mapping and error reporting
 
+### Email Sending (V3.6)
+
+**Status:** ✅ **NEW** - Email sending via Resend is now available
+
+Review Request Automation V3.6 adds real email sending functionality using Resend, with click tracking and self-confirmed review tracking.
+
+**Features:**
+- **Manual Email Sending**: "Send Emails Now" button in Queue tab sends all pending EMAIL queue items (max 25 per batch)
+- **Per-Item Send**: Optional "Send" button for individual EMAIL queue items
+- **Click Tracking**: Review links in emails are replaced with secure tracking URLs that update queue item status to CLICKED
+- **Self-Confirmed Review Tracking**: "I left a review" confirmation link allows customers to confirm they left a review
+- **Status Updates**: Queue items automatically update to SENT, CLICKED, and REVIEWED statuses with timestamps
+- **Rate Limiting**: Maximum 25 emails per batch to prevent abuse
+- **Error Handling**: Partial success handling with detailed error reporting per item
+
+**Requirements:**
+- Campaign must be saved to database (enable "Save to Database" toggle)
+- `RESEND_API_KEY` and `EMAIL_FROM` environment variables must be configured in Vercel
+- Queue items must have `channel=EMAIL` and `status=PENDING`
+
+**How Tracking Works:**
+- **Clicked**: When a customer clicks the review link in the email, the tracking URL updates the queue item status to CLICKED and redirects them to the actual review page (Google, Facebook, etc.)
+- **Confirmed Reviewed**: When a customer clicks "I left a review" confirmation link, the queue item status updates to REVIEWED and redirects to Reputation Dashboard
+- **Important**: Review confirmations are self-reported by customers. We cannot verify actual Google/Facebook review submission.
+
+**Limitations:**
+- **Manual Sending Only**: Emails are sent manually via "Send Emails Now" button. No automatic scheduled sending yet.
+- **Self-Confirmed Reviews**: Review tracking relies on customer clicking "I left a review" confirmation link. We cannot detect actual Google/Facebook review submission.
+- **SMS Not Supported**: Email sending only. SMS templates are generated but SMS sending is not implemented (manual copy/paste workflow remains)
+
 ### What's NOT Included (V4 Roadmap)
 
 **V3 Limitations:**
-- **External SMS/Email Sending**: V3 generates templates only; no actual sending via Twilio, SendGrid, etc.
-- **Database Persistence**: Campaigns and customers are stored in localStorage only (no Prisma/DB integration)
-- **Real-time Automation**: No actual automated sending; manual queue management with copy buttons
+- **External SMS Sending**: SMS templates are generated but not sent automatically (manual copy/paste workflow)
+- **Automatic Scheduling**: No cron jobs or scheduled sending yet (manual "Send Now" only)
 - **Advanced Personalization**: Basic {firstName} token replacement only (no AI-generated custom messages)
 - **Multi-user Support**: Single-session campaigns (no saved campaigns per user, no user accounts)
-- **Integration APIs**: No connections to SMS/email providers, POS systems, or booking platforms
+- **Integration APIs**: No connections to SMS providers, POS systems, or booking platforms
 
 **V4 Planned Enhancements:**
-- Database persistence (Prisma integration)
-- External SMS/email sending (Twilio, SendGrid, etc.)
+- External SMS sending (Twilio, etc.)
+- Automatic scheduled sending (cron jobs)
 - Advanced personalization (AI-generated custom messages)
-- Real-time automation (cron jobs, webhooks)
+- Real-time automation (webhooks)
 - Multi-user support (saved campaigns per user)
 - Integration APIs (connect to POS systems, booking platforms)
 
@@ -312,10 +344,20 @@ Queue items are computed deterministically based on:
 
 For each queue item, operators can:
 - **Copy**: Copy personalized message text to clipboard
-- **Mark Sent**: Mark as sent (creates "sent" event)
-- **Mark Clicked**: Mark as clicked (creates "clicked" event)
-- **Mark Reviewed**: Mark as reviewed (creates "reviewed" event, removes follow-ups)
+- **Send** (EMAIL items only): Send email via Resend (V3.6) - updates status to SENT automatically
+- **Mark Sent**: Mark as sent manually (creates "sent" event)
+- **Mark Clicked**: Mark as clicked manually (creates "clicked" event)
+- **Mark Reviewed**: Mark as reviewed manually (creates "reviewed" event, removes follow-ups)
 - **Opt Out**: Mark customer as opted out (creates "optedOut" event)
+
+**Email Sending (V3.6):**
+- "Send Emails Now" button in Queue tab header sends all pending EMAIL items (max 25 per batch)
+- Per-row "Send" button for individual EMAIL items
+- **Manual Trigger Only**: Emails are sent manually via button click. No automatic scheduling.
+- Emails include click tracking URLs that automatically update status to CLICKED when clicked
+- Emails include "I left a review" confirmation link that updates status to REVIEWED (self-confirmed)
+- Status updates are persisted to database automatically
+- **Note**: Review confirmations are self-reported by customers clicking the confirmation link. We cannot verify actual Google/Facebook review submission.
 
 ### Bulk Actions
 
@@ -393,6 +435,224 @@ The Results tab includes a "Best-Practice Guidance" section that provides non-bi
 - Available from Queue tab
 - Filename format: `campaign-{businessName}-{date}.json`
 - Useful for backup, migration, or analysis
+
+## Database Persistence
+
+The Review Request Automation app now supports database persistence via Prisma and PostgreSQL with strict type safety using Prisma enums.
+
+### Storage Options
+
+- **Database (Canonical)**: Campaigns, customers, queue items, and datasets are saved to Postgres when "Save to Database" toggle is enabled (default ON)
+- **localStorage (Fallback)**: Campaign data is also saved to localStorage for backward compatibility and offline access
+
+### Save to Database Toggle
+
+- Location: Campaign tab, "Storage Options" section
+- Default: **ON** (enabled)
+- When enabled: Campaign data is automatically saved to the database after "Generate Templates & Queue" completes
+- When disabled: Data is only stored in localStorage (local-only mode), DB status pill shows "Local Only"
+
+### Database Schema
+
+**Enums (Type-Safe):**
+- `ReviewRequestChannel`: `EMAIL`, `SMS`
+- `ReviewRequestVariant`: `SMS_SHORT`, `SMS_STANDARD`, `EMAIL`, `FOLLOW_UP_SMS`, `FOLLOW_UP_EMAIL`
+- `ReviewRequestStatus`: `PENDING`, `SENT`, `CLICKED`, `REVIEWED`, `OPTED_OUT`, `SKIPPED`
+
+**Dataset Warnings (warningsJson):**
+The system automatically computes lightweight warnings when saving campaigns:
+- `missingReviewLink`: Review link URL is empty or missing
+- `noCustomerContacts`: All customers are missing both email and phone
+- `smsTooLong`: Any SMS template exceeds 300 characters
+- `followUpTooSoon`: Follow-up delay is less than 2 days
+- `highQueueSkipRate`: More than 25% of queue items are skipped
+
+Warnings are informational only and do not block saving. They are stored in `ReviewRequestDataset.warningsJson` for reference.
+
+### DB Status Pill
+
+A small status indicator shows the current database connection state:
+- **✓ Connected**: Save to DB toggle ON and save succeeded
+- **⚠ Fallback (Local)**: Save failed but local results exist (localStorage fallback)
+- **○ Local Only**: Save to DB toggle OFF (local storage only)
+- **○ Checking...**: Initial connection check in progress
+
+The pill appears in the top-right area of the app, providing clear visibility into data persistence status.
+
+### Saved Data Structure
+
+When saved to the database, the following data is stored:
+
+- **Campaign**: Business info, platform, review link, message settings, automation rules
+- **Customers**: Name, contact info (email/phone), tags, visit dates, service info
+- **Queue Items**: Scheduled sends with status tracking (uses enum types: `PENDING`, `SENT`, `CLICKED`, `REVIEWED`, `OPTED_OUT`, `SKIPPED`)
+- **Dataset**: Snapshot with computed metrics (`totalsJson`) and warnings (`warningsJson`)
+
+### API Endpoints
+
+#### POST `/api/review-request-automation/save`
+
+Saves a complete campaign to the database.
+
+**Request:**
+```typescript
+{
+  campaign: Campaign;
+  customers: Customer[];
+  queue: SendQueueItem[];
+  results: ReviewRequestAutomationResponse;
+}
+```
+
+**Response:**
+```typescript
+{
+  success: true;
+  campaignId: string;
+  datasetId: string;
+  computedAt: string; // ISO date string
+}
+```
+
+**Authentication:** Required (returns 401 if not logged in)
+
+#### GET `/api/review-request-automation/latest`
+
+Retrieves the latest dataset for the logged-in user, ordered by `computedAt` descending (tie-breaker: `createdAt` descending).
+
+**Response (when dataset exists):**
+```typescript
+{
+  ok: true;
+  empty: false;
+  dataset: {
+    datasetId: string;
+    campaignId: string;
+    businessName: string;
+    computedAt: string; // ISO date string
+    metrics: {
+      sent: number;
+      clicked: number;
+      reviewed: number;
+      clickedRate: number; // percentage
+      reviewedRate: number; // percentage
+    };
+    totalsJson: Record<string, unknown>; // Full metrics object
+    warningsJson: Record<string, boolean> | null; // Warnings if any
+  };
+}
+```
+
+**Response (when no dataset exists):**
+```typescript
+{
+  ok: true;
+  empty: true;
+  dataset: null;
+}
+```
+
+**Authentication:** Required (returns 401 if not logged in)
+
+**Latest Dataset Logic:**
+- Orders by `computedAt DESC` (primary)
+- Tie-breaker: `createdAt DESC`
+- Returns empty state (not error) when no datasets exist for user
+
+**Response Includes:**
+- `isCurrent`: Always `true` for latest overall dataset
+- `isCurrentForCampaign`: `true` if this is the latest dataset for its campaign
+
+### Integration with Reputation Dashboard
+
+Saved campaigns are automatically visible in the Reputation Dashboard's "Review Requests Performance" panel, which displays:
+
+- Sent count
+- Clicked count
+- Reviewed count
+- Conversion rates (clicked/sent, reviewed/sent)
+- Last computed timestamp (from `computedAt` field, not campaign `createdAt`)
+- Dataset ID badge
+- "Current" badge for latest dataset
+- Deep link button to Review Request Automation app
+
+Additionally, the Reputation Dashboard's "Insights & Recommendations" panel provides actionable insights based on your campaign data, with deep links that automatically open the correct tab and highlight relevant fields in Review Request Automation.
+
+### Latest Dataset Definition
+
+The "latest" dataset is determined strictly by:
+1. Maximum `computedAt` timestamp (primary sort)
+2. Maximum `createdAt` timestamp (tie-breaker)
+
+This ensures deterministic ordering regardless of campaign creation order.
+
+### Data Scoping
+
+All database records are strictly scoped to the logged-in user (`userId`). Users can only access their own campaigns and datasets. All queries include `userId` in the WHERE clause.
+
+## Deep Linking & Cross-App State Memory (V3.5)
+
+Review Request Automation now supports deep linking from Reputation Dashboard with automatic tab switching, field highlighting, and context awareness.
+
+### Query Parameters
+
+The app accepts the following query parameters:
+
+- **`tab`**: Switches to the specified tab
+  - Valid values: `"campaign"`, `"customers"`, `"templates"`, `"queue"`, `"results"`
+  - Example: `/apps/review-request-automation?tab=templates`
+
+- **`focus`**: Highlights and scrolls to a specific field/section
+  - Valid values:
+    - `"reviewLinkUrl"`: Review link input field
+    - `"followUpDelayDays"`: Follow-up delay field
+    - `"frequencyCapDays"`: Frequency cap field
+    - `"timing"`: Send delay field
+    - `"contacts"`: Customers tab (contact information section)
+    - `"sms"`: Templates tab (SMS templates section)
+    - `"cta"`: Templates tab (call-to-action section)
+    - `"skips"`: Queue tab (skipped items section)
+  - Example: `/apps/review-request-automation?tab=campaign&focus=reviewLinkUrl`
+
+- **`from=rd`**: Indicates navigation from Reputation Dashboard
+  - Triggers context banner: "Tip: Fixing this will improve your review request conversion."
+  - Banner is dismissible and persists dismissal in session storage
+
+### Field Highlighting Behavior
+
+When a `focus` parameter is provided:
+- Automatically scrolls the target field/section into view (smooth scrolling)
+- Applies a highlight ring animation (2 seconds, then fades)
+- Works even if the target field is not found (graceful fallback)
+- Waits for tab switching to complete before scrolling
+
+### Context Banner
+
+When `from=rd` is present in the URL:
+- Shows a dismissible banner at the top of the page
+- Provides context: "Tip: Fixing this will improve your review request conversion."
+- Dismissal persists in session storage (survives page reloads in same session)
+- Banner uses OBD V3 design system styling (consistent with other panels)
+
+### Usage Examples
+
+**From Reputation Dashboard Insights:**
+- Missing review link → `/apps/review-request-automation?tab=campaign&focus=reviewLinkUrl&from=rd`
+- Follow-up too soon → `/apps/review-request-automation?tab=campaign&focus=followUpDelayDays&from=rd`
+- Low click rate → `/apps/review-request-automation?tab=templates&focus=cta&from=rd`
+
+**Manual Navigation:**
+- Open Templates tab: `/apps/review-request-automation?tab=templates`
+- Focus on SMS section: `/apps/review-request-automation?tab=templates&focus=sms`
+
+### Technical Implementation
+
+- Uses Next.js `useSearchParams` hook for client-side parameter reading
+- Tab switching updates `activeTab` state
+- Field highlighting uses React refs and CSS classes
+- Smooth scrolling via `element.scrollIntoView({ behavior: "smooth" })`
+- Highlight animation uses Tailwind ring utilities with timeout cleanup
+- Session storage for banner dismissal state
 
 ## API
 

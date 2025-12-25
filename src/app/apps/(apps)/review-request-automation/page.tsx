@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import ResultCard from "@/components/obd/ResultCard";
@@ -34,7 +35,7 @@ function generateUUID(): string {
   });
 }
 
-export default function ReviewRequestAutomationPage() {
+function ReviewRequestAutomationPageContent() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -73,6 +74,24 @@ export default function ReviewRequestAutomationPage() {
   const [showQuickStart, setShowQuickStart] = useState(false);
   const [selectedQueueItems, setSelectedQueueItems] = useState<Set<string>>(new Set());
   const [expandedInfo, setExpandedInfo] = useState<Set<string>>(new Set());
+  
+  // Database save state
+  const [saveToDb, setSaveToDb] = useState(true); // Default ON
+  const [savedDatasetId, setSavedDatasetId] = useState<string | null>(null);
+  const [savingToDb, setSavingToDb] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [dbStatus, setDbStatus] = useState<"connected" | "fallback" | "local-only" | "checking">("checking");
+  
+  // Email sending state
+  const [sendingEmails, setSendingEmails] = useState(false);
+  const [emailSendResult, setEmailSendResult] = useState<{ sent: number; failed: number } | null>(null);
+
+  // Cross-app state memory (LEVEL 3)
+  const searchParams = useSearchParams();
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const [showFromRDBanner, setShowFromRDBanner] = useState(false);
+  const focusRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const bannerDismissedRef = useRef(false);
 
   // Modal state
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
@@ -126,6 +145,53 @@ export default function ReviewRequestAutomationPage() {
     } catch {
       // Silently fail - localStorage may be unavailable or corrupted
       setShowQuickStart(true);
+    }
+
+    // Check DB status on mount
+    const checkDbStatus = async () => {
+      try {
+        const res = await fetch("/api/review-request-automation/latest");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ok && !data.empty) {
+            setDbStatus("connected");
+          } else {
+            // Check if we have local data
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+              setDbStatus("fallback");
+            } else {
+              setDbStatus("connected"); // Connected but no data yet
+            }
+          }
+        } else if (res.status !== 401) {
+          // Not 401, so DB issue
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            setDbStatus("fallback");
+          } else {
+            setDbStatus("fallback");
+          }
+        } else {
+          // 401 - not logged in, but that's fine
+          setDbStatus("connected");
+        }
+      } catch (err) {
+        // DB unavailable
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          setDbStatus("fallback");
+        } else {
+          setDbStatus("connected"); // Assume connected if no local data
+        }
+      }
+    };
+
+    checkDbStatus();
+
+    // Check if banner was dismissed in this session
+    if (typeof window !== "undefined" && sessionStorage.getItem("rd-banner-dismissed") === "true") {
+      bannerDismissedRef.current = true;
     }
   }, []);
 
@@ -188,6 +254,62 @@ export default function ReviewRequestAutomationPage() {
     }
   }, [showAddCustomerModal]);
 
+  // Deep linking: Handle query parameters (tab, focus, from=rd)
+  useEffect(() => {
+    if (!searchParams) return;
+
+    const tab = searchParams.get("tab");
+    const focus = searchParams.get("focus");
+    const fromRD = searchParams.get("from") === "rd";
+
+    // Switch tab if provided and valid
+    if (tab) {
+      const validTabs: Array<"campaign" | "customers" | "templates" | "queue" | "results"> = [
+        "campaign",
+        "customers",
+        "templates",
+        "queue",
+        "results",
+      ];
+      if (validTabs.includes(tab as typeof validTabs[number])) {
+        setActiveTab(tab as typeof validTabs[number]);
+      }
+    }
+
+    // Show banner if from RD and not dismissed
+    if (fromRD && !bannerDismissedRef.current) {
+      setShowFromRDBanner(true);
+    }
+  }, [searchParams]); // Only run when searchParams changes
+
+  // Handle field focusing after tab has switched
+  useEffect(() => {
+    if (!searchParams) return;
+
+    const focus = searchParams.get("focus");
+    if (!focus) return;
+
+    // Wait for tab content to render, then scroll and highlight
+    const timeoutId = setTimeout(() => {
+      const element = focusRefs.current[focus];
+      if (element) {
+        // Smooth scroll to element
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        
+        // Add highlight ring animation
+        element.classList.add("ring-2", "ring-[#29c4a9]", "ring-offset-2");
+        
+        // Remove highlight after 2 seconds
+        setTimeout(() => {
+          element.classList.remove("ring-2", "ring-[#29c4a9]", "ring-offset-2");
+          setFocusTarget(null);
+        }, 2000);
+      }
+    }, 300); // Wait 300ms for tab content to render
+
+    return () => clearTimeout(timeoutId);
+  }, [searchParams, activeTab]); // Re-run when tab switches or searchParams changes
+
   const handleProcess = async () => {
     setError(null);
     setLoading(true);
@@ -217,6 +339,50 @@ export default function ReviewRequestAutomationPage() {
       
       if (data.validationErrors.length > 0) {
         setError(data.validationErrors.join("; "));
+      }
+
+      // Save to database if toggle is enabled
+      if (saveToDb) {
+        setSavingToDb(true);
+        setSaveError(null);
+        try {
+          const saveRes = await fetch("/api/review-request-automation/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              campaign,
+              customers,
+              queue: data.sendQueue,
+              results: data,
+            }),
+          });
+
+          if (!saveRes.ok) {
+            const errorData = await saveRes.json().catch(() => ({}));
+            throw new Error(errorData.error || "Failed to save to database");
+          }
+
+          const saveResult = await saveRes.json();
+          setSavedDatasetId(saveResult.datasetId || null);
+          setDbStatus("connected");
+        } catch (err) {
+          console.error("Error saving to database:", err);
+          setSaveError(
+            err instanceof Error
+              ? err.message
+              : "Failed to save to database. Your results are still available."
+          );
+          // Set fallback status if local results exist
+          if (data) {
+            setDbStatus("fallback");
+          }
+          // Don't show this as a blocking error - results are still displayed
+        } finally {
+          setSavingToDb(false);
+        }
+      } else {
+        // Toggle is OFF - set to local-only
+        setDbStatus("local-only");
       }
     } catch (err) {
       setError(
@@ -443,6 +609,77 @@ export default function ReviewRequestAutomationPage() {
     }
   };
 
+  const handleSendEmails = async (queueItemIds?: string[]) => {
+    // Check if data is saved to database
+    if (!saveToDb || !savedDatasetId) {
+      setError("Please save your campaign to the database first (enable 'Save to database' toggle and generate templates)");
+      return;
+    }
+
+    setSendingEmails(true);
+    setEmailSendResult(null);
+    setError(null);
+
+    try {
+      // Fetch latest dataset to get database queue item IDs
+      const latestRes = await fetch("/api/review-request-automation/latest");
+      if (!latestRes.ok) {
+        throw new Error("Failed to fetch latest dataset. Please ensure your campaign is saved.");
+      }
+
+      const latestData = await latestRes.json();
+      if (!latestData.ok || latestData.empty) {
+        throw new Error("No saved campaign found. Please save your campaign first.");
+      }
+
+      // If specific queue item IDs provided, use those; otherwise fetch all pending EMAIL items from DB
+      let itemsToSend: string[];
+      if (queueItemIds && queueItemIds.length > 0) {
+        itemsToSend = queueItemIds;
+      } else {
+        // Fetch pending EMAIL queue items from database
+        // Note: We'll need to get these from the database, but for now we'll use the API
+        // which will fetch them server-side
+        itemsToSend = []; // Empty array means "send all pending EMAIL items"
+      }
+
+      const res = await fetch("/api/review-request-automation/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: queueItemIds && queueItemIds.length > 0 ? "single" : "batch",
+          queueItemIds: itemsToSend.length > 0 ? itemsToSend : undefined, // If empty, server will fetch all pending
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to send emails");
+      }
+
+      const data = await res.json();
+      setEmailSendResult({
+        sent: data.sent || 0,
+        failed: data.failed || 0,
+      });
+
+      // Re-process to update local state
+      if (result) {
+        setTimeout(() => {
+          handleProcess();
+        }, 1000);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send emails. Please try again."
+      );
+    } finally {
+      setSendingEmails(false);
+    }
+  };
+
   const getSMSCharacterCount = (text: string): { count: number; segments: number } => {
     const count = text.length;
     // SMS segments: 160 chars per segment, but 153 if using GSM-7 with UDH
@@ -476,6 +713,133 @@ export default function ReviewRequestAutomationPage() {
       title="Review Request Automation"
       tagline="Send automatic review requests by email or SMS after each visit."
     >
+      {/* LEVEL 3: From RD Banner */}
+      {showFromRDBanner && (
+        <div className={`mb-4 p-3 rounded-lg border flex items-center justify-between ${
+          isDark
+            ? "bg-blue-900/20 border-blue-700"
+            : "bg-blue-50 border-blue-200"
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💡</span>
+            <p className={`text-sm ${isDark ? "text-blue-300" : "text-blue-700"}`}>
+              <strong>Tip:</strong> Fixing this will improve your review request conversion.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowFromRDBanner(false);
+              bannerDismissedRef.current = true;
+              // Store in sessionStorage so it doesn't show again this session
+              if (typeof window !== "undefined") {
+                sessionStorage.setItem("rd-banner-dismissed", "true");
+              }
+            }}
+            className={`text-xs px-2 py-1 rounded ${
+              isDark
+                ? "hover:bg-blue-800/50 text-blue-300"
+                : "hover:bg-blue-100 text-blue-700"
+            }`}
+            aria-label="Dismiss banner"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* DB Status Pill */}
+      <div className="mt-4 flex items-center justify-end">
+        <span
+          className={`text-xs px-2 py-1 rounded-full ${
+            dbStatus === "connected"
+              ? isDark
+                ? "bg-green-900/50 text-green-300 border border-green-700"
+                : "bg-green-50 text-green-700 border border-green-200"
+              : dbStatus === "fallback"
+              ? isDark
+                ? "bg-yellow-900/50 text-yellow-300 border border-yellow-700"
+                : "bg-yellow-50 text-yellow-700 border border-yellow-200"
+              : dbStatus === "local-only"
+              ? isDark
+                ? "bg-blue-900/50 text-blue-300 border border-blue-700"
+                : "bg-blue-50 text-blue-700 border border-blue-200"
+              : isDark
+              ? "bg-slate-800 text-slate-400 border border-slate-700"
+              : "bg-slate-100 text-slate-600 border border-slate-200"
+          }`}
+          title={
+            dbStatus === "connected"
+              ? "Connected to database"
+              : dbStatus === "fallback"
+              ? "Using local storage (database unavailable)"
+              : dbStatus === "local-only"
+              ? "Local storage only — data not saved to database"
+              : "Checking connection..."
+          }
+        >
+          {dbStatus === "connected"
+            ? "✓ Connected"
+            : dbStatus === "fallback"
+            ? "⚠ Fallback (Local)"
+            : dbStatus === "local-only"
+            ? "○ Local Only"
+            : "○ Checking..."}
+        </span>
+      </div>
+      {/* Save Success Banner */}
+      {savedDatasetId && (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div className={`flex items-center justify-between p-3 rounded-lg ${
+            isDark ? "bg-green-900/20 border border-green-700" : "bg-green-50 border border-green-200"
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className="text-green-500">✓</span>
+              <span className={`text-sm font-medium ${themeClasses.headingText}`}>
+                Saved to your account
+              </span>
+              <span className={`text-xs px-2 py-1 rounded ${
+                isDark ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600"
+              }`}>
+                {savedDatasetId.substring(0, 8)}...
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSavedDatasetId(null)}
+              className={`text-sm ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+              aria-label="Dismiss save confirmation"
+            >
+              ×
+            </button>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* Save Error Banner */}
+      {saveError && (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div className={`flex items-center justify-between p-3 rounded-lg ${
+            isDark ? "bg-yellow-900/20 border border-yellow-700" : "bg-yellow-50 border border-yellow-200"
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className="text-yellow-500">⚠</span>
+              <span className={`text-sm ${themeClasses.mutedText}`}>
+                {saveError}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSaveError(null)}
+              className={`text-sm ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Quick Start Banner */}
       {showQuickStart && (
         <OBDPanel isDark={isDark} className="mt-7">
@@ -696,7 +1060,11 @@ export default function ReviewRequestAutomationPage() {
                       <option value="Other">Other</option>
                     </select>
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => {
+                      focusRefs.current["reviewLinkUrl"] = el;
+                    }}
+                  >
                     <label htmlFor="reviewLink" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                       Review Link <span className="text-red-500">*</span>
                     </label>
@@ -773,6 +1141,47 @@ export default function ReviewRequestAutomationPage() {
 
               <div>
                 <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
+                  Storage Options
+                </h3>
+                <div className="space-y-4">
+                  <label className={`flex items-center gap-2 cursor-pointer ${themeClasses.labelText}`}>
+                    <input
+                      type="checkbox"
+                      checked={saveToDb}
+                      onChange={(e) => {
+                        setSaveToDb(e.target.checked);
+                        if (!e.target.checked) {
+                          setDbStatus("local-only");
+                        } else {
+                          // Check connection when toggling back on
+                          setDbStatus("checking");
+                          fetch("/api/review-request-automation/latest")
+                            .then((res) => {
+                              if (res.ok) {
+                                setDbStatus("connected");
+                              } else {
+                                setDbStatus("fallback");
+                              }
+                            })
+                            .catch(() => setDbStatus("fallback"));
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span className="text-sm">
+                      Save to database (recommended) — enables integration with Reputation Dashboard
+                    </span>
+                  </label>
+                  <p className={`text-xs ${themeClasses.mutedText} ml-6`}>
+                    When enabled, your campaign data will be saved to your account and can be viewed in the Reputation Dashboard.
+                  </p>
+                </div>
+              </div>
+
+              <div className={getDividerClass(isDark)}></div>
+
+              <div>
+                <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
                   Automation Rules
                 </h3>
                 <div className="space-y-4">
@@ -795,7 +1204,11 @@ export default function ReviewRequestAutomationPage() {
                       <option value="after_payment">After Payment</option>
                     </select>
                   </div>
-                  <div>
+                  <div
+                    ref={(el) => {
+                      focusRefs.current["timing"] = el;
+                    }}
+                  >
                     <label htmlFor="sendDelayHours" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                       Send Delay (Hours) <span className="text-red-500">*</span>
                     </label>
@@ -831,7 +1244,11 @@ export default function ReviewRequestAutomationPage() {
                     </label>
                   </div>
                   {campaign.rules.followUpEnabled && (
-                    <div>
+                    <div
+                      ref={(el) => {
+                        focusRefs.current["followUpDelayDays"] = el;
+                      }}
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <label htmlFor="followUpDelayDays" className={`block text-sm font-medium ${themeClasses.labelText}`}>
                           Follow-Up Delay (Days) <span className="text-red-500">*</span>
@@ -889,7 +1306,11 @@ export default function ReviewRequestAutomationPage() {
                       />
                     </div>
                   )}
-                  <div>
+                  <div
+                    ref={(el) => {
+                      focusRefs.current["frequencyCapDays"] = el;
+                    }}
+                  >
                     <div className="flex items-center gap-2 mb-2">
                       <label htmlFor="frequencyCapDays" className={`block text-sm font-medium ${themeClasses.labelText}`}>
                         Frequency Cap (Days) <span className="text-red-500">*</span>
@@ -1040,12 +1461,12 @@ export default function ReviewRequestAutomationPage() {
 
               <button
                 type="submit"
-              disabled={loading}
+              disabled={loading || savingToDb}
               className={SUBMIT_BUTTON_CLASSES}
               title="Generate message templates and compute send queue"
               aria-label="Generate templates and queue"
             >
-              {loading ? "Processing..." : "Generate Templates & Queue"}
+              {loading ? "Processing..." : savingToDb ? "Saving..." : "Generate Templates & Queue"}
             </button>
             </div>
           </form>
@@ -1054,6 +1475,11 @@ export default function ReviewRequestAutomationPage() {
 
       {/* Customers Tab */}
       {activeTab === "customers" && (
+        <div
+          ref={(el) => {
+            focusRefs.current["contacts"] = el;
+          }}
+        >
         <OBDPanel isDark={isDark} className="mt-7">
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -1207,11 +1633,18 @@ export default function ReviewRequestAutomationPage() {
             )}
           </div>
         </OBDPanel>
+        </div>
       )}
 
       {/* Templates Tab */}
       {activeTab === "templates" && (
-        result ? (
+        <div
+          ref={(el) => {
+            focusRefs.current["sms"] = el;
+            focusRefs.current["cta"] = el;
+          }}
+        >
+        {result ? (
           <div className="mt-7 space-y-7">
           <OBDPanel isDark={isDark}>
             <div className="flex items-center justify-between mb-4">
@@ -1330,12 +1763,18 @@ export default function ReviewRequestAutomationPage() {
               No templates generated yet. Configure your campaign and click &quot;Generate Templates &amp; Queue&quot; to create message templates.
             </p>
           </OBDPanel>
-        )
+        )}
+        </div>
       )}
 
       {/* Queue Tab */}
       {activeTab === "queue" && (
-        result ? (
+        <div
+          ref={(el) => {
+            focusRefs.current["skips"] = el;
+          }}
+        >
+        {result ? (
         <>
           {/* Send Timeline */}
           {result.sendTimeline.events.length > 0 ? (
@@ -1386,6 +1825,26 @@ export default function ReviewRequestAutomationPage() {
               Send Queue ({result.sendQueue.length} items)
             </h3>
             <div className="flex gap-2">
+              {result.sendQueue.some((q) => q.status === "pending" && q.channel === "email") && (
+                <button
+                  type="button"
+                  onClick={() => handleSendEmails()}
+                  disabled={sendingEmails || !saveToDb || !savedDatasetId}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    sendingEmails || !saveToDb || !savedDatasetId
+                      ? "opacity-50 cursor-not-allowed"
+                      : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                  }`}
+                  title={
+                    !saveToDb || !savedDatasetId
+                      ? "Please save your campaign to the database first"
+                      : "Send all pending EMAIL queue items via Resend"
+                  }
+                  aria-label="Send emails now"
+                >
+                  {sendingEmails ? "Sending..." : "Send Emails Now"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleExportQueueCSV}
@@ -1420,6 +1879,28 @@ export default function ReviewRequestAutomationPage() {
               </button>
             </div>
           </div>
+
+          {/* Email send result banner */}
+          {emailSendResult && (
+            <div className={`mb-4 p-3 rounded-lg border ${
+              emailSendResult.failed > 0
+                ? isDark ? "bg-yellow-900/20 border-yellow-700" : "bg-yellow-50 border-yellow-200"
+                : isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+            }`}>
+              <div className={`text-sm font-medium ${
+                emailSendResult.failed > 0
+                  ? isDark ? "text-yellow-300" : "text-yellow-800"
+                  : isDark ? "text-green-300" : "text-green-800"
+              }`}>
+                {emailSendResult.sent > 0 && emailSendResult.failed === 0
+                  ? `✅ Successfully sent ${emailSendResult.sent} email${emailSendResult.sent !== 1 ? "s" : ""}`
+                  : emailSendResult.sent > 0 && emailSendResult.failed > 0
+                  ? `⚠️ Sent ${emailSendResult.sent} email${emailSendResult.sent !== 1 ? "s" : ""}, ${emailSendResult.failed} failed`
+                  : `❌ Failed to send ${emailSendResult.failed} email${emailSendResult.failed !== 1 ? "s" : ""}`
+                }
+              </div>
+            </div>
+          )}
 
           {/* Bulk Actions */}
           {result.sendQueue.length > 0 && result.sendQueue.some((q) => q.status === "pending") && (
@@ -1554,6 +2035,34 @@ export default function ReviewRequestAutomationPage() {
                         </button>
                         {isPending && (
                           <>
+                            {item.channel === "email" && (
+                              <button
+                                type="button"
+                                onClick={() => handleSendEmails()}
+                                disabled={sendingEmails || !saveToDb || !savedDatasetId}
+                                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                                  sendingEmails || !saveToDb || !savedDatasetId
+                                    ? "opacity-50 cursor-not-allowed bg-slate-400 text-slate-200"
+                                    : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                                }`}
+                                title={
+                                  !saveToDb || !savedDatasetId
+                                    ? "Please save your campaign to the database first"
+                                    : "Send all pending emails (including this one)"
+                                }
+                                aria-label="Send emails"
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    if (!sendingEmails && saveToDb && savedDatasetId) {
+                                      handleSendEmails();
+                                    }
+                                  }
+                                }}
+                              >
+                                {sendingEmails ? "Sending..." : "Send"}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleMarkStatus(item.id, "sent")}
@@ -1631,7 +2140,8 @@ export default function ReviewRequestAutomationPage() {
               No send queue available. Generate templates and queue to see scheduled sends.
             </p>
           </OBDPanel>
-        )
+        )}
+        </div>
       )}
 
       {/* Results Tab */}
@@ -2055,3 +2565,10 @@ export default function ReviewRequestAutomationPage() {
   );
 }
 
+export default function ReviewRequestAutomationPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ReviewRequestAutomationPageContent />
+    </Suspense>
+  );
+}

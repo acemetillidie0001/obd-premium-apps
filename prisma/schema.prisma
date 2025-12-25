@@ -28,6 +28,10 @@ model User {
   sessions      Session[]
   usageCounters UsageCounter[]
   brandProfile  BrandProfile?
+  reviewRequestCampaigns ReviewRequestCampaign[]
+  reviewRequestCustomers ReviewRequestCustomer[]
+  reviewRequestQueueItems ReviewRequestQueueItem[]
+  reviewRequestDatasets   ReviewRequestDataset[]
 
   @@index([email])
 }
@@ -164,4 +168,131 @@ model BrandProfile {
   @@index([userId])
 }
 
-// workflow test
+// ----------------------------------------------
+// Review Request Automation Enums
+// ----------------------------------------------
+enum ReviewRequestChannel {
+  EMAIL
+  SMS
+}
+
+enum ReviewRequestVariant {
+  SMS_SHORT
+  SMS_STANDARD
+  EMAIL
+  FOLLOW_UP_SMS
+  FOLLOW_UP_EMAIL
+}
+
+enum ReviewRequestStatus {
+  PENDING
+  SENT
+  CLICKED
+  REVIEWED
+  OPTED_OUT
+  SKIPPED
+}
+
+// ----------------------------------------------
+// Review Request Automation Tables
+// ----------------------------------------------
+model ReviewRequestCampaign {
+  id              String    @id @default(cuid())
+  userId          String
+  businessName    String
+  businessType    String?
+  campaignName    String?
+  platform        String    // "Google" | "Facebook" | "Yelp" | "Other"
+  reviewLinkUrl   String
+  languageMode    String    // "English" | "Spanish" | "Bilingual"
+  toneStyle       String    // "Friendly" | "Professional" | "Bold" | "Luxury"
+  brandVoice      String?   @db.Text
+  channelMode     String    // "sms" | "email" | "both"
+  triggerType     String    // "manual" | "after_service" | "after_payment"
+  sendDelayHours  Int       @default(24)
+  followUpEnabled Boolean   @default(false)
+  followUpDelayDays Int?
+  frequencyCapDays Int      @default(30)
+  quietHoursStart String?   // HH:mm format
+  quietHoursEnd   String?   // HH:mm format
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user     User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customers ReviewRequestCustomer[]
+  queueItems ReviewRequestQueueItem[]
+  datasets  ReviewRequestDataset[]
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model ReviewRequestCustomer {
+  id            String    @id @default(cuid())
+  userId        String
+  campaignId    String
+  name          String
+  email         String?
+  phone         String?
+  tags          String[]  @default([])
+  lastVisitDate DateTime?
+  serviceType   String?
+  jobId         String?
+  optedOut      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  user       User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign   ReviewRequestCampaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  queueItems ReviewRequestQueueItem[]
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([userId, createdAt])
+}
+
+model ReviewRequestQueueItem {
+  id            String               @id @default(cuid())
+  userId        String
+  campaignId    String
+  customerId    String
+  scheduledAt   DateTime
+  channel       ReviewRequestChannel
+  variant       ReviewRequestVariant
+  status        ReviewRequestStatus  @default(PENDING)
+  skippedReason String?              @db.Text
+  sentAt        DateTime?
+  clickedAt     DateTime?
+  reviewedAt    DateTime?
+  optedOutAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer ReviewRequestCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([customerId])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model ReviewRequestDataset {
+  id          String   @id @default(cuid())
+  userId      String
+  campaignId  String
+  snapshotId  String   // short identifier like "RRA-12345678"
+  computedAt  DateTime @default(now())
+  totalsJson  Json     // metrics summary: { sent, clicked, reviewed, conversion rates, etc. }
+  warningsJson Json?   // template health / compliance / quality notes
+  createdAt   DateTime @default(now())
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([userId, computedAt])
+  @@index([snapshotId])
+}

@@ -74,7 +74,7 @@ export interface SendQueueItem {
   scheduledAt: string; // ISO date string
   variant: MessageVariant;
   channel: MessageChannel;
-  status: "pending" | "sent" | "skipped";
+  status: "pending" | "sent" | "clicked" | "reviewed" | "optedOut" | "skipped";
   skippedReason?: string; // if status is "skipped"
 }
 

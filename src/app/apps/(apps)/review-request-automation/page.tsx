@@ -153,10 +153,11 @@ function ReviewRequestAutomationPageContent() {
         const res = await fetch("/api/review-request-automation/latest");
         if (res.ok) {
           const data = await res.json();
-          if (data.ok && !data.empty) {
+          // Check if campaign exists (campaign can be null for first-time users)
+          if (data.campaign) {
             setDbStatus("connected");
           } else {
-            // Check if we have local data
+            // No campaign yet, but DB is connected
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
               setDbStatus("fallback");
@@ -621,34 +622,13 @@ function ReviewRequestAutomationPageContent() {
     setError(null);
 
     try {
-      // Fetch latest dataset to get database queue item IDs
-      const latestRes = await fetch("/api/review-request-automation/latest");
-      if (!latestRes.ok) {
-        throw new Error("Failed to fetch latest dataset. Please ensure your campaign is saved.");
-      }
-
-      const latestData = await latestRes.json();
-      if (!latestData.ok || latestData.empty) {
-        throw new Error("No saved campaign found. Please save your campaign first.");
-      }
-
-      // If specific queue item IDs provided, use those; otherwise fetch all pending EMAIL items from DB
-      let itemsToSend: string[];
-      if (queueItemIds && queueItemIds.length > 0) {
-        itemsToSend = queueItemIds;
-      } else {
-        // Fetch pending EMAIL queue items from database
-        // Note: We'll need to get these from the database, but for now we'll use the API
-        // which will fetch them server-side
-        itemsToSend = []; // Empty array means "send all pending EMAIL items"
-      }
-
+      // Send-email route handles fetching latest dataset server-side
+      // If queueItemIds provided, use those; otherwise server will fetch all pending EMAIL items
       const res = await fetch("/api/review-request-automation/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: queueItemIds && queueItemIds.length > 0 ? "single" : "batch",
-          queueItemIds: itemsToSend.length > 0 ? itemsToSend : undefined, // If empty, server will fetch all pending
+          queueItemIds: queueItemIds && queueItemIds.length > 0 ? queueItemIds : undefined,
         }),
       });
 

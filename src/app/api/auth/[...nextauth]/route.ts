@@ -10,8 +10,8 @@ async function handleRequest(
 ): Promise<Response> {
   try {
     return await handler(req);
-  } catch (error: any) {
-    console.error("[NextAuth Route] Error:", error?.message);
+  } catch (error: unknown) {
+    console.error("[NextAuth Route] Error:", error instanceof Error ? error.message : String(error));
     
     // If AUTH_DEBUG is enabled, include more details
     const isDebug = process.env.AUTH_DEBUG === "true" || process.env.NEXTAUTH_DEBUG === "true";
@@ -41,8 +41,8 @@ export async function GET(req: NextRequest) {
       );
     }
     return handleRequest(handlers.GET, req);
-  } catch (error: any) {
-    console.error("[NextAuth Route] GET handler error:", error.message);
+  } catch (error: unknown) {
+    console.error("[NextAuth Route] GET handler error:", error instanceof Error ? error.message : String(error));
     return new Response(
       JSON.stringify({ error: "Configuration", message: error.message }),
       { status: 500, headers: { "Content-Type": "application/json" } }
@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
       );
     }
     return handleRequest(handlers.POST, req);
-  } catch (error: any) {
-    console.error("[NextAuth Route] POST handler error:", error.message);
+  } catch (error: unknown) {
+    console.error("[NextAuth Route] POST handler error:", error instanceof Error ? error.message : String(error));
     return new Response(
       JSON.stringify({ error: "Configuration", message: error.message }),
       { status: 500, headers: { "Content-Type": "application/json" } }

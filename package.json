@@ -7,7 +7,7 @@
     "build": "next build",
     "vercel-build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint src --ext .ts,.tsx,.js,.jsx --no-error-on-unmatched-pattern",
     "test": "vitest run",
     "postinstall": "prisma generate",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma migrate deploy && prisma generate",

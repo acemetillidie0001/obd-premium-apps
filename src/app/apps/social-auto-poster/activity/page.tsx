@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
-import OBDHeading from "@/components/obd/OBDHeading";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
 import type { ActivityLogItem } from "@/lib/apps/social-auto-poster/types";

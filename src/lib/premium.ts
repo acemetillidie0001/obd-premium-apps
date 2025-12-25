@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import type { Session } from "next-auth";
 
 export type UserRole = "user" | "admin";
 
@@ -14,17 +15,22 @@ export interface SessionUser {
  * Get the current user's session with premium status
  */
 export async function getCurrentUser(): Promise<SessionUser | null> {
-  const session = await auth();
+  const session = (await auth()) as Session | null;
   if (!session?.user) {
     return null;
   }
   
+  const user = session.user as Session["user"] & {
+    role?: string;
+    isPremium?: boolean;
+  };
+  
   return {
-    id: session.user.id,
-    email: session.user.email!,
-    name: session.user.name || undefined,
-    role: (session.user as any).role || "user",
-    isPremium: (session.user as any).isPremium || false,
+    id: user.id,
+    email: user.email!,
+    name: user.name || undefined,
+    role: ("role" in user && typeof user.role === "string" ? user.role : "user") as UserRole,
+    isPremium: ("isPremium" in user && typeof user.isPremium === "boolean" ? user.isPremium : false),
   };
 }
 

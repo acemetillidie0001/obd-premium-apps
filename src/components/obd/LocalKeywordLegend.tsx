@@ -8,19 +8,23 @@ interface LocalKeywordLegendProps {
   className?: string;
 }
 
-export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegendProps) {
-  const themeClasses = getThemeClasses(isDark);
-  const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
+interface TooltipButtonProps {
+  id: string;
+  label: string;
+  content: string;
+  isDark: boolean;
+  hoveredTooltip: string | null;
+  setHoveredTooltip: (id: string | null) => void;
+}
 
-  const TooltipButton = ({ 
-    id, 
-    label, 
-    content 
-  }: { 
-    id: string; 
-    label: string; 
-    content: string;
-  }) => (
+const TooltipButton = ({ 
+  id, 
+  label, 
+  content,
+  isDark,
+  hoveredTooltip,
+  setHoveredTooltip
+}: TooltipButtonProps) => (
     <div className="relative inline-block">
       <button
         type="button"
@@ -56,6 +60,10 @@ export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegen
     </div>
   );
 
+export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegendProps) {
+  const themeClasses = getThemeClasses(isDark);
+  const [hoveredTooltip, setHoveredTooltip] = useState<string | null>(null);
+
   return (
     <div
       className={`mb-4 rounded-2xl border p-4 text-xs md:text-sm ${
@@ -79,6 +87,9 @@ export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegen
               id="difficulty"
               label="Difficulty"
               content="A quick signal of how hard it is for a small local business to rank for this keyword."
+              isDark={isDark}
+              hoveredTooltip={hoveredTooltip}
+              setHoveredTooltip={setHoveredTooltip}
             />
           </div>
           <ul className={`space-y-1 text-[11px] md:text-xs ${themeClasses.labelText}`}>
@@ -111,11 +122,14 @@ export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegen
               id="opportunity"
               label="Opportunity Score"
               content="A combined score that balances demand, local intent, and difficulty. Higher = better priority to work on."
+              isDark={isDark}
+              hoveredTooltip={hoveredTooltip}
+              setHoveredTooltip={setHoveredTooltip}
             />
           </div>
           <ul className={`space-y-1 text-[11px] md:text-xs ${themeClasses.labelText}`}>
             <li>
-              <span className="font-semibold">80–100</span> — top-priority, "work on these first".
+              <span className="font-semibold">80–100</span> — top-priority, &quot;work on these first&quot;.
             </li>
             <li>
               <span className="font-semibold">60–79</span> — strong secondary targets.
@@ -134,6 +148,9 @@ export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegen
               id="intent"
               label="Intent Types"
               content="Intent tells you what the searcher is trying to do, so you can match the right content or page type."
+              isDark={isDark}
+              hoveredTooltip={hoveredTooltip}
+              setHoveredTooltip={setHoveredTooltip}
             />
           </div>
           <ul className={`space-y-1 text-[11px] md:text-xs ${themeClasses.labelText}`}>
@@ -144,10 +161,10 @@ export function LocalKeywordLegend({ isDark, className = "" }: LocalKeywordLegen
               <span className="font-semibold">Informational</span> — researching, learning, asking questions.
             </li>
             <li>
-              <span className="font-semibold">Local</span> — contains city, area, or "near me" phrasing.
+              <span className="font-semibold">Local</span> — contains city, area, or &quot;near me&quot; phrasing.
             </li>
             <li>
-              <span className="font-semibold">Commercial</span> — comparing options, "best", "top", etc.
+              <span className="font-semibold">Commercial</span> — comparing options, &quot;best&quot;, &quot;top&quot;, etc.
             </li>
           </ul>
         </div>

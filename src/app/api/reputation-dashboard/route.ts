@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
-import {
-  ReputationDashboardRequest,
-} from "@/lib/apps/reputation-dashboard/types";
+// Removed unused import
 import { processReputationDashboard } from "@/lib/apps/reputation-dashboard/engine";
 
 // Request validation schema

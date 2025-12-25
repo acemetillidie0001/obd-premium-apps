@@ -4,10 +4,7 @@ import {
   saveCampaignWithCustomersAndQueue,
   type SaveCampaignData,
 } from "@/lib/apps/review-request-automation/db";
-import type {
-  ReviewRequestAutomationRequest,
-  ReviewRequestAutomationResponse,
-} from "@/lib/apps/review-request-automation/types";
+// Removed unused imports
 
 export async function POST(request: NextRequest) {
   try {

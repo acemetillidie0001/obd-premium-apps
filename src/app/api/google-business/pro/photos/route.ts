@@ -106,14 +106,16 @@ export async function POST(req: NextRequest) {
         !Array.isArray(parsed.captions) ||
         !Array.isArray(parsed.albums) ||
         !parsed.captions.every((c: unknown) => typeof c === "string") ||
-        !parsed.albums.every((a: unknown) =>
-          a &&
-          typeof a === "object" &&
-          typeof (a as any).albumName === "string" &&
-          typeof (a as any).description === "string" &&
-          Array.isArray((a as any).suggestedImages) &&
-          Array.isArray((a as any).keywords)
-        )
+        !parsed.albums.every((a: unknown) => {
+          if (!a || typeof a !== "object") return false;
+          const album = a as Record<string, unknown>;
+          return (
+            typeof album.albumName === "string" &&
+            typeof album.description === "string" &&
+            Array.isArray(album.suggestedImages) &&
+            Array.isArray(album.keywords)
+          );
+        })
       ) {
         throw new Error("Invalid response structure");
       }

@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
         !Array.isArray(parsed.competitorScores) ||
         !parsed.competitorScores.every((cs: unknown) => {
           if (!cs || typeof cs !== "object") return false;
-          const score = cs as any;
+          const score = cs as Record<string, unknown>;
           if (
             typeof score.name !== "string" ||
             typeof score.relativeScore !== "number" ||

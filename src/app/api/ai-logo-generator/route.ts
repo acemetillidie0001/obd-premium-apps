@@ -461,7 +461,7 @@ export async function POST(request: NextRequest) {
     let body: LogoGeneratorRequest;
     try {
       body = JSON.parse(bodyText);
-    } catch (parseError) {
+    } catch {
       return NextResponse.json(
         { error: "Invalid JSON in request body." },
         { status: 400 }
@@ -612,7 +612,6 @@ export async function POST(request: NextRequest) {
       
       // Ensure every concept has a corresponding image entry (safety check)
       // This handles edge cases where image generation might not return entries for all concepts
-      const conceptIds = new Set(selectedConcepts.map((c) => c.id));
       const imageConceptIds = new Set(images.map((img) => img.conceptId));
       for (const concept of selectedConcepts) {
         if (!imageConceptIds.has(concept.id)) {

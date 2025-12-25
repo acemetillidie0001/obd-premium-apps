@@ -11,9 +11,7 @@ import type {
 } from "@/lib/apps/social-auto-poster/types";
 import {
   computeContentHash,
-  computeContentFingerprint,
   similarityCheckRecent,
-  determineContentTheme,
   generatePostReason,
   pickNextPillar,
   getHashtagSetForBusiness,
@@ -355,7 +353,7 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
   }
 
   // Parse JSON response (may be wrapped in markdown code blocks)
-  let jsonString = stripMarkdownFences(rawResponse);
+  const jsonString = stripMarkdownFences(rawResponse);
 
   try {
     const parsed: GeneratePostsResponse & { variants?: Record<SocialPlatform, Array<{
@@ -429,6 +427,7 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
             const similarity = await similarityCheckRecent(userId, variant.platform, contentHash, 14);
             return {
               ...variant,
+              reason: variant.reason || reason,
               theme: variant.theme as ContentTheme,
               isSimilar: similarity.isSimilar,
             };

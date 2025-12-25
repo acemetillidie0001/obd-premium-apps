@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { checkRank } from "@/lib/local-rank-check";
-import type { RankCheckRequest, RankCheckResult } from "../types";
+import type { RankCheckResult } from "../types";
 
 export async function POST(req: Request) {
   try {

@@ -46,12 +46,13 @@ export async function GET() {
     console.log("[Test DB] All tests passed - database is fully functional");
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : { message: String(err) };
     console.error("[Test DB] Database test failed:", {
-      message: err?.message,
-      code: err?.code,
-      name: err?.name,
-      stack: err?.stack,
+      message: error.message,
+      code: "code" in error ? error.code : undefined,
+      name: error.name,
+      stack: error.stack,
     });
 
     return NextResponse.json(

@@ -4,8 +4,6 @@ import {
   GoogleBusinessProRequest,
   GoogleBusinessProResult,
   isGoogleBusinessProResult,
-  isGoogleBusinessAuditResult,
-  isGoogleBusinessWizardResult,
 } from "@/app/apps/google-business-pro/types";
 
 const SYSTEM_PROMPT = `You are the OBD Google Business Profile PRO Engine.

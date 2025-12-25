@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
-import { GoogleBusinessWizardRequest, GoogleBusinessWizardResult, isGoogleBusinessWizardResult } from "@/app/apps/google-business-pro/types";
+import { GoogleBusinessWizardRequest, isGoogleBusinessWizardResult } from "@/app/apps/google-business-pro/types";
 
 const SYSTEM_PROMPT = `You are the Wizard Content Builder for the OBD Google Business Profile Pro tool.
 Your role is to generate comprehensive, optimized Google Business Profile content that maximizes local search visibility, engages potential customers, and drives conversions.

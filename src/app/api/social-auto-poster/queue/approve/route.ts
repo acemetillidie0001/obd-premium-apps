@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { QueueStatus } from "@prisma/client";
 import type { UpdateQueueItemRequest } from "@/lib/apps/social-auto-poster/types";
 
 /**
@@ -37,20 +38,20 @@ export async function POST(request: NextRequest) {
 
     // Build update data
     const updateData: {
-      status?: string;
+      status?: QueueStatus;
       scheduledAt?: Date | null;
       content?: string;
     } = {};
 
     if (body.status) {
-      const validStatuses = ["draft", "approved", "scheduled", "posted", "failed"];
-      if (!validStatuses.includes(body.status)) {
+      const validStatuses: QueueStatus[] = ["draft", "approved", "scheduled", "posted", "failed"];
+      if (!validStatuses.includes(body.status as QueueStatus)) {
         return NextResponse.json(
           { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
           { status: 400 }
         );
       }
-      updateData.status = body.status;
+      updateData.status = body.status as QueueStatus;
     }
 
     if (body.scheduledAt !== undefined) {

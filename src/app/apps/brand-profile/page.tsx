@@ -10,7 +10,6 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import {
   BrandPersonality,
-  LanguageOption,
   VariationMode,
   HashtagStyle,
 } from "@/app/apps/brand-kit-builder/types";

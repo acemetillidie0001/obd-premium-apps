@@ -70,6 +70,7 @@ async function generateSocialPosts({
     },
     hashtagStyle: hashtagStyle || "Normal",
     emojiStyle: emojiStyle || "Normal",
+    tone: tone || null,
   };
 
   const userMessage = JSON.stringify(payload, null, 2);

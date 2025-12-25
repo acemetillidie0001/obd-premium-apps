@@ -142,7 +142,7 @@ export const authConfig = {
   // NextAuth v5 Email provider REQUIRES an adapter
   // Use static import - PrismaAdapter(prisma) wired directly
   // Type assertion needed due to NextAuth v5 beta type compatibility
-  adapter: PrismaAdapter(prisma) as any,
+  adapter: PrismaAdapter(prisma) as unknown,
   providers: [
     Email({
       from: getEmailFrom(),
@@ -215,8 +215,8 @@ export const authConfig = {
             `,
             text: `Sign in to OBD Premium Apps\n\nClick this link to sign in: ${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.`,
           });
-        } catch (err: any) {
-          console.error("[NextAuth Email] Failed to send verification email:", err?.message);
+        } catch (err: unknown) {
+          console.error("[NextAuth Email] Failed to send verification email:", err instanceof Error ? err.message : String(err));
           throw err;
         }
       },
@@ -345,12 +345,13 @@ export const authConfig = {
 } satisfies NextAuthConfig;
 
 // Initialize NextAuth
-let nextAuthInstance: any = null;
+let nextAuthInstance: ReturnType<typeof NextAuth> | null = null;
 try {
   nextAuthInstance = NextAuth(authConfig);
-} catch (error: any) {
-  console.error("[NextAuth] Initialization failed:", error?.message);
-  throw new Error(`NextAuth initialization failed: ${error?.message}`);
+} catch (error: unknown) {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error("[NextAuth] Initialization failed:", errorMessage);
+  throw new Error(`NextAuth initialization failed: ${errorMessage}`);
 }
 
 export const { handlers, auth, signIn, signOut } = nextAuthInstance;

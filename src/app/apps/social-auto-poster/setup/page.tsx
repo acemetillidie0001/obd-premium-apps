@@ -11,12 +11,7 @@ import type {
   SocialAutoposterSettings,
   PostingMode,
   SocialPlatform,
-  SchedulingRules,
-  PlatformsEnabled,
-  PlatformOverridesMap,
   ContentPillar,
-  ContentPillarSettings,
-  HashtagBankSettings,
 } from "@/lib/apps/social-auto-poster/types";
 
 const DAYS_OF_WEEK = [
@@ -252,7 +247,7 @@ export default function SocialAutoPosterSetupPage() {
                     placeholder="Describe your brand's voice, tone, and style preferences..."
                   />
                   <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                    This will be used to generate posts that match your brand's personality.
+                    This will be used to generate posts that match your brand&apos;s personality.
                   </p>
                 </div>
               </OBDPanel>

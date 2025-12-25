@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import type {
   CreateQueueItemRequest,
   CreateQueueItemResponse,
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
         content: body.content.trim(),
         status: "draft",
         scheduledAt,
-        metadata: body.metadata || null,
+        metadata: body.metadata as Prisma.InputJsonValue | undefined,
         reason: body.reason || null,
         contentTheme: body.theme || null,
         contentHash,

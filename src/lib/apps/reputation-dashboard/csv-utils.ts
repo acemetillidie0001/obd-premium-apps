@@ -227,7 +227,7 @@ export function parseCSV(
       if (!header) return "";
       const headerIndex = headers.indexOf(header);
       if (headerIndex >= 0 && headerIndex < row.length) {
-        let value = row[headerIndex].trim();
+        const value = row[headerIndex].trim();
         // Prevent formula injection: if value starts with =, +, -, @, treat as plain text
         // This is safe because we're only displaying/using the text, not evaluating it
         return value;

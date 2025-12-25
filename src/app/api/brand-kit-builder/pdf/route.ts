@@ -69,11 +69,12 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
         return NextResponse.json(
           {
             ok: false,
-            error: `Failed to generate brand kit: ${error?.message || "Unknown error"}`,
+            error: `Failed to generate brand kit: ${errorMessage}`,
             requestId,
           },
           { status: 500 }

@@ -458,7 +458,7 @@ function normalizeFormValues(
  * This function tries direct parsing first, then falls back to extraction if needed
  * (e.g., if the model occasionally adds whitespace or formatting).
  */
-function extractAndParseJson(raw: string): any {
+function extractAndParseJson(raw: string): Record<string, unknown> {
   const text = raw.trim();
 
   // With JSON mode enabled, try direct parse first (most common case)
@@ -598,11 +598,12 @@ export async function POST(req: Request) {
     let parsedResponse: unknown;
     try {
       parsedResponse = extractAndParseJson(rawContent);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       return errorResponse(
         "There was a problem generating the campaign. Please try again.",
         500,
-        { parseError: err?.message ?? String(err) },
+        { parseError: errorMessage },
       );
     }
 
@@ -656,7 +657,7 @@ export async function POST(req: Request) {
       },
       { status: 200 },
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Event Campaign Builder error:", err);
 
     // Handle specific OpenAI API errors

@@ -18,7 +18,7 @@ function extractBusinessName(result: GoogleBusinessProResult): string {
 /**
  * Extract city/state from proResult (best-effort, defaults to Ocala, FL)
  */
-function extractLocation(result: GoogleBusinessProResult): { city: string; state: string } {
+function extractLocation(_result: GoogleBusinessProResult): { city: string; state: string } {
   // Default to Ocala, Florida
   // Could be enhanced to extract from content if available
   return { city: "Ocala", state: "Florida" };

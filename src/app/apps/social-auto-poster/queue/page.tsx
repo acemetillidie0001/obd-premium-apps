@@ -3,11 +3,9 @@
 import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
-import OBDHeading from "@/components/obd/OBDHeading";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import SocialQueueCalendar from "@/components/obd/SocialQueueCalendar";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
-import { SUBMIT_BUTTON_CLASSES } from "@/lib/obd-framework/layout-helpers";
 import type { SocialQueueItem, QueueStatus } from "@/lib/apps/social-auto-poster/types";
 
 const STATUS_COLORS: Record<QueueStatus, { bg: string; text: string; border: string }> = {
@@ -40,6 +38,7 @@ export default function SocialAutoPosterQueuePage() {
 
   useEffect(() => {
     loadQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const loadQueue = async () => {

@@ -450,8 +450,9 @@ export default function GoogleBusinessProfileProPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setCsvError(err.message || "Unexpected error while generating CSV export.");
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Unexpected error while generating CSV export.";
+      setCsvError(errorMessage);
     } finally {
       setCsvLoading(false);
     }

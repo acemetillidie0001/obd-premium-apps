@@ -344,7 +344,7 @@ export async function POST(request: NextRequest) {
     const city = body.city?.trim() || "Ocala";
     const state = body.state?.trim() || "Florida";
     const platform = body.platform || "Google";
-    const reviewRating = (body.reviewRating as any) || 5;
+    const reviewRating = typeof body.reviewRating === "number" ? body.reviewRating : 5;
     const reviewText = body.reviewText?.trim();
     const customerName = body.customerName?.trim() || "";
     const responseGoal = body.responseGoal?.trim() || "";

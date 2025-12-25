@@ -160,7 +160,7 @@ export default function EventCampaignBuilderPage() {
         try {
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
-        } catch (parseError) {
+        } catch {
           errorMessage = `Server error: ${res.status} ${res.statusText || ""}`;
         }
         throw new Error(errorMessage);

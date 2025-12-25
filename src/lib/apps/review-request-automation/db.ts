@@ -261,8 +261,8 @@ export async function saveCampaignWithCustomersAndQueue(
         campaignId: dbCampaign.id,
         snapshotId,
         computedAt: new Date(),
-        totalsJson: totals as any, // Prisma Json type
-        warningsJson: Object.keys(warnings).length > 0 ? (warnings as any) : null,
+        totalsJson: totals as unknown, // Prisma Json type
+        warningsJson: Object.keys(warnings).length > 0 ? (warnings as unknown) : null,
       },
     });
 

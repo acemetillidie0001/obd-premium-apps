@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import type {
   SaveSettingsRequest,
   SaveSettingsResponse,
   GetSettingsResponse,
+  SocialPlatform,
+  ContentPillarSettings,
+  HashtagBankSettings,
+  PlatformOverridesMap,
+  PlatformsEnabled,
 } from "@/lib/apps/social-auto-poster/types";
 
 /**
@@ -45,11 +51,11 @@ export async function GET() {
           },
           timezone: settings.timezone || "America/New_York",
         },
-        enabledPlatforms: (settings.enabledPlatforms as string[]) || [],
-        platformsEnabled: (settings.platformsEnabled as Record<string, boolean> | null) || undefined,
-        platformOverrides: (settings.platformOverrides as Record<string, Record<string, unknown>> | null) || undefined,
-        contentPillarSettings: (settings.contentPillarSettings as Record<string, unknown> | null) || undefined,
-        hashtagBankSettings: (settings.hashtagBankSettings as Record<string, unknown> | null) || undefined,
+        enabledPlatforms: (settings.enabledPlatforms as SocialPlatform[]) || [],
+        platformsEnabled: (settings.platformsEnabled as PlatformsEnabled | null) || undefined,
+        platformOverrides: (settings.platformOverrides as PlatformOverridesMap | null) || undefined,
+        contentPillarSettings: (settings.contentPillarSettings as ContentPillarSettings | null) || undefined,
+        hashtagBankSettings: (settings.hashtagBankSettings as HashtagBankSettings | null) || undefined,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },
@@ -109,8 +115,8 @@ export async function POST(request: NextRequest) {
 
     // Validate platform overrides if provided
     if (body.platformOverrides) {
-      const validPlatforms = ["facebook", "instagram", "x", "googleBusiness"];
-      for (const platform of Object.keys(body.platformOverrides)) {
+      const validPlatforms: SocialPlatform[] = ["facebook", "instagram", "x", "googleBusiness"];
+      for (const platform of Object.keys(body.platformOverrides) as SocialPlatform[]) {
         if (!validPlatforms.includes(platform)) {
           return NextResponse.json(
             { error: `Invalid platform in overrides: ${platform}` },
@@ -154,10 +160,10 @@ export async function POST(request: NextRequest) {
         timeWindowEnd: body.schedulingRules.timeWindow.end,
         timezone: body.schedulingRules.timezone || "America/New_York",
         enabledPlatforms: body.enabledPlatforms,
-        platformsEnabled: body.platformsEnabled || null,
-        platformOverrides: body.platformOverrides || null,
-        contentPillarSettings: body.contentPillarSettings || null,
-        hashtagBankSettings: body.hashtagBankSettings || null,
+        platformsEnabled: body.platformsEnabled ? (body.platformsEnabled as unknown as Prisma.InputJsonValue) : undefined,
+        platformOverrides: body.platformOverrides ? (body.platformOverrides as unknown as Prisma.InputJsonValue) : undefined,
+        contentPillarSettings: body.contentPillarSettings ? (body.contentPillarSettings as unknown as Prisma.InputJsonValue) : undefined,
+        hashtagBankSettings: body.hashtagBankSettings ? (body.hashtagBankSettings as unknown as Prisma.InputJsonValue) : undefined,
       },
       update: {
         brandVoice: body.brandVoice || null,
@@ -168,10 +174,10 @@ export async function POST(request: NextRequest) {
         timeWindowEnd: body.schedulingRules.timeWindow.end,
         timezone: body.schedulingRules.timezone || "America/New_York",
         enabledPlatforms: body.enabledPlatforms,
-        platformsEnabled: body.platformsEnabled || null,
-        platformOverrides: body.platformOverrides || null,
-        contentPillarSettings: body.contentPillarSettings || null,
-        hashtagBankSettings: body.hashtagBankSettings || null,
+        platformsEnabled: body.platformsEnabled ? (body.platformsEnabled as unknown as Prisma.InputJsonValue) : undefined,
+        platformOverrides: body.platformOverrides ? (body.platformOverrides as unknown as Prisma.InputJsonValue) : undefined,
+        contentPillarSettings: body.contentPillarSettings ? (body.contentPillarSettings as unknown as Prisma.InputJsonValue) : undefined,
+        hashtagBankSettings: body.hashtagBankSettings ? (body.hashtagBankSettings as unknown as Prisma.InputJsonValue) : undefined,
       },
     });
 
@@ -190,11 +196,11 @@ export async function POST(request: NextRequest) {
           },
           timezone: settings.timezone || "America/New_York",
         },
-        enabledPlatforms: (settings.enabledPlatforms as string[]) || [],
-        platformsEnabled: (settings.platformsEnabled as Record<string, boolean> | null) || undefined,
-        platformOverrides: (settings.platformOverrides as Record<string, Record<string, unknown>> | null) || undefined,
-        contentPillarSettings: (settings.contentPillarSettings as Record<string, unknown> | null) || undefined,
-        hashtagBankSettings: (settings.hashtagBankSettings as Record<string, unknown> | null) || undefined,
+        enabledPlatforms: (settings.enabledPlatforms as SocialPlatform[]) || [],
+        platformsEnabled: (settings.platformsEnabled as PlatformsEnabled | null) || undefined,
+        platformOverrides: (settings.platformOverrides as PlatformOverridesMap | null) || undefined,
+        contentPillarSettings: (settings.contentPillarSettings as ContentPillarSettings | null) || undefined,
+        hashtagBankSettings: (settings.hashtagBankSettings as HashtagBankSettings | null) || undefined,
         createdAt: settings.createdAt,
         updatedAt: settings.updatedAt,
       },

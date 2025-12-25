@@ -144,7 +144,9 @@ export default function FAQGeneratorPage() {
     if (parsed.services) setServices(parsed.services);
     if (parsed.topic) setTopic(parsed.topic);
     if (parsed.brandVoice) setBrandVoice(parsed.brandVoice);
-    if (parsed.personalityStyle) setPersonalityStyle(parsed.personalityStyle as any);
+    if (parsed.personalityStyle && ["Soft", "Bold", "High-Energy", "Luxury", ""].includes(parsed.personalityStyle)) {
+      setPersonalityStyle(parsed.personalityStyle as "Soft" | "Bold" | "High-Energy" | "Luxury" | "");
+    }
     if (typeof parsed.faqCount === "number") setFaqCount(parsed.faqCount);
     if (parsed.answerLength) setAnswerLength(parsed.answerLength);
     if (parsed.tone) setTone(parsed.tone);

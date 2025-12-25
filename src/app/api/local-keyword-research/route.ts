@@ -168,7 +168,7 @@ GLOBAL RULES:
 9) Return ONLY valid JSON. Do not include explanations or markdown.
 `;
 
-function sanitizeAndClampRequest(body: any): LocalKeywordRequest {
+function sanitizeAndClampRequest(body: Record<string, unknown>): LocalKeywordRequest {
   const maxKeywordsRaw = Number(body.maxKeywords ?? 60);
   const radiusRaw = Number(body.radiusMiles ?? 15);
 
@@ -357,7 +357,7 @@ export async function POST(req: Request) {
       if (!Array.isArray(parsed.topPriorityKeywords)) parsed.topPriorityKeywords = [];
       
       // Ensure opportunityScore is within valid range and preserve metrics
-      const normalizeKeyword = (k: any) => ({
+      const normalizeKeyword = (k: Record<string, unknown>) => ({
         ...k,
         opportunityScore: Math.max(1, Math.min(100, Number(k.opportunityScore) || 50)),
         // Preserve metrics if present

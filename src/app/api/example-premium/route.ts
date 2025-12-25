@@ -7,7 +7,7 @@ import { hasPremiumAccess, getCurrentUser } from "@/lib/premium";
  * This route requires premium access. Non-premium users will receive a 403 error.
  * Premium users and admins can access this endpoint.
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   const user = await getCurrentUser();
   
   if (!user) {

@@ -7,6 +7,11 @@ import { jwtVerify } from "jose";
 import { listBusinessLocations } from "@/lib/apps/social-auto-poster/publishers/googleBusinessPublisher";
 
 /**
+ * Runtime: Node.js (required for Prisma and jose)
+ */
+export const runtime = "nodejs";
+
+/**
  * GET /api/social-connections/google/callback
  * 
  * Handles Google OAuth callback:

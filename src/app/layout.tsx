@@ -13,6 +13,45 @@ export const metadata: Metadata = {
   description: "Access all your Ocala-focused AI tools in one place",
 };
 
+/**
+ * Build Stamp Component
+ * Temporary diagnostic tool to show deployment info in footer
+ */
+function BuildStamp() {
+  // Check if build stamp should be shown
+  const showBuildStamp = 
+    process.env.OBD_SHOW_BUILD_STAMP === "true" ||
+    process.env.NODE_ENV !== "production" ||
+    process.env.VERCEL_ENV !== "production";
+
+  if (!showBuildStamp) {
+    return null;
+  }
+
+  // Get build info from environment variables
+  const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || 
+                   process.env.NEXT_PUBLIC_GIT_COMMIT_SHA || 
+                   "unknown";
+  const vercelEnv = process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown";
+  const buildTime = process.env.VERCEL_BUILD_TIME || "unknown";
+
+  // Format build time if available
+  let buildTimeFormatted = "unknown";
+  if (buildTime !== "unknown") {
+    try {
+      buildTimeFormatted = new Date(buildTime).toLocaleString();
+    } catch {
+      buildTimeFormatted = buildTime;
+    }
+  }
+
+  return (
+    <p className="text-[10px] text-slate-500 font-mono">
+      Build: {commitSha.substring(0, 7)} | {vercelEnv} | {buildTimeFormatted}
+    </p>
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -70,9 +109,12 @@ export default function RootLayout({
           </main>
           <footer className="w-full bg-[#050816] text-slate-400 border-t border-[#29c4a9]/40 py-4">
             <div className="max-w-6xl mx-auto px-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <p className="text-xs md:text-sm">
-                © {currentYear} OBD Business Suite · Ocala Business Directory
-              </p>
+              <div className="flex flex-col gap-1">
+                <p className="text-xs md:text-sm">
+                  © {currentYear} OBD Business Suite · Ocala Business Directory
+                </p>
+                <BuildStamp />
+              </div>
               <div className="flex flex-wrap gap-3 md:justify-end">
                 <Link
                   href="/help"

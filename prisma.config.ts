@@ -4,12 +4,41 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 import { defineConfig, env } from "prisma/config";
 
+/**
+ * Prisma Configuration
+ * 
+ * Security: In production, DATABASE_URL MUST be set. We never use a fallback in production.
+ * 
+ * Fallback behavior:
+ * - Build-time (prisma generate): Fallback allowed ONLY in non-production environments
+ *   (allows local dev without DB connection for client generation)
+ * - Runtime (migrations, queries): DATABASE_URL is always required
+ * - Production: Fail fast if DATABASE_URL is missing
+ */
+const isProduction = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+
+// Fail fast in production if DATABASE_URL is missing
+if (isProduction && !process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL is required in production. " +
+    "Set DATABASE_URL in Vercel environment variables for production deployments."
+  );
+}
+
+// For non-production build-time client generation, allow fallback
+// (prisma generate doesn't need a real DB connection, only migrations do)
+const databaseUrl = process.env.DATABASE_URL || 
+  (isProduction 
+    ? (() => { throw new Error("DATABASE_URL is required in production"); })()
+    : "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+  );
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: env("DATABASE_URL"),
+    url: databaseUrl,
   },
 });

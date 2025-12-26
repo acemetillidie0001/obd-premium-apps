@@ -1,5 +1,4 @@
 {
-  "buildCommand": "npm run build",
   "crons": [
     {
       "path": "/api/google-business/pro/cleanup",
@@ -7,7 +6,7 @@
     },
     {
       "path": "/api/social-auto-poster/cron",
-      "schedule": "* * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }

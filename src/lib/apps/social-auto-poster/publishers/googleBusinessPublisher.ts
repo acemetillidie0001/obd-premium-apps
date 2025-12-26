@@ -383,12 +383,12 @@ export async function publishToGoogleBusiness({
     }
 
     // Construct permalink (GBP posts don't have direct permalinks, but we can link to the location)
-    const permalink = `https://www.google.com/maps/place/?q=place_id:${locationId}`;
+    const providerPermalink = `https://www.google.com/maps/place/?q=place_id:${locationId}`;
 
     return {
       ok: true,
       providerPostId: postId,
-      permalink,
+      providerPermalink,
       refreshedToken: refreshedTokenInfo,
     };
   } catch (error) {

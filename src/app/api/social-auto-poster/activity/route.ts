@@ -68,13 +68,19 @@ export async function GET() {
     }
 
     // Map items with their attempts
+    // Helper to convert database platform (snake_case) to type platform (camelCase)
+    const mapPlatform = (platform: string): "facebook" | "instagram" | "x" | "googleBusiness" => {
+      if (platform === "google_business") return "googleBusiness";
+      return platform as "facebook" | "instagram" | "x";
+    };
+
     const itemsWithAttempts = items.map((item) => {
       const attempts = attemptsByItemId.get(item.id) || [];
 
       return {
         id: item.id,
         queueItemId: item.id,
-        platform: item.platform as "facebook" | "instagram" | "x" | "google_business",
+        platform: mapPlatform(item.platform),
         content: item.content,
         status: item.status as "posted" | "failed",
         postedAt: item.postedAt,
@@ -84,7 +90,7 @@ export async function GET() {
           id: attempt.id,
           userId: attempt.userId,
           queueItemId: attempt.queueItemId,
-          platform: attempt.platform as "facebook" | "instagram" | "x" | "google_business",
+          platform: mapPlatform(attempt.platform),
           success: attempt.success,
           errorMessage: attempt.errorMessage,
           responseData: attempt.responseData as Record<string, unknown> | undefined,

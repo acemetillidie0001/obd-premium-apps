@@ -135,6 +135,7 @@ export default function SocialAutoPosterSetupPage() {
     configured?: boolean;
     connected?: boolean;
     location?: { id: string; name: string };
+    locations?: Array<{ id: string; name: string }>;
     errorCode?: string;
     errorMessage?: string;
   } | null>(null);

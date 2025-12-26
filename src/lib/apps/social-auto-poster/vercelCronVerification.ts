@@ -5,7 +5,7 @@
  * for Vercel-specific headers.
  */
 
-import { Headers } from "next/server";
+// Headers is a Web API, available globally in Node.js 18+
 
 /**
  * Checks if a request is likely from Vercel Cron.

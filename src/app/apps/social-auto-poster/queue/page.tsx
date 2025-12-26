@@ -6,6 +6,7 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import SocialQueueCalendar from "@/components/obd/SocialQueueCalendar";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
+import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import type { SocialQueueItem, QueueStatus } from "@/lib/apps/social-auto-poster/types";
 
 const STATUS_COLORS: Record<QueueStatus, { bg: string; text: string; border: string }> = {
@@ -267,6 +268,27 @@ export default function SocialAutoPosterQueuePage() {
       <SocialAutoPosterNav isDark={isDark} />
 
       <div className="mt-7">
+        {/* Feature Flag Banner */}
+        {(() => {
+          const bannerMessage = getMetaPublishingBannerMessage();
+          if (!bannerMessage) return null;
+          return (
+            <div className={`mb-6 p-4 rounded-xl border ${
+              isDark 
+                ? "border-blue-700/50 bg-blue-900/20 text-blue-400" 
+                : "border-blue-200 bg-blue-50 text-blue-800"
+            }`}>
+              <div className="flex items-start gap-2">
+                <span className="text-lg">ℹ️</span>
+                <div className="text-sm">
+                  <div className="font-medium mb-1">Limited Mode</div>
+                  <div>{bannerMessage}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* View Toggle and Filters */}
         <OBDPanel isDark={isDark} className="mb-6">
           <div className="flex items-center justify-between mb-4">

@@ -7,6 +7,7 @@ import OBDHeading from "@/components/obd/OBDHeading";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import type {
   GeneratePostsRequest,
   GeneratePostsResponse,

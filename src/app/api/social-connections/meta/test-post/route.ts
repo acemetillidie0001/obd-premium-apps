@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
+import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 
 /**
  * POST /api/social-connections/meta/test-post
  * 
  * Publishes a test post to Facebook Page and/or Instagram.
  * Logs attempts to SocialPublishAttempt table.
+ * 
+ * Feature Flag: Requires META_PUBLISHING_ENABLED=true to actually publish.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +23,18 @@ export async function POST(request: NextRequest) {
     if (!hasAccess) {
       return NextResponse.json(
         { error: "Premium access required" },
+        { status: 403 }
+      );
+    }
+
+    // Check feature flag
+    if (!isMetaPublishingEnabled()) {
+      return NextResponse.json(
+        { 
+          ok: false,
+          error: "PUBLISHING_DISABLED",
+          message: "Facebook/Instagram publishing is in limited mode while we complete Meta App Review. You can still compose posts, queue them, and use simulate mode to preview how they'll look."
+        },
         { status: 403 }
       );
     }

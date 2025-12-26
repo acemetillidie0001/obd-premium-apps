@@ -9,6 +9,7 @@ import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { mapMetaError, mapCallbackError } from "@/lib/apps/social-auto-poster/metaErrorMapper";
+import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import type {
   SocialAutoposterSettings,
   PostingMode,
@@ -637,6 +638,11 @@ export default function SocialAutoPosterSetupPage() {
       });
       if (!res.ok) {
         const data = await res.json();
+        // Check for feature flag error
+        if (data.error === "PUBLISHING_DISABLED" || data.errorCode === "PUBLISHING_DISABLED") {
+          setError(data.message || "Publishing is currently disabled while we complete Meta App Review.");
+          return;
+        }
         throw new Error(data.error || "Failed to send test post");
       }
       const data = await res.json();
@@ -919,6 +925,71 @@ export default function SocialAutoPosterSetupPage() {
                       </div>
                     )}
 
+                    {/* Feature Flag Banner */}
+                    {(() => {
+                      const bannerMessage = getMetaPublishingBannerMessage();
+                      if (!bannerMessage) return null;
+                      return (
+                        <div className={`p-4 rounded-xl border ${
+                          isDark 
+                            ? "border-blue-700/50 bg-blue-900/20 text-blue-400" 
+                            : "border-blue-200 bg-blue-50 text-blue-800"
+                        }`}>
+                          <div className="flex items-start gap-2">
+                            <span className="text-lg">ℹ️</span>
+                            <div className="text-sm">
+                              <div className="font-medium mb-1">Limited Mode</div>
+                              <div>{bannerMessage}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Permission Explanation Panel */}
+                    {!connectionStatus.facebook.connected && (
+                      <div className={`p-4 rounded-xl border ${
+                        isDark 
+                          ? "border-slate-700 bg-slate-800/50" 
+                          : "border-slate-200 bg-slate-50"
+                      }`}>
+                        <div className={`font-medium mb-3 ${themeClasses.headingText}`}>
+                          Why we need this access
+                        </div>
+                        <div className={`text-sm space-y-2 ${themeClasses.mutedText}`}>
+                          <div className="flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5">✓</span>
+                            <div>We never store your Facebook password. We use secure OAuth to connect.</div>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5">✓</span>
+                            <div>We only post to the Facebook Page you select. You have full control.</div>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5">✓</span>
+                            <div>You can disconnect anytime. Disconnecting immediately stops all posting and removes stored data.</div>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <span className="text-green-500 mt-0.5">✓</span>
+                            <div>We use permissions to: view your Pages (so you can select one), and publish posts (only to your selected Page).</div>
+                          </div>
+                        </div>
+                        <div className={`mt-3 p-3 rounded-lg ${
+                          isDark 
+                            ? "bg-slate-900/50 border border-slate-700" 
+                            : "bg-white border border-slate-200"
+                        }`}>
+                          <div className={`text-xs font-medium mb-1 ${themeClasses.labelText}`}>
+                            What you'll see in Facebook:
+                          </div>
+                          <div className={`text-xs ${themeClasses.mutedText}`}>
+                            When you click "Connect Facebook", you'll be redirected to Facebook's official consent screen. 
+                            Facebook will show you exactly what permissions we're requesting. You can review and approve or decline.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Action Buttons */}
                     <div className="flex gap-3 flex-wrap">
                       <button
@@ -1023,6 +1094,31 @@ export default function SocialAutoPosterSetupPage() {
                         </a>
                       )}
                     </div>
+
+                    {/* Revoke Access Guidance */}
+                    {connectionStatus.facebook.connected && (
+                      <div className={`mt-4 p-3 rounded-lg border ${
+                        isDark 
+                          ? "border-slate-700 bg-slate-800/30" 
+                          : "border-slate-200 bg-slate-50"
+                      }`}>
+                        <details className="cursor-pointer">
+                          <summary className={`text-sm font-medium ${themeClasses.labelText} list-none`}>
+                            How to revoke access in Facebook
+                          </summary>
+                          <div className={`mt-2 text-xs space-y-2 ${themeClasses.mutedText}`}>
+                            <p>You can revoke access to this app directly in Facebook:</p>
+                            <ol className="list-decimal list-inside space-y-1 ml-2">
+                              <li>Go to <strong>Facebook Settings</strong> → <strong>Apps and Websites</strong></li>
+                              <li>Find "OBD Social Auto-Poster" (or your app name)</li>
+                              <li>Click <strong>Remove</strong> or <strong>Revoke Access</strong></li>
+                              <li>Confirm the removal</li>
+                            </ol>
+                            <p className="mt-2">After revoking, you'll need to reconnect in this app to continue posting.</p>
+                          </div>
+                        </details>
+                      </div>
+                    )}
 
                     {/* Google Business Profile Action Buttons */}
                     {isPremiumUser === true && (
@@ -1960,6 +2056,36 @@ export default function SocialAutoPosterSetupPage() {
                 <button type="submit" className={SUBMIT_BUTTON_CLASSES} disabled={saving}>
                   {saving ? "Saving..." : "Save Settings"}
                 </button>
+              </OBDPanel>
+
+              {/* Compliance Links */}
+              <OBDPanel isDark={isDark}>
+                <div className={`text-sm space-y-2 ${themeClasses.mutedText}`}>
+                  <div className="flex flex-wrap gap-4">
+                    <a
+                      href="https://ocalabusinessdirectory.com/obd-business-suite-terms-of-service/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
+                    >
+                      Terms of Service
+                    </a>
+                    <a
+                      href="https://ocalabusinessdirectory.com/obd-business-suite-privacy-policy/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
+                    >
+                      Privacy Policy
+                    </a>
+                    <a
+                      href="/data-deletion"
+                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
+                    >
+                      Data Deletion Request
+                    </a>
+                  </div>
+                </div>
               </OBDPanel>
             </div>
           </form>

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { publishToFacebookPage, publishToInstagram, isTemporaryError } from "./publishers/metaPublisher";
 import { publishToGoogleBusiness, isTemporaryError as isGoogleTemporaryError } from "./publishers/googleBusinessPublisher";
 import { resolvePostImage } from "./resolvePostImage";
+import { isMetaPublishingEnabled } from "./metaConnectionStatus";
 import type { Prisma } from "@prisma/client";
 
 const MAX_ATTEMPTS = 5;
@@ -108,6 +109,15 @@ export async function processScheduledPost(queueItemId: string, userId: string):
   let publishError: string | undefined;
   let publishErrorCode: string | undefined;
   const providerPostIds: Record<string, { id?: string; permalink?: string }> = {};
+
+  // Check feature flag for Meta platforms
+  const isMetaPlatform = platform === "facebook" || platform === "instagram";
+  if (isMetaPlatform && !isMetaPublishingEnabled()) {
+    return {
+      success: false,
+      errorMessage: "Meta publishing is disabled. Publishing will be enabled after Meta App Review approval.",
+    };
+  }
 
   if (platform === "facebook") {
     try {

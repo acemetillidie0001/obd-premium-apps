@@ -26,6 +26,48 @@ export async function POST() {
 
     const userId = session.user.id;
 
+    // Log disconnect event before deletion
+    try {
+      // Log disconnect for Facebook if connected
+      const fbConnection = await prisma.socialAccountConnection.findFirst({
+        where: {
+          userId,
+          platform: "facebook",
+        },
+      });
+      if (fbConnection) {
+        await prisma.socialPublishAttempt.create({
+          data: {
+            userId,
+            platform: "facebook",
+            kind: "disconnect",
+            status: "success",
+          },
+        });
+      }
+
+      // Log disconnect for Instagram if connected
+      const igConnection = await prisma.socialAccountConnection.findFirst({
+        where: {
+          userId,
+          platform: "instagram",
+        },
+      });
+      if (igConnection) {
+        await prisma.socialPublishAttempt.create({
+          data: {
+            userId,
+            platform: "instagram",
+            kind: "disconnect",
+            status: "success",
+          },
+        });
+      }
+    } catch (logError) {
+      // Don't fail disconnect if logging fails
+      console.error("[Meta Disconnect] Failed to log disconnect event:", logError);
+    }
+
     // Delete all Meta connections (Facebook and Instagram)
     await prisma.socialAccountConnection.deleteMany({
       where: {
@@ -45,6 +87,9 @@ export async function POST() {
         },
       },
     });
+
+    // Log disconnect action (no tokens/secrets)
+    console.log(`[Meta Disconnect] userId=${userId}, platforms=[facebook,instagram], action=disconnect, status=success`);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

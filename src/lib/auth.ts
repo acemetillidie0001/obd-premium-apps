@@ -217,7 +217,14 @@ export const authConfig = {
             text: `Sign in to OBD Premium Apps\n\nClick this link to sign in: ${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.`,
           });
         } catch (err: unknown) {
-          console.error("[NextAuth Email] Failed to send verification email:", err instanceof Error ? err.message : String(err));
+          // Safe error logging without exposing secrets
+          const error = err instanceof Error ? err : new Error(String(err));
+          const errorCode = (err as any)?.code ?? null;
+          console.error("[NextAuth Email] Failed to send verification email:", {
+            area: "auth_email_send",
+            message: error.message,
+            code: errorCode,
+          });
           throw err;
         }
       },

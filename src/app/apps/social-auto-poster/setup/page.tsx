@@ -86,13 +86,19 @@ export default function SocialAutoPosterSetupPage() {
   });
   const [expandedPlatforms, setExpandedPlatforms] = useState<Set<SocialPlatform>>(new Set());
 
+  // Premium status
+  const [isPremiumUser, setIsPremiumUser] = useState<boolean | null>(null);
+
   // Meta connection state
   const [connectionStatus, setConnectionStatus] = useState<{
-    configured: boolean;
+    ok?: boolean;
+    configured?: boolean;
+    errorCode?: string;
+    errorMessage?: string;
     facebook: { connected: boolean; pageName?: string; pageId?: string };
     instagram: {
       connected: boolean;
-      available: boolean;
+      available?: boolean;
       username?: string;
       igBusinessId?: string;
       reasonIfUnavailable?: string;
@@ -108,7 +114,7 @@ export default function SocialAutoPosterSetupPage() {
 
   useEffect(() => {
     loadSettings();
-    loadConnectionStatus();
+    // Note: loadConnectionStatus is called conditionally based on premium status
     
     // Check for callback success/error
     const params = new URLSearchParams(window.location.search);
@@ -120,13 +126,21 @@ export default function SocialAutoPosterSetupPage() {
       setTimeout(() => setSuccess(false), 5000);
       // Clean URL
       window.history.replaceState({}, "", window.location.pathname);
-      loadConnectionStatus();
+      // Connection status will be reloaded by the premium status useEffect if user is premium
     } else if (error) {
       setError(decodeURIComponent(error));
       // Clean URL
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  // Load connection status when premium status is confirmed
+  useEffect(() => {
+    if (isPremiumUser === true) {
+      loadConnectionStatus();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPremiumUser]); // loadConnectionStatus is stable and doesn't need to be in deps
 
   const loadSettings = async () => {
     setLoading(true);
@@ -136,9 +150,11 @@ export default function SocialAutoPosterSetupPage() {
       if (!res.ok) {
         if (res.status === 404) {
           // No settings yet, use defaults
+          setIsPremiumUser(true); // 404 means user is premium but no settings exist
           return;
         }
         if (res.status === 403) {
+          setIsPremiumUser(false);
           setError("Premium access required. Please upgrade to use Social Auto-Poster.");
           return;
         }
@@ -148,9 +164,11 @@ export default function SocialAutoPosterSetupPage() {
       if (data.settings) {
         setSettings(data.settings);
       }
+      setIsPremiumUser(true); // Success means user is premium
     } catch (err) {
       console.error("Failed to load settings:", err);
       setError(err instanceof Error ? err.message : "Failed to load settings");
+      // Don't set premium status on error - let it remain null
     } finally {
       setLoading(false);
     }
@@ -263,15 +281,44 @@ export default function SocialAutoPosterSetupPage() {
   };
 
   const loadConnectionStatus = async () => {
+    // Only load if user is premium
+    if (isPremiumUser !== true) {
+      return;
+    }
+
     setConnectionLoading(true);
     try {
       const res = await fetch("/api/social-connections/meta/status");
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      
+      // Handle structured error responses (all errors now return 200 with ok: false)
+      if (data.ok === false) {
+        const errorCode = data.errorCode || "UNKNOWN_ERROR";
+        
+        // Set connectionStatus to null so UI shows appropriate error message
+        setConnectionStatus(null);
+        
+        // Log specific error for debugging (but don't show to user - UI handles it)
+        if (errorCode === "META_NOT_CONFIGURED") {
+          console.log("[Meta Status] Meta not configured");
+        } else if (errorCode === "DB_ERROR") {
+          console.error("[Meta Status] Database error:", data.errorMessage);
+        } else if (errorCode === "UNAUTHORIZED") {
+          console.log("[Meta Status] Unauthorized");
+        } else {
+          console.error("[Meta Status] Error:", errorCode, data.errorMessage);
+        }
+        return;
+      }
+      
+      // Success - set connection status
+      if (res.ok || data.ok === true) {
         setConnectionStatus(data);
       }
     } catch (err) {
-      console.error("Failed to load connection status:", err);
+      // Network error or JSON parse error
+      console.error("[Meta Status] Request failed:", err);
+      setConnectionStatus(null);
     } finally {
       setConnectionLoading(false);
     }
@@ -376,12 +423,45 @@ export default function SocialAutoPosterSetupPage() {
                   Connect your Facebook and Instagram accounts to enable automatic posting.
                 </p>
 
-                {connectionLoading ? (
+                {/* Non-premium users: Show upgrade prompt */}
+                {isPremiumUser === false ? (
+                  <div className={`p-6 rounded-xl border ${
+                    isDark 
+                      ? "border-slate-700 bg-slate-800/50" 
+                      : "border-slate-200 bg-slate-50"
+                  }`}>
+                    <div className="flex items-center gap-4">
+                      <div className={`text-4xl ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                        🔒
+                      </div>
+                      <div className="flex-1">
+                        <div className={`font-medium mb-2 ${themeClasses.headingText}`}>
+                          Upgrade to Premium
+                        </div>
+                        <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                          Upgrade to Premium to connect Facebook and Instagram accounts.
+                        </p>
+                        <a
+                          href="https://ocalabusinessdirectory.com/premium"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`inline-block px-4 py-2 rounded-lg font-medium transition-colors ${
+                            isDark
+                              ? "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                              : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                          }`}
+                        >
+                          Upgrade to Premium
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ) : connectionLoading ? (
                   <p className={themeClasses.mutedText}>Loading connection status...</p>
-                ) : connectionStatus ? (
+                ) : connectionStatus && connectionStatus.ok !== false ? (
                   <div className="space-y-4">
                     {/* Configuration check */}
-                    {!connectionStatus.configured && (
+                    {connectionStatus.configured === false && (
                       <div className={`p-3 rounded-lg border ${
                         isDark
                           ? "bg-yellow-900/20 border-yellow-700 text-yellow-400"
@@ -433,7 +513,7 @@ export default function SocialAutoPosterSetupPage() {
                               <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
                                 Connected ✅ {connectionStatus.instagram.username && `(@${connectionStatus.instagram.username})`}
                               </div>
-                            ) : connectionStatus.instagram.available ? (
+                            ) : connectionStatus.instagram.available !== false ? (
                               <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
                                 Not connected
                               </div>
@@ -575,8 +655,40 @@ export default function SocialAutoPosterSetupPage() {
                       </div>
                     )}
                   </div>
+                ) : isPremiumUser === true && connectionStatus ? (
+                  // Premium user but status has error - show specific error message
+                  <div className={`p-4 rounded-xl border ${
+                    isDark 
+                      ? "border-red-700/50 bg-red-900/20 text-red-400" 
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}>
+                    <p className="text-sm">
+                      {connectionStatus.errorCode === "META_NOT_CONFIGURED" 
+                        ? "Meta connection not configured. Please contact support."
+                        : connectionStatus.errorCode === "DB_ERROR"
+                        ? "Database update required. Run Prisma migration."
+                        : connectionStatus.errorCode === "UNAUTHORIZED"
+                        ? "Please sign in again."
+                        : connectionStatus.errorMessage || "Unable to load connection status. Please refresh or try again."}
+                    </p>
+                  </div>
+                ) : isPremiumUser === true ? (
+                  // Premium user but no status data yet - show generic error
+                  <div className={`p-4 rounded-xl border ${
+                    isDark 
+                      ? "border-red-700/50 bg-red-900/20 text-red-400" 
+                      : "border-red-200 bg-red-50 text-red-700"
+                  }`}>
+                    <p className="text-sm">
+                      Unable to load connection status. Please refresh or try again.
+                    </p>
+                  </div>
+                ) : isPremiumUser === false ? (
+                  // Non-premium user - upgrade prompt (should not reach here due to earlier check, but defensive)
+                  null
                 ) : (
-                  <p className={themeClasses.mutedText}>Failed to load connection status</p>
+                  // Premium status not yet determined - show loading state
+                  <p className={themeClasses.mutedText}>Loading...</p>
                 )}
               </OBDPanel>
 

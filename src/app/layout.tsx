@@ -86,18 +86,22 @@ export default function RootLayout({
                 >
                   Support
                 </a>
-                <Link
-                  href="/privacy"
+                <a
+                  href="https://ocalabusinessdirectory.com/obd-business-suite-privacy-policy/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-xs md:text-sm text-slate-400 hover:text-[#29c4a9] transition-colors"
                 >
                   Privacy
-                </Link>
-                <Link
-                  href="/terms"
+                </a>
+                <a
+                  href="https://ocalabusinessdirectory.com/obd-business-suite-terms-of-service/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-xs md:text-sm text-slate-400 hover:text-[#29c4a9] transition-colors"
                 >
                   Terms
-                </Link>
+                </a>
               </div>
             </div>
           </footer>

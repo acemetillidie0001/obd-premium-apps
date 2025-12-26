@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { hasPremiumAccess } from "@/lib/premium";
 import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
+import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 
 /**
  * POST /api/social-connections/meta/connect
@@ -28,7 +29,6 @@ export async function POST() {
     // Check if Meta is configured
     const appId = process.env.META_APP_ID;
     const appSecret = process.env.META_APP_SECRET;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
     if (!appId || !appSecret) {
       return NextResponse.json(
@@ -37,9 +37,75 @@ export async function POST() {
       );
     }
 
-    if (!appUrl) {
+    // TEMPORARY DEBUG: Log NEXTAUTH_URL
+    const nextAuthUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+    console.log("[Meta OAuth Connect] DEBUG - NEXTAUTH_URL:", nextAuthUrl || "NOT SET");
+    
+    // Validate NEXTAUTH_URL in local dev
+    if (process.env.NODE_ENV !== "production") {
+      if (!nextAuthUrl) {
+        const errorMsg = "NEXTAUTH_URL is required for Meta OAuth in local development. Set NEXTAUTH_URL to your ngrok HTTPS URL (e.g., https://<subdomain>.ngrok-free.dev)";
+        console.error("[Meta OAuth Connect] DEBUG -", errorMsg);
+        return NextResponse.json(
+          { error: errorMsg },
+          { status: 500 }
+        );
+      }
+      if (!nextAuthUrl.startsWith("https://")) {
+        const errorMsg = `NEXTAUTH_URL must use HTTPS for Meta OAuth. Current value: ${nextAuthUrl}. For local development, use ngrok (https://<subdomain>.ngrok-free.dev)`;
+        console.error("[Meta OAuth Connect] DEBUG -", errorMsg);
+        return NextResponse.json(
+          { error: errorMsg },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Get base URL for redirect URI (NEXTAUTH_URL is required and must be HTTPS)
+    let baseUrl: string;
+    try {
+      baseUrl = getMetaOAuthBaseUrl();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Base URL validation failed";
+      console.error("[Meta OAuth Connect] Base URL validation failed:", errorMessage);
       return NextResponse.json(
-        { error: "NEXT_PUBLIC_APP_URL not configured" },
+        { error: errorMessage },
+        { status: 500 }
+      );
+    }
+
+    // Build redirect URI (ensure no trailing slashes, no extra params)
+    const redirectUri = `${baseUrl}/api/social-connections/meta/callback`;
+    
+    // TEMPORARY DEBUG: Log computed redirect_uri
+    console.log("[Meta OAuth Connect] DEBUG - Computed redirect_uri:", redirectUri);
+    
+    // TEMPORARY DEBUG: Verify redirect_uri format matches expected pattern
+    const expectedPattern = /^https:\/\/[^\/]+\.ngrok-free\.dev\/api\/social-connections\/meta\/callback$/;
+    if (process.env.NODE_ENV !== "production") {
+      if (!expectedPattern.test(redirectUri)) {
+        console.warn("[Meta OAuth Connect] DEBUG - redirect_uri does not match expected ngrok pattern:", redirectUri);
+        console.warn("[Meta OAuth Connect] DEBUG - Expected format: https://<subdomain>.ngrok-free.dev/api/social-connections/meta/callback");
+      } else {
+        console.log("[Meta OAuth Connect] DEBUG - redirect_uri format validation: ✓ PASSED");
+      }
+    }
+    
+    // Runtime assertion: verify redirect_uri format
+    if (!redirectUri.startsWith("https://")) {
+      const errorMsg = `Invalid redirect_uri: must use HTTPS. Got: ${redirectUri}`;
+      console.error("[Meta OAuth Connect]", errorMsg);
+      return NextResponse.json(
+        { error: errorMsg },
+        { status: 500 }
+      );
+    }
+    
+    if (redirectUri.includes("//api") || redirectUri.endsWith("/")) {
+      const errorMsg = `Invalid redirect_uri format: contains double slashes or trailing slash. Got: ${redirectUri}`;
+      console.error("[Meta OAuth Connect]", errorMsg);
+      return NextResponse.json(
+        { error: errorMsg },
         { status: 500 }
       );
     }
@@ -56,25 +122,10 @@ export async function POST() {
       maxAge: 600, // 10 minutes
       path: "/",
     });
-
-    // Build Meta OAuth URL
-    const redirectUri = `${appUrl}/api/social-connections/meta/callback`;
     
-    // Minimal scopes for Pages + IG discovery and posting
-    // pages_show_list: List pages user manages
-    // pages_read_engagement: Read page info
-    // pages_manage_posts: Publish to pages
-    // instagram_basic: Basic Instagram access
-    // instagram_content_publish: Publish to Instagram
-    // business_management: Access to IG business accounts
-    const scopes = [
-      "pages_show_list",
-      "pages_read_engagement",
-      "pages_manage_posts",
-      "instagram_basic",
-      "instagram_content_publish",
-      "business_management",
-    ].join(",");
+    // Stage 1: Minimal scopes for basic connection only
+    // public_profile: Basic user profile information
+    const scopes = ["public_profile"].join(",");
 
     const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
     authUrl.searchParams.set("client_id", appId);
@@ -83,7 +134,14 @@ export async function POST() {
     authUrl.searchParams.set("scope", scopes);
     authUrl.searchParams.set("response_type", "code");
 
-    // Do NOT log the authUrl with sensitive params
+    // TEMPORARY DEBUG: Log full Facebook OAuth URL (without state for security)
+    const debugAuthUrl = new URL(authUrl.toString());
+    debugAuthUrl.searchParams.set("state", "[REDACTED]");
+    console.log("[Meta OAuth Connect] DEBUG - Full Facebook OAuth URL:", debugAuthUrl.toString());
+    console.log("[Meta OAuth Connect] DEBUG - redirect_uri parameter:", redirectUri);
+    console.log("[Meta OAuth Connect] DEBUG - client_id:", appId);
+    console.log("[Meta OAuth Connect] DEBUG - scope:", scopes);
+
     return NextResponse.json({
       ok: true,
       authUrl: authUrl.toString(),

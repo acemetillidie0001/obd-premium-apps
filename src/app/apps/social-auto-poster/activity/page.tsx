@@ -11,7 +11,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook",
   instagram: "Instagram",
   x: "X (Twitter)",
-  googleBusiness: "Google Business",
+  google_business: "Google Business Profile",
+  googleBusiness: "Google Business Profile", // Legacy support
 };
 
 export default function SocialAutoPosterActivityPage() {
@@ -161,21 +162,44 @@ export default function SocialAutoPosterActivityPage() {
                                 </p>
                               )}
                               {(() => {
-                                const permalink = attempt.responseData && typeof attempt.responseData === "object" && "providerPermalink" in attempt.responseData
-                                  ? (attempt.responseData.providerPermalink as string)
-                                  : null;
-                                return permalink ? (
-                                  <div className="mt-2">
-                                    <a
-                                      href={permalink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className={`text-xs text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
-                                    >
-                                      View Post →
-                                    </a>
-                                  </div>
-                                ) : null;
+                                // Safely extract permalink and post ID
+                                const responseData = attempt.responseData;
+                                const permalink: string | null = 
+                                  responseData && 
+                                  typeof responseData === "object" && 
+                                  "providerPermalink" in responseData &&
+                                  typeof responseData.providerPermalink === "string"
+                                    ? responseData.providerPermalink
+                                    : null;
+                                
+                                const postId: string | null =
+                                  responseData &&
+                                  typeof responseData === "object" &&
+                                  "providerPostId" in responseData &&
+                                  typeof responseData.providerPostId === "string"
+                                    ? responseData.providerPostId
+                                    : null;
+                                
+                                if (permalink) {
+                                  return (
+                                    <div className="mt-2 space-y-1">
+                                      <a
+                                        href={permalink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`text-xs text-blue-600 hover:underline inline-flex items-center gap-1 ${isDark ? "text-blue-400" : ""}`}
+                                      >
+                                        View Post →
+                                      </a>
+                                      {postId && (
+                                        <p className={`text-xs font-mono ${themeClasses.mutedText}`}>
+                                          Post ID: {postId}
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                return null;
                               })()}
                               {attempt.errorMessage && (
                                 <p className={`text-xs text-red-400 mt-1`}>{attempt.errorMessage}</p>

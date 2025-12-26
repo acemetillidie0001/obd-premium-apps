@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { mapMetaError, mapCallbackError } from "@/lib/apps/social-auto-poster/metaErrorMapper";
 import type {
   SocialAutoposterSettings,
   PostingMode,
@@ -46,6 +48,9 @@ const POSTING_MODES: Array<{ value: PostingMode; label: string; description: str
 ];
 
 export default function SocialAutoPosterSetupPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
+  
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -95,7 +100,13 @@ export default function SocialAutoPosterSetupPage() {
     configured?: boolean;
     errorCode?: string;
     errorMessage?: string;
-    facebook: { connected: boolean; pageName?: string; pageId?: string };
+    facebook: { 
+      connected: boolean; 
+      basicConnectGranted?: boolean;
+      pagesAccessGranted?: boolean;
+      pageName?: string; 
+      pageId?: string;
+    };
     instagram: {
       connected: boolean;
       available?: boolean;
@@ -103,41 +114,105 @@ export default function SocialAutoPosterSetupPage() {
       igBusinessId?: string;
       reasonIfUnavailable?: string;
     };
+    publishing?: {
+      enabled?: boolean;
+      reasonIfDisabled?: string;
+    };
   } | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [requestingPagesAccess, setRequestingPagesAccess] = useState(false);
   const [testPostLoading, setTestPostLoading] = useState(false);
   const [testPostResults, setTestPostResults] = useState<{
     facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string };
     instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string };
+    google?: { ok: boolean; postId?: string; permalink?: string; error?: string };
   } | null>(null);
+
+  // Google Business Profile connection state
+  const [googleStatus, setGoogleStatus] = useState<{
+    ok?: boolean;
+    configured?: boolean;
+    connected?: boolean;
+    location?: { id: string; name: string };
+    errorCode?: string;
+    errorMessage?: string;
+  } | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleConnecting, setGoogleConnecting] = useState(false);
+  const [googleTestPostLoading, setGoogleTestPostLoading] = useState(false);
+  const [googleLocations, setGoogleLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [googleLocationsLoading, setGoogleLocationsLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
-    // Note: loadConnectionStatus is called conditionally based on premium status
     
     // Check for callback success/error
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
+    const pagesAccess = params.get("pages_access");
+    const googleConnected = params.get("google_connected");
     const error = params.get("error");
     
     if (connected === "1") {
+      // Show success message
       setSuccess(true);
       setTimeout(() => setSuccess(false), 5000);
-      // Clean URL
+      
+      // Clean URL immediately
       window.history.replaceState({}, "", window.location.pathname);
-      // Connection status will be reloaded by the premium status useEffect if user is premium
+      
+      // Auto-refresh connection status if user is premium
+      if (isPremiumUser === true) {
+        // Small delay to ensure redirect is complete
+        setTimeout(() => {
+          loadConnectionStatus();
+        }, 500);
+      }
+    } else if (pagesAccess === "1") {
+      // Show success message for pages access
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+      
+      // Clean URL immediately
+      window.history.replaceState({}, "", window.location.pathname);
+      
+      // Auto-refresh connection status if user is premium
+      if (isPremiumUser === true) {
+        setTimeout(() => {
+          loadConnectionStatus();
+        }, 500);
+      }
+    } else if (googleConnected === "1") {
+      // Show success message for Google
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+      
+      // Clean URL immediately
+      window.history.replaceState({}, "", window.location.pathname);
+      
+      // Auto-refresh Google status if user is premium
+      if (isPremiumUser === true) {
+        setTimeout(() => {
+          loadGoogleStatus();
+        }, 500);
+      }
     } else if (error) {
-      setError(decodeURIComponent(error));
+      // Map callback error to user-friendly message
+      const friendlyError = mapCallbackError(error);
+      setError(friendlyError);
+      
       // Clean URL
       window.history.replaceState({}, "", window.location.pathname);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
 
   // Load connection status when premium status is confirmed
   useEffect(() => {
     if (isPremiumUser === true) {
       loadConnectionStatus();
+      loadGoogleStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPremiumUser]); // loadConnectionStatus is stable and doesn't need to be in deps
@@ -370,6 +445,183 @@ export default function SocialAutoPosterSetupPage() {
     }
   };
 
+  const handleRequestPagesAccess = async () => {
+    setRequestingPagesAccess(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/request-pages-access", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to request pages access");
+      }
+      const data = await res.json();
+      if (data.authUrl) {
+        // Redirect to Meta OAuth for pages access
+        window.location.href = data.authUrl;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to request pages access");
+      setRequestingPagesAccess(false);
+    }
+  };
+
+  const loadGoogleStatus = async () => {
+    // Only load if user is premium
+    if (isPremiumUser !== true) {
+      return;
+    }
+
+    setGoogleLoading(true);
+    try {
+      const res = await fetch("/api/social-connections/google/status");
+      const data = await res.json();
+      
+      if (data.ok === false) {
+        const errorCode = data.errorCode || "UNKNOWN_ERROR";
+        setGoogleStatus({
+          ok: false,
+          configured: data.configured || false,
+          connected: false,
+          errorCode,
+          errorMessage: data.errorMessage || data.error,
+        });
+      } else {
+        setGoogleStatus(data);
+      }
+    } catch (err) {
+      console.error("Failed to load Google status:", err);
+      setGoogleStatus(null);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleConnect = async () => {
+    setGoogleConnecting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/google/connect", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to initiate connection");
+      }
+      const data = await res.json();
+      if (data.authUrl) {
+        // Redirect to Google OAuth
+        window.location.href = data.authUrl;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect");
+      setGoogleConnecting(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    if (!confirm("Are you sure you want to disconnect Google Business Profile?")) {
+      return;
+    }
+    setGoogleLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/google/disconnect", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      await loadGoogleStatus();
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleGoogleTestPost = async () => {
+    setGoogleTestPostLoading(true);
+    setError(null);
+    setTestPostResults((prev) => ({ ...prev, google: undefined }));
+    try {
+      const res = await fetch("/api/social-connections/google/test-post", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to send test post");
+      }
+      const data = await res.json();
+      
+      // Map errors to user-friendly messages
+      const result = data.result || {};
+      if (!result.ok && result.error) {
+        const mapped = mapMetaError(null, result.error);
+        result.error = mapped.message;
+      }
+      
+      setTestPostResults((prev) => ({
+        ...prev,
+        google: {
+          ok: result.ok || false,
+          postId: result.postId,
+          permalink: result.permalink,
+          error: result.error,
+        },
+      }));
+      
+      if (result.ok) {
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 5000);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send test post");
+    } finally {
+      setGoogleTestPostLoading(false);
+    }
+  };
+
+  const handleSelectLocation = async (locationId: string) => {
+    setGoogleLocationsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/google/select-location", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ locationId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to select location");
+      }
+      await loadGoogleStatus();
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to select location");
+    } finally {
+      setGoogleLocationsLoading(false);
+    }
+  };
+
+  // Load locations when status is loaded
+  useEffect(() => {
+    if (googleStatus?.ok && googleStatus.locations) {
+      setGoogleLocations(googleStatus.locations);
+    }
+  }, [googleStatus]);
+
   const handleTestPost = async () => {
     setTestPostLoading(true);
     setError(null);
@@ -387,9 +639,26 @@ export default function SocialAutoPosterSetupPage() {
         throw new Error(data.error || "Failed to send test post");
       }
       const data = await res.json();
-      setTestPostResults(data.results || {});
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 5000);
+      
+      // Map errors to user-friendly messages
+      const results = data.results || {};
+      if (results.facebook && !results.facebook.ok && results.facebook.error) {
+        const mapped = mapMetaError(null, results.facebook.error);
+        results.facebook.error = mapped.message;
+      }
+      if (results.instagram && !results.instagram.ok && results.instagram.error) {
+        const mapped = mapMetaError(null, results.instagram.error);
+        results.instagram.error = mapped.message;
+      }
+      
+      setTestPostResults(results);
+      
+      // Show success banner only if at least one platform succeeded
+      const hasSuccess = Object.values(results).some((r: any) => r?.ok === true);
+      if (hasSuccess) {
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 5000);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send test post");
     } finally {
@@ -485,12 +754,33 @@ export default function SocialAutoPosterSetupPage() {
                               Facebook
                             </div>
                             {connectionStatus.facebook.connected ? (
-                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
-                                Connected ✅ {connectionStatus.facebook.pageName && `(${connectionStatus.facebook.pageName})`}
+                              <div className="space-y-1">
+                                <div className={`text-sm ${themeClasses.mutedText}`}>
+                                  {connectionStatus.facebook.basicConnectGranted ? (
+                                    <span>Basic connection ✅</span>
+                                  ) : (
+                                    <span>Connected ✅</span>
+                                  )}
+                                  {connectionStatus.facebook.pageName && ` (${connectionStatus.facebook.pageName})`}
+                                </div>
+                                {connectionStatus.facebook.pagesAccessGranted ? (
+                                  <div className={`text-xs ${isDark ? "text-green-400" : "text-green-700"}`}>
+                                    Pages access enabled ✅
+                                  </div>
+                                ) : connectionStatus.facebook.basicConnectGranted ? (
+                                  <div className={`text-xs ${isDark ? "text-yellow-400" : "text-yellow-700"}`}>
+                                    Pages access not enabled
+                                  </div>
+                                ) : null}
                               </div>
                             ) : (
                               <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
                                 Not connected
+                              </div>
+                            )}
+                            {connectionStatus.facebook.pageId && (
+                              <div className={`text-xs font-mono mt-1 ${themeClasses.mutedText}`}>
+                                Page ID: {connectionStatus.facebook.pageId}
                               </div>
                             )}
                           </div>
@@ -513,19 +803,120 @@ export default function SocialAutoPosterSetupPage() {
                               <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
                                 Connected ✅ {connectionStatus.instagram.username && `(@${connectionStatus.instagram.username})`}
                               </div>
-                            ) : connectionStatus.instagram.available !== false ? (
-                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
-                                Not connected
-                              </div>
                             ) : (
-                              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
-                                Not available {connectionStatus.instagram.reasonIfUnavailable && `(${connectionStatus.instagram.reasonIfUnavailable})`}
+                              <div className="space-y-1">
+                                <div className={`text-sm ${themeClasses.mutedText}`}>
+                                  Not available
+                                </div>
+                                {connectionStatus.instagram.reasonIfUnavailable && (
+                                  <div className={`text-xs ${isDark ? "text-yellow-400" : "text-yellow-700"}`}>
+                                    ℹ️ {connectionStatus.instagram.reasonIfUnavailable}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {connectionStatus.instagram.igBusinessId && (
+                              <div className={`text-xs font-mono mt-1 ${themeClasses.mutedText}`}>
+                                IG Business ID: {connectionStatus.instagram.igBusinessId}
+                              </div>
+                            )}
+                            {!connectionStatus.instagram.connected && connectionStatus.instagram.reasonIfUnavailable && (
+                              <div className={`text-xs mt-1 ${isDark ? "text-yellow-400" : "text-yellow-700"}`}>
+                                ℹ️ {connectionStatus.instagram.reasonIfUnavailable}
                               </div>
                             )}
                           </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Google Business Profile Status */}
+                    {googleLoading ? (
+                      <p className={themeClasses.mutedText}>Loading Google Business Profile status...</p>
+                    ) : googleStatus && googleStatus.ok !== false ? (
+                      <div className={`p-4 rounded-xl border ${
+                        isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
+                      }`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">📍</span>
+                            <div className="flex-1">
+                              <div className={`font-medium ${themeClasses.headingText}`}>
+                                Google Business Profile
+                              </div>
+                              {googleStatus.connected ? (
+                                <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                  Connected ✅ {googleStatus.location && `(${googleStatus.location.name})`}
+                                </div>
+                              ) : (
+                                <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                  Not connected
+                                </div>
+                              )}
+                              {googleStatus.location?.id && (
+                                <div className={`text-xs font-mono mt-1 ${themeClasses.mutedText}`}>
+                                  Location ID: {googleStatus.location.id}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Location Selection Dropdown */}
+                        {googleStatus.connected && googleStatus.locations && googleStatus.locations.length > 1 && (
+                          <div className="mt-3">
+                            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                              Select Location:
+                            </label>
+                            <select
+                              value={googleStatus.location?.id || ""}
+                              onChange={(e) => handleSelectLocation(e.target.value)}
+                              disabled={googleLocationsLoading}
+                              className={getInputClasses(isDark)}
+                            >
+                              {googleStatus.locations.map((loc) => (
+                                <option key={loc.id} value={loc.id}>
+                                  {loc.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    ) : googleStatus && googleStatus.ok === false ? (
+                      <div className={`p-4 rounded-xl border ${
+                        isDark 
+                          ? "border-red-700/50 bg-red-900/20 text-red-400" 
+                          : "border-red-200 bg-red-50 text-red-700"
+                      }`}>
+                        <p className="text-sm">
+                          {googleStatus.errorCode === "GOOGLE_NOT_CONFIGURED" 
+                            ? "Google Business Profile connection not configured. Please contact support."
+                            : googleStatus.errorCode === "DB_ERROR"
+                            ? "Database update required. Run Prisma migration."
+                            : googleStatus.errorCode === "UNAUTHORIZED"
+                            ? "Please sign in again."
+                            : googleStatus.errorMessage || "Unable to load connection status. Please refresh or try again."}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {/* Publishing Status Info */}
+                    {connectionStatus.publishing && !connectionStatus.publishing.enabled && (
+                      <div className={`p-4 rounded-xl border ${
+                        isDark 
+                          ? "border-yellow-700/50 bg-yellow-900/20 text-yellow-400" 
+                          : "border-yellow-200 bg-yellow-50 text-yellow-800"
+                      }`}>
+                        <div className="flex items-start gap-2">
+                          <span className="text-lg">ℹ️</span>
+                          <div className="text-sm">
+                            <div className="font-medium mb-1">Publishing Not Available</div>
+                            <div>{connectionStatus.publishing.reasonIfDisabled}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Action Buttons */}
                     <div className="flex gap-3 flex-wrap">
@@ -541,8 +932,28 @@ export default function SocialAutoPosterSetupPage() {
                             : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
                         }`}
                       >
-                        {connecting ? "Connecting..." : "Connect Facebook/Instagram"}
+                        {connecting ? "Connecting..." : "Connect Facebook"}
                       </button>
+
+                      {/* Enable Pages Access Button */}
+                      {connectionStatus.facebook.connected && 
+                       connectionStatus.facebook.basicConnectGranted && 
+                       !connectionStatus.facebook.pagesAccessGranted && (
+                        <button
+                          type="button"
+                          onClick={handleRequestPagesAccess}
+                          disabled={requestingPagesAccess || !connectionStatus.configured}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            requestingPagesAccess || !connectionStatus.configured
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          }`}
+                        >
+                          {requestingPagesAccess ? "Requesting..." : "Enable Pages Access"}
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -564,14 +975,15 @@ export default function SocialAutoPosterSetupPage() {
                       <button
                         type="button"
                         onClick={handleTestPost}
-                        disabled={testPostLoading || !connectionStatus.facebook.connected}
+                        disabled={testPostLoading || !connectionStatus?.facebook?.pagesAccessGranted}
                         className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                          testPostLoading || !connectionStatus.facebook.connected
+                          testPostLoading || !connectionStatus?.facebook?.pagesAccessGranted
                             ? isDark
                               ? "bg-slate-700 text-slate-400 cursor-not-allowed"
                               : "bg-slate-200 text-slate-400 cursor-not-allowed"
                             : "bg-blue-600 text-white hover:bg-blue-700"
                         }`}
+                        title={!connectionStatus?.facebook?.pagesAccessGranted ? "Enable Pages Access first" : ""}
                       >
                         {testPostLoading ? "Sending..." : "Send Test Post"}
                       </button>
@@ -592,7 +1004,142 @@ export default function SocialAutoPosterSetupPage() {
                       >
                         {connectionLoading ? "Refreshing..." : "Refresh Status"}
                       </button>
+
+                      {/* Admin Debug Link */}
+                      {isAdmin && (
+                        <a
+                          href="/api/social-connections/meta/status"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors text-sm ${
+                            isDark
+                              ? "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 border border-slate-700"
+                              : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-700 border border-slate-200"
+                          }`}
+                          title="Open Meta Status JSON (Admin Only)"
+                        >
+                          Open Meta Status JSON
+                        </a>
+                      )}
                     </div>
+
+                    {/* Google Business Profile Action Buttons */}
+                    {isPremiumUser === true && (
+                      <div className="flex gap-3 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={handleGoogleConnect}
+                          disabled={googleConnecting || googleStatus?.configured === false || googleStatus?.connected === true}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            googleConnecting || googleStatus?.configured === false || googleStatus?.connected === true
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                          }`}
+                        >
+                          {googleConnecting ? "Connecting..." : "Connect Google Business Profile"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleGoogleDisconnect}
+                          disabled={googleLoading || googleStatus?.connected !== true}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            googleLoading || googleStatus?.connected !== true
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : isDark
+                              ? "bg-red-900/20 text-red-400 border border-red-700 hover:bg-red-900/30"
+                              : "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                          }`}
+                        >
+                          Disconnect
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleGoogleTestPost}
+                          disabled={googleTestPostLoading || googleStatus?.connected !== true || !googleStatus?.location}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            googleTestPostLoading || googleStatus?.connected !== true || !googleStatus?.location
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          }`}
+                          title={!googleStatus?.location ? "Select a location first" : ""}
+                        >
+                          {googleTestPostLoading ? "Sending..." : "Send GBP Test Post"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={loadGoogleStatus}
+                          disabled={googleLoading}
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            googleLoading
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : isDark
+                              ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {googleLoading ? "Refreshing..." : "Refresh Status"}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Google Test Post Results */}
+                    {testPostResults?.google && (
+                      <div className={`mt-4 p-4 rounded-xl border ${
+                        isDark ? "border-slate-700 bg-slate-800/50" : "border-slate-200 bg-slate-50"
+                      }`}>
+                        <div className={`font-medium mb-3 ${themeClasses.headingText}`}>
+                          Google Business Profile Test Post
+                        </div>
+                        <div className={`p-3 rounded-lg ${
+                          isDark ? "bg-slate-800/50 border border-slate-700" : "bg-white border border-slate-200"
+                        }`}>
+                          <div className="flex items-start gap-3">
+                            <span className="text-xl">{testPostResults.google.ok ? "✅" : "❌"}</span>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`font-medium ${themeClasses.headingText}`}>Google Business Profile</span>
+                              </div>
+                              {testPostResults.google.ok ? (
+                                <div className="space-y-1">
+                                  {testPostResults.google.permalink ? (
+                                    <a
+                                      href={testPostResults.google.permalink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={`text-sm text-blue-600 hover:underline inline-flex items-center gap-1 ${isDark ? "text-blue-400" : ""}`}
+                                    >
+                                      View Post →
+                                    </a>
+                                  ) : (
+                                    <span className={`text-sm ${themeClasses.mutedText}`}>Posted successfully</span>
+                                  )}
+                                  {testPostResults.google.postId && (
+                                    <p className={`text-xs font-mono ${themeClasses.mutedText}`}>
+                                      Post ID: {testPostResults.google.postId}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className={`text-sm ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                  {testPostResults.google.error || "Failed to post"}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Test Post Results */}
                     {testPostResults && (
@@ -602,53 +1149,105 @@ export default function SocialAutoPosterSetupPage() {
                         <div className={`font-medium mb-3 ${themeClasses.headingText}`}>
                           Test Post Results
                         </div>
-                        <div className="space-y-2">
+                        
+                        {/* Overall status banner */}
+                        {(() => {
+                          const fbOk = testPostResults.facebook?.ok === true;
+                          const igOk = testPostResults.instagram?.ok === true;
+                          const fbAttempted = !!testPostResults.facebook;
+                          const igAttempted = !!testPostResults.instagram;
+                          const allSucceeded = (fbAttempted ? fbOk : true) && (igAttempted ? igOk : true);
+                          const partialSuccess = (fbOk || igOk) && !allSucceeded;
+                          
+                          if (partialSuccess) {
+                            return (
+                              <div className={`mb-3 p-2 rounded-lg ${
+                                isDark ? "bg-yellow-900/20 border border-yellow-700 text-yellow-400" : "bg-yellow-50 border border-yellow-200 text-yellow-700"
+                              }`}>
+                                <p className="text-sm">⚠️ Partial success: Some posts succeeded, others failed.</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                        
+                        <div className="space-y-3">
                           {testPostResults.facebook && (
-                            <div className="flex items-center gap-2">
-                              <span>{testPostResults.facebook.ok ? "✅" : "❌"}</span>
-                              <span className={themeClasses.labelText}>Facebook:</span>
-                              {testPostResults.facebook.ok ? (
-                                testPostResults.facebook.permalink ? (
-                                  <a
-                                    href={testPostResults.facebook.permalink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={`text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
-                                  >
-                                    View Post
-                                  </a>
-                                ) : (
-                                  <span className={themeClasses.mutedText}>Posted successfully</span>
-                                )
-                              ) : (
-                                <span className={`text-sm ${themeClasses.mutedText}`}>
-                                  {testPostResults.facebook.error}
-                                </span>
-                              )}
+                            <div className={`p-3 rounded-lg ${
+                              isDark ? "bg-slate-800/50 border border-slate-700" : "bg-white border border-slate-200"
+                            }`}>
+                              <div className="flex items-start gap-3">
+                                <span className="text-xl">{testPostResults.facebook.ok ? "✅" : "❌"}</span>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`font-medium ${themeClasses.headingText}`}>Facebook</span>
+                                  </div>
+                                  {testPostResults.facebook.ok ? (
+                                    <div className="space-y-1">
+                                      {testPostResults.facebook.permalink ? (
+                                        <a
+                                          href={testPostResults.facebook.permalink}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={`text-sm text-blue-600 hover:underline inline-flex items-center gap-1 ${isDark ? "text-blue-400" : ""}`}
+                                        >
+                                          View Post →
+                                        </a>
+                                      ) : (
+                                        <span className={`text-sm ${themeClasses.mutedText}`}>Posted successfully</span>
+                                      )}
+                                      {testPostResults.facebook.postId && (
+                                        <p className={`text-xs font-mono ${themeClasses.mutedText}`}>
+                                          Post ID: {testPostResults.facebook.postId}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <p className={`text-sm ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                      {testPostResults.facebook.error || "Failed to post"}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
                           {testPostResults.instagram && (
-                            <div className="flex items-center gap-2">
-                              <span>{testPostResults.instagram.ok ? "✅" : "❌"}</span>
-                              <span className={themeClasses.labelText}>Instagram:</span>
-                              {testPostResults.instagram.ok ? (
-                                testPostResults.instagram.permalink ? (
-                                  <a
-                                    href={testPostResults.instagram.permalink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className={`text-blue-600 hover:underline ${isDark ? "text-blue-400" : ""}`}
-                                  >
-                                    View Post
-                                  </a>
-                                ) : (
-                                  <span className={themeClasses.mutedText}>Posted successfully</span>
-                                )
-                              ) : (
-                                <span className={`text-sm ${themeClasses.mutedText}`}>
-                                  {testPostResults.instagram.error}
-                                </span>
-                              )}
+                            <div className={`p-3 rounded-lg ${
+                              isDark ? "bg-slate-800/50 border border-slate-700" : "bg-white border border-slate-200"
+                            }`}>
+                              <div className="flex items-start gap-3">
+                                <span className="text-xl">{testPostResults.instagram.ok ? "✅" : "❌"}</span>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`font-medium ${themeClasses.headingText}`}>Instagram</span>
+                                  </div>
+                                  {testPostResults.instagram.ok ? (
+                                    <div className="space-y-1">
+                                      {testPostResults.instagram.permalink ? (
+                                        <a
+                                          href={testPostResults.instagram.permalink}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={`text-sm text-blue-600 hover:underline inline-flex items-center gap-1 ${isDark ? "text-blue-400" : ""}`}
+                                        >
+                                          View Post →
+                                        </a>
+                                      ) : (
+                                        <span className={`text-sm ${themeClasses.mutedText}`}>Posted successfully</span>
+                                      )}
+                                      {testPostResults.instagram.postId && (
+                                        <p className={`text-xs font-mono ${themeClasses.mutedText}`}>
+                                          Post ID: {testPostResults.instagram.postId}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <p className={`text-sm ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                      {testPostResults.instagram.error || "Failed to post"}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>

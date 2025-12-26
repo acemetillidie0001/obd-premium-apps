@@ -24,12 +24,15 @@ RESEND_API_KEY=re_your_api_key_here
 EMAIL_FROM="OBD <support@updates.ocalabusinessdirectory.com>"
 
 # NextAuth
+# For Meta OAuth testing with ngrok, use: NEXTAUTH_URL=https://<subdomain>.ngrok-free.dev
+# (Get the URL from ngrok "Forwarding https://..." line)
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=local-dev-secret-change-later
 
 # Meta (Facebook + Instagram) OAuth
 META_APP_ID=your_meta_app_id
 META_APP_SECRET=your_meta_app_secret
+# For Meta OAuth testing with ngrok, use: NEXT_PUBLIC_APP_URL=https://<subdomain>.ngrok-free.dev
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
@@ -38,7 +41,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 - **`DATABASE_URL`** - PostgreSQL connection string (Railway Postgres for local dev)
 - **`RESEND_API_KEY`** - Resend API key for sending emails (starts with `re_`)
 - **`EMAIL_FROM`** - Sender email address (must use verified Resend domain)
-- **`NEXTAUTH_URL`** - Base URL for NextAuth (local dev: `http://localhost:3000`)
+- **`NEXTAUTH_URL`** - Base URL for NextAuth (local dev: `http://localhost:3000`). For Meta OAuth testing with ngrok, use `https://<subdomain>.ngrok-free.dev` (get the URL from ngrok "Forwarding https://..." line)
 - **`NEXTAUTH_SECRET`** - NextAuth secret (any secure random string for local dev)
 - **`META_APP_ID`** - Meta (Facebook) App ID for OAuth
 - **`META_APP_SECRET`** - Meta (Facebook) App Secret for OAuth

@@ -7,6 +7,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { publishToFacebookPage, publishToInstagram, isTemporaryError } from "./publishers/metaPublisher";
+import { publishToGoogleBusiness, isTemporaryError as isGoogleTemporaryError } from "./publishers/googleBusinessPublisher";
 import { resolvePostImage } from "./resolvePostImage";
 import type { Prisma } from "@prisma/client";
 
@@ -100,8 +101,8 @@ export async function processScheduledPost(queueItemId: string, userId: string):
     // Continue without image if resolution fails
   }
 
-  // Check for Meta connections
-  const platform = queueItem.platform as "facebook" | "instagram";
+  // Check for platform connections
+  const platform = queueItem.platform as "facebook" | "instagram" | "google_business";
 
   let published = false;
   let publishError: string | undefined;
@@ -211,13 +212,82 @@ export async function processScheduledPost(queueItemId: string, userId: string):
       publishError = error instanceof Error ? error.message : "Unknown error";
       publishErrorCode = "EXCEPTION";
     }
+  } else if (platform === "google_business") {
+    try {
+      const gbpDestination = await prisma.socialPostingDestination.findUnique({
+        where: {
+          userId_platform: {
+            userId,
+            platform: "google_business",
+          },
+        },
+      });
+
+      if (gbpDestination) {
+        const gbpConnection = await prisma.socialAccountConnection.findFirst({
+          where: {
+            userId,
+            platform: "google_business",
+          },
+        });
+
+        if (gbpConnection && gbpConnection.accessToken) {
+          const gbpResult = await publishToGoogleBusiness({
+            locationId: gbpDestination.selectedAccountId,
+            accessToken: gbpConnection.accessToken,
+            refreshToken: gbpConnection.refreshToken,
+            tokenExpiresAt: gbpConnection.tokenExpiresAt,
+            summaryText: queueItem.content,
+            imageUrl,
+          });
+
+          if (gbpResult.ok && gbpResult.providerPostId) {
+            providerPostIds.google_business = {
+              id: gbpResult.providerPostId,
+              permalink: gbpResult.providerPermalink,
+            };
+            published = true;
+
+            // Update connection with refreshed token if it was refreshed
+            if (gbpResult.refreshedToken) {
+              const tokenExpiresAt = new Date(Date.now() + gbpResult.refreshedToken.expiresIn * 1000);
+              await prisma.socialAccountConnection.updateMany({
+                where: {
+                  userId,
+                  platform: "google_business",
+                },
+                data: {
+                  accessToken: gbpResult.refreshedToken.accessToken,
+                  tokenExpiresAt,
+                },
+              });
+            }
+          } else {
+            publishError = gbpResult.errorMessage || "Google Business Profile publish failed";
+            publishErrorCode = gbpResult.errorCode;
+          }
+        } else {
+          publishError = "Google Business Profile connection not found";
+          publishErrorCode = "NO_CONNECTION";
+        }
+      } else {
+        publishError = "Google Business Profile destination not configured";
+        publishErrorCode = "NO_DESTINATION";
+      }
+    } catch (error) {
+      publishError = error instanceof Error ? error.message : "Unknown error";
+      publishErrorCode = "EXCEPTION";
+    }
   }
 
   // Handle publishing result (continue with retry logic if needed)
   if (!published && publishError) {
 
     const attemptCount = queueItem.attemptCount + 1;
-    const isTemporary = isTemporaryError(publishErrorCode, publishError);
+    // Use appropriate error checker based on platform
+    const isTemporary = platform === "google_business" 
+      ? isGoogleTemporaryError(publishErrorCode, publishError)
+      : isTemporaryError(publishErrorCode, publishError);
 
     if (attemptCount < MAX_ATTEMPTS && isTemporary) {
       // Schedule retry
@@ -369,8 +439,8 @@ export async function processScheduledPost(queueItemId: string, userId: string):
   });
 
   // Log successful delivery attempt
-  const platformForAttempt = platform as "facebook" | "instagram";
-  const postInfo = providerPostIds[platformForAttempt] || providerPostIds.facebook || providerPostIds.instagram;
+  const platformForAttempt = platform as "facebook" | "instagram" | "google_business";
+  const postInfo = providerPostIds[platformForAttempt] || providerPostIds.facebook || providerPostIds.instagram || providerPostIds.google_business;
   
   await prisma.socialDeliveryAttempt.create({
     data: {

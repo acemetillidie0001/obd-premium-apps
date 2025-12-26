@@ -1,0 +1,142 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { hasPremiumAccess } from "@/lib/premium";
+import { cookies } from "next/headers";
+import { randomBytes } from "crypto";
+import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * POST /api/social-connections/meta/request-pages-access
+ * 
+ * Initiates Meta OAuth flow to request Pages access permissions.
+ * This is Stage 2 of the staged permission strategy.
+ * Requests: pages_show_list, pages_read_engagement
+ */
+export async function POST() {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const hasAccess = await hasPremiumAccess();
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: "Premium access required" },
+        { status: 403 }
+      );
+    }
+
+    // Check if Meta is configured
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+
+    if (!appId || !appSecret) {
+      return NextResponse.json(
+        { error: "Meta connection not configured" },
+        { status: 500 }
+      );
+    }
+
+    // Verify user has basic Facebook connection first
+    const userId = session.user.id;
+    const basicConnection = await prisma.socialAccountConnection.findFirst({
+      where: {
+        userId,
+        platform: "facebook",
+      },
+    });
+
+    if (!basicConnection) {
+      return NextResponse.json(
+        { error: "Please connect Facebook first" },
+        { status: 400 }
+      );
+    }
+
+    // Get base URL for redirect URI (NEXTAUTH_URL is required and must be HTTPS)
+    let baseUrl: string;
+    try {
+      baseUrl = getMetaOAuthBaseUrl();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Base URL validation failed";
+      console.error("[Meta OAuth Request Pages Access] Base URL validation failed:", errorMessage);
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: 500 }
+      );
+    }
+
+    // Generate state token for CSRF protection
+    const state = randomBytes(32).toString("hex");
+    
+    // Store state in signed cookie with type indicator
+    const cookieStore = await cookies();
+    cookieStore.set("meta_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600, // 10 minutes
+      path: "/",
+    });
+    // Store that this is a pages access request
+    cookieStore.set("meta_oauth_type", "pages_access", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 600, // 10 minutes
+      path: "/",
+    });
+
+    // Build redirect URI (ensure no trailing slashes, no extra params)
+    const redirectUri = `${baseUrl}/api/social-connections/meta/callback`;
+    
+    // Log the computed redirect_uri for debugging (safe to log - no secrets)
+    console.log("[Meta OAuth Request Pages Access] Computed redirect_uri:", redirectUri);
+    
+    // Runtime assertion: verify redirect_uri format
+    if (!redirectUri.startsWith("https://")) {
+      const errorMsg = `Invalid redirect_uri: must use HTTPS. Got: ${redirectUri}`;
+      console.error("[Meta OAuth Request Pages Access]", errorMsg);
+      return NextResponse.json(
+        { error: errorMsg },
+        { status: 500 }
+      );
+    }
+    
+    if (redirectUri.includes("//api") || redirectUri.endsWith("/")) {
+      const errorMsg = `Invalid redirect_uri format: contains double slashes or trailing slash. Got: ${redirectUri}`;
+      console.error("[Meta OAuth Request Pages Access]", errorMsg);
+      return NextResponse.json(
+        { error: errorMsg },
+        { status: 500 }
+      );
+    }
+    
+    // Stage 2: Request Pages access scopes only
+    // pages_show_list: List pages user manages
+    // pages_read_engagement: Read page info
+    const scopes = ["pages_show_list", "pages_read_engagement"].join(",");
+
+    const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
+    authUrl.searchParams.set("client_id", appId);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("scope", scopes);
+    authUrl.searchParams.set("response_type", "code");
+
+    // Do NOT log the authUrl with sensitive params
+    return NextResponse.json({
+      ok: true,
+      authUrl: authUrl.toString(),
+    });
+  } catch (error) {
+    console.error("Error initiating Meta Pages access request:", error);
+    return NextResponse.json(
+      { error: "Failed to initiate pages access request" },
+      { status: 500 }
+    );
+  }
+}
+

@@ -74,7 +74,7 @@ export async function GET() {
       return {
         id: item.id,
         queueItemId: item.id,
-        platform: item.platform as "facebook" | "instagram" | "x" | "googleBusiness",
+        platform: item.platform as "facebook" | "instagram" | "x" | "google_business",
         content: item.content,
         status: item.status as "posted" | "failed",
         postedAt: item.postedAt,
@@ -84,7 +84,7 @@ export async function GET() {
           id: attempt.id,
           userId: attempt.userId,
           queueItemId: attempt.queueItemId,
-          platform: attempt.platform as "facebook" | "instagram" | "x" | "googleBusiness",
+          platform: attempt.platform as "facebook" | "instagram" | "x" | "google_business",
           success: attempt.success,
           errorMessage: attempt.errorMessage,
           responseData: attempt.responseData as Record<string, unknown> | undefined,

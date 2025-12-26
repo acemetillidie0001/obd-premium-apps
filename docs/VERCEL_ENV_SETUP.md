@@ -71,8 +71,10 @@ https://apps.ocalabusinessdirectory.com
 
 **Example Value:**
 ```
-re_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890
+re_YOUR_API_KEY_HERE
 ```
+
+**Note:** Replace `YOUR_API_KEY_HERE` with your actual Resend API key from the dashboard.
 
 **Important:**
 - Keep this secret! Never commit it to git

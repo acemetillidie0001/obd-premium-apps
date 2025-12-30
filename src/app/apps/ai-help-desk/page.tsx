@@ -696,10 +696,10 @@ export default function AIHelpDeskPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <p className={`text-sm font-medium mb-1 ${isDark ? "text-yellow-400" : "text-yellow-800"}`}>
-                        ⚠ No business connection found for this business ID
+                        ⚠ This business isn't connected yet
                       </p>
                       <p className={`text-xs ${themeClasses.mutedText}`}>
-                        Create a business connection to link this business to your help desk knowledge.
+                        To use the AI Help Desk, connect this business to its knowledge base.
                       </p>
                     </div>
                     <Link
@@ -710,9 +710,12 @@ export default function AIHelpDeskPage() {
                           : "border-yellow-600 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
                       }`}
                     >
-                      Create Business Connection in Setup
+                      Connect This Business
                     </Link>
                   </div>
+                  <p className={`text-xs mt-3 ${themeClasses.mutedText} opacity-75`}>
+                    This is a one-time setup. Your data stays isolated and private.
+                  </p>
                 </div>
               )}
           </div>

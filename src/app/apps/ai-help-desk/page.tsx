@@ -608,118 +608,120 @@ export default function AIHelpDeskPage() {
         </OBDPanel>
       )}
 
-      {/* Main UI - Only show if setup is complete AND mapping exists (unless no businessId entered yet) */}
-      {!setupLoading && canShowMainUI && (
-        <>
-          {/* Business Name Input */}
-          <OBDPanel isDark={isDark} className="mt-7">
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="businessName"
-                  className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+      {/* Business Name Input - Always show when setup is complete (never disappears while typing) */}
+      {!setupLoading && !needsSetup && setupStatus && setupStatus.env.hasBaseUrl && setupStatus.db.hasAiWorkspaceMap && (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="businessName"
+                className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+              >
+                Business Name <span className="text-red-500">*</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  id="businessName"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                  className={getInputClasses(isDark, "flex-1")}
+                  placeholder="Enter your business name"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={handleCheckMapping}
+                  disabled={mappingCheckLoading || !businessId.trim()}
+                  className={`px-4 py-2 text-sm font-medium rounded-xl border transition-colors ${
+                    mappingCheckLoading || !businessId.trim()
+                      ? isDark
+                        ? "border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed"
+                        : "border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : isDark
+                        ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
                 >
-                  Business Name <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    id="businessName"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    className={getInputClasses(isDark, "flex-1")}
-                    placeholder="Enter your business name"
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCheckMapping}
-                    disabled={mappingCheckLoading || !businessId.trim()}
-                    className={`px-4 py-2 text-sm font-medium rounded-xl border transition-colors ${
-                      mappingCheckLoading || !businessId.trim()
-                        ? isDark
-                          ? "border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed"
-                          : "border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : isDark
-                          ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  {mappingCheckLoading ? "Checking..." : "Check Connection"}
+                </button>
+              </div>
+              <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                This helps scope search and chat to your help desk knowledge.
+              </p>
+            </div>
+
+            {/* Mapping Status */}
+            {currentMapping && (
+              <div className={`p-3 rounded-lg border ${
+                isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={`text-sm font-medium ${isDark ? "text-green-400" : "text-green-800"}`}>
+                      ✓ Business connection found
+                    </p>
+                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                      Help Desk Knowledge: <strong>{currentMapping.workspaceSlug}</strong>
+                    </p>
+                  </div>
+                  <Link
+                    href={`/apps/ai-help-desk/setup?businessId=${encodeURIComponent(businessId)}`}
+                    className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
+                      isDark
+                        ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                   >
-                    {mappingCheckLoading ? "Checking..." : "Check Connection"}
-                  </button>
+                    Edit
+                  </Link>
                 </div>
-                <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
-                  This helps scope search and chat to your help desk knowledge.
-                </p>
               </div>
+            )}
 
-              {/* Mapping Status */}
-              {currentMapping && (
-                <div className={`p-3 rounded-lg border ${
-                  isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+            {mappingCheckError && (
+              <div className={getErrorPanelClasses(isDark)}>
+                <p className="text-sm">{mappingCheckError}</p>
+              </div>
+            )}
+
+            {/* Mapping Missing Warning */}
+            {businessId.trim() &&
+              !currentMapping &&
+              !mappingCheckLoading &&
+              !mappingCheckError && (
+                <div className={`p-4 rounded-lg border ${
+                  isDark ? "bg-yellow-900/20 border-yellow-700" : "bg-yellow-50 border-yellow-200"
                 }`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-sm font-medium ${isDark ? "text-green-400" : "text-green-800"}`}>
-                        ✓ Business connection found
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium mb-1 ${isDark ? "text-yellow-400" : "text-yellow-800"}`}>
+                        ⚠ No business connection found for this business ID
                       </p>
-                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                        Help Desk Knowledge: <strong>{currentMapping.workspaceSlug}</strong>
+                      <p className={`text-xs ${themeClasses.mutedText}`}>
+                        Create a business connection to link this business to your help desk knowledge.
                       </p>
                     </div>
                     <Link
                       href={`/apps/ai-help-desk/setup?businessId=${encodeURIComponent(businessId)}`}
-                      className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
+                      className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
                         isDark
-                          ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                          ? "border-yellow-700 bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/40"
+                          : "border-yellow-600 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
                       }`}
                     >
-                      Edit
+                      Create Business Connection in Setup
                     </Link>
                   </div>
                 </div>
               )}
+          </div>
+        </OBDPanel>
+      )}
 
-              {mappingCheckError && (
-                <div className={getErrorPanelClasses(isDark)}>
-                  <p className="text-sm">{mappingCheckError}</p>
-                </div>
-              )}
-
-              {/* Mapping Missing Warning */}
-              {businessId.trim() &&
-                !currentMapping &&
-                !mappingCheckLoading &&
-                !mappingCheckError && (
-                  <div className={`p-4 rounded-lg border ${
-                    isDark ? "bg-yellow-900/20 border-yellow-700" : "bg-yellow-50 border-yellow-200"
-                  }`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <p className={`text-sm font-medium mb-1 ${isDark ? "text-yellow-400" : "text-yellow-800"}`}>
-                          ⚠ No business connection found for this business ID
-                        </p>
-                        <p className={`text-xs ${themeClasses.mutedText}`}>
-                          Create a business connection to link this business to your help desk knowledge.
-                        </p>
-                      </div>
-                      <Link
-                        href={`/apps/ai-help-desk/setup?businessId=${encodeURIComponent(businessId)}`}
-                        className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                          isDark
-                            ? "border-yellow-700 bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/40"
-                            : "border-yellow-600 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
-                        }`}
-                      >
-                        Create Business Connection in Setup
-                      </Link>
-                    </div>
-                  </div>
-                )}
-            </div>
-          </OBDPanel>
-
+      {/* Main UI - Only show if setup is complete AND mapping exists (unless no businessId entered yet) */}
+      {!setupLoading && canShowMainUI && (
+        <>
           {/* Tabs */}
           <div className="mt-6">
             <div className="flex gap-2 border-b" style={{ borderColor: isDark ? "#334155" : "#e2e8f0" }}>

@@ -252,12 +252,14 @@ export const OBD_APPS: ObdAppDefinition[] = [
     icon: "contact",
   },
   {
-    id: "obd-chatbot",
-    name: "OBD AI Chatbot",
-    description: "Add a smart assistant that answers questions, captures leads, and guides visitors.",
+    id: "ai-help-desk",
+    name: "AI Help Desk",
+    description: "Search your business knowledge base and get AI-powered answers to customer questions.",
+    href: "/apps/ai-help-desk",
     category: "productivity",
-    status: "coming-soon",
-    icon: "bot",
+    status: "live",
+    ctaLabel: "Open Help Desk",
+    icon: "help-circle",
   },
   
   // CATEGORY: "branding"

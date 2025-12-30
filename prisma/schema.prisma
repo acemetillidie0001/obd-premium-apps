@@ -508,3 +508,96 @@ model SocialPublishAttempt {
   @@index([userId, createdAt])
   @@index([platform])
 }
+
+model AiWorkspaceMap {
+  id            String   @id @default(cuid())
+  businessId    String   @unique
+  workspaceSlug String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([workspaceSlug])
+}
+
+enum AiHelpDeskEntryType {
+  FAQ
+  SERVICE
+  POLICY
+  NOTE
+}
+
+model AiHelpDeskEntry {
+  id        String                @id @default(cuid())
+  businessId String
+  type      AiHelpDeskEntryType
+  title     String
+  content   String                @db.Text
+  tags      String[]              @default([])
+  isActive  Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, type])
+  @@index([businessId, isActive])
+}
+
+model AiHelpDeskSyncState {
+  id              String   @id @default(cuid())
+  businessId      String   @unique
+  lastSyncedAt    DateTime?
+  lastSyncStatus  String?
+  lastSyncError   String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([businessId])
+}
+
+enum AiHelpDeskResponseQuality {
+  GOOD
+  WEAK
+  NONE
+}
+
+model AiHelpDeskQuestionLog {
+  id              String                      @id @default(cuid())
+  businessId      String
+  question        String                      @db.Text
+  hasSources      Boolean                     @default(false)
+  sourcesCount    Int                         @default(0)
+  responseQuality AiHelpDeskResponseQuality?
+  matchedEntryIds String[]                    @default([])
+  createdAt       DateTime                    @default(now())
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([businessId, hasSources])
+  @@index([businessId, responseQuality])
+}
+
+model AiHelpDeskWidgetKey {
+  id        String   @id @default(cuid())
+  businessId String  @unique
+  publicKey String
+  createdAt DateTime @default(now())
+  rotatedAt DateTime?
+
+  @@index([businessId])
+  @@index([publicKey])
+}
+
+model AiHelpDeskWidgetSettings {
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  enabled           Boolean  @default(false)
+  brandColor        String?  @default("#29c4a9")
+  greeting          String?  @default("Hi! How can I help you today?")
+  position          String?  @default("bottom-right") // bottom-right, bottom-left
+  assistantAvatarUrl String? // Optional avatar URL for chat assistant
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([businessId])
+}

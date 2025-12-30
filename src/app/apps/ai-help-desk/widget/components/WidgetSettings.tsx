@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Eye, X } from "lucide-react";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
@@ -37,6 +37,59 @@ const getInitials = (name: string): string => {
   
   // Multiple words: take first letter of first two words
   return (words[0][0] + words[1][0]).toUpperCase();
+};
+
+// localStorage utilities for widget preferences
+const getStorageKey = (businessId: string, key: string) => `aiHelpDesk:widget:${key}:${businessId}`;
+
+const getLocalStorageValue = <T,>(businessId: string, key: string, defaultValue: T): T => {
+  if (typeof window === "undefined" || !businessId.trim()) return defaultValue;
+  try {
+    const stored = localStorage.getItem(getStorageKey(businessId.trim(), key));
+    if (stored === null) return defaultValue;
+    return JSON.parse(stored) as T;
+  } catch {
+    return defaultValue;
+  }
+};
+
+const setLocalStorageValue = <T,>(businessId: string, key: string, value: T): void => {
+  if (typeof window === "undefined" || !businessId.trim()) return;
+  try {
+    localStorage.setItem(getStorageKey(businessId.trim(), key), JSON.stringify(value));
+  } catch {
+    // Silently fail
+  }
+};
+
+// Theme preset definitions
+type ThemePreset = "minimal" | "bold" | "clean" | null;
+
+const getThemePresetStyles = (preset: ThemePreset) => {
+  switch (preset) {
+    case "minimal":
+      return {
+        bubble: "shadow-sm",
+        header: "border-b border-opacity-30",
+        container: "rounded-lg",
+        spacing: "p-3",
+      };
+    case "bold":
+      return {
+        bubble: "shadow-lg scale-105",
+        header: "border-b-2",
+        container: "rounded-xl",
+        spacing: "p-4",
+      };
+    case "clean":
+    default:
+      return {
+        bubble: "shadow-md",
+        header: "border-b",
+        container: "rounded-lg",
+        spacing: "p-3",
+      };
+  }
 };
 
 interface WidgetSettingsData {
@@ -77,6 +130,14 @@ export default function WidgetSettings({
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const tooltipButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // New state for enhancements
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewWidgetOpen, setPreviewWidgetOpen] = useState(false);
+  const [autoSyncBrandColor, setAutoSyncBrandColor] = useState(false);
+  const [brandColorOverridden, setBrandColorOverridden] = useState(false);
+  const [themePreset, setThemePreset] = useState<ThemePreset>(null);
+  const [obdBrandColor, setObdBrandColor] = useState<string | null>(null);
   
   // OBD Icon URL
   const OBD_ICON_URL = "https://ocalabusinessdirectory.com/wp-content/uploads/2025/10/Copy-of-Black-White-Elegant-Typography-Glitch-Logo-Teal-250-x-80-px.png";
@@ -120,7 +181,38 @@ export default function WidgetSettings({
 
   useEffect(() => {
     loadSettings();
+    
+    // Load localStorage preferences
+    if (businessId.trim()) {
+      setAutoSyncBrandColor(getLocalStorageValue(businessId, "autoSyncBrandColor", false));
+      setThemePreset(getLocalStorageValue(businessId, "themePreset", null));
+      
+      // Try to get OBD brand color (placeholder - can be connected to actual API later)
+      // For now, we'll check if there's a stored brand color or use a default
+      const storedObdColor = getLocalStorageValue<string | null>(businessId, "obdBrandColor", null);
+      setObdBrandColor(storedObdColor);
+    }
   }, [businessId]);
+  
+  // Auto-sync brand color when toggle is ON and OBD color exists
+  useEffect(() => {
+    if (autoSyncBrandColor && obdBrandColor && !brandColorOverridden) {
+      setBrandColor(obdBrandColor);
+    }
+  }, [autoSyncBrandColor, obdBrandColor, brandColorOverridden]);
+  
+  // Save localStorage preferences when they change
+  useEffect(() => {
+    if (businessId.trim()) {
+      setLocalStorageValue(businessId, "autoSyncBrandColor", autoSyncBrandColor);
+    }
+  }, [businessId, autoSyncBrandColor]);
+  
+  useEffect(() => {
+    if (businessId.trim()) {
+      setLocalStorageValue(businessId, "themePreset", themePreset);
+    }
+  }, [businessId, themePreset]);
 
   // Close tooltip when clicking outside
   useEffect(() => {
@@ -147,6 +239,44 @@ export default function WidgetSettings({
     setAvatarPreviewError(false);
     // Trigger validation by simulating input change
     // The URL validation will happen automatically via the onChange handler
+  };
+  
+  // Handle brand color change - detect manual override
+  const handleBrandColorChange = (newColor: string) => {
+    setBrandColor(newColor);
+    if (autoSyncBrandColor && obdBrandColor && newColor !== obdBrandColor) {
+      setBrandColorOverridden(true);
+    }
+  };
+  
+  // Handle revert to synced color
+  const handleRevertToSynced = () => {
+    if (obdBrandColor) {
+      setBrandColor(obdBrandColor);
+      setBrandColorOverridden(false);
+    }
+  };
+  
+  // Get theme preset description
+  const getPresetDescription = (preset: ThemePreset): string => {
+    switch (preset) {
+      case "minimal":
+        return "Subtle borders, soft shadows, calm spacing";
+      case "bold":
+        return "Strong contrast, larger bubble, prominent accents";
+      case "clean":
+        return "Balanced modern default with clear spacing";
+      default:
+        return "Default widget styling";
+    }
+  };
+  
+  // Get preview avatar (with fallback)
+  const getPreviewAvatar = () => {
+    if (assistantAvatarUrl.trim() && !avatarPreviewError) {
+      return assistantAvatarUrl;
+    }
+    return null; // Will show initials
   };
 
   const handleSave = async () => {
@@ -242,6 +372,9 @@ export default function WidgetSettings({
 
   const embedCode = getEmbedCode();
 
+  const previewAvatar = getPreviewAvatar();
+  const themeStyles = getThemePresetStyles(themePreset);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -253,6 +386,131 @@ export default function WidgetSettings({
           Configure and embed an AI chat widget on your website
         </p>
       </div>
+
+      {/* Live Preview Panel */}
+      <OBDPanel isDark={isDark}>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <OBDHeading level={2} isDark={isDark} className="mb-1">
+                Live Preview
+              </OBDHeading>
+              <p className={`text-xs ${themeClasses.mutedText}`}>
+                Preview updates before you save.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPreview(!showPreview)}
+              className={`md:hidden px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                isDark
+                  ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {showPreview ? "Hide" : "Show"} Preview
+            </button>
+          </div>
+          
+          {(showPreview || typeof window === "undefined" || window.innerWidth >= 768) && (
+            <div className="relative">
+              {/* Preview Container */}
+              <div className={`relative ${isDark ? "bg-slate-900" : "bg-slate-100"} rounded-lg p-8 min-h-[400px]`}>
+                {/* Widget Bubble Preview */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewWidgetOpen(!previewWidgetOpen)}
+                  className={`absolute ${position === "bottom-right" ? "right-4" : "left-4"} bottom-4 w-14 h-14 rounded-full flex items-center justify-center transition-all ${themeStyles.bubble}`}
+                  style={{ backgroundColor: previewAvatar ? "transparent" : brandColor }}
+                  aria-label="Preview widget bubble"
+                >
+                  {previewAvatar ? (
+                    <img
+                      src={previewAvatar}
+                      alt=""
+                      className="w-full h-full rounded-full object-cover"
+                      onError={() => {
+                        // Will show initials fallback
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-full rounded-full flex items-center justify-center text-white font-semibold text-sm bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                      aria-label="Assistant avatar initials"
+                    >
+                      {assistantInitials}
+                    </div>
+                  )}
+                </button>
+
+                {/* Mini Widget Window */}
+                {previewWidgetOpen && (
+                  <div
+                    className={`absolute ${position === "bottom-right" ? "right-4" : "left-4"} bottom-20 w-80 ${themeStyles.container} ${isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-300"} border shadow-xl`}
+                    style={{ maxHeight: "400px" }}
+                  >
+                    {/* Header */}
+                    <div className={`flex items-center justify-between p-3 ${themeStyles.header} ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+                      <div className="flex items-center gap-2">
+                        {previewAvatar && !avatarPreviewError ? (
+                          <img
+                            src={previewAvatar}
+                            alt=""
+                            className="w-8 h-8 rounded-full object-cover"
+                            onError={() => {
+                              // Will show initials fallback
+                            }}
+                          />
+                        ) : (
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                            aria-label="Assistant avatar initials"
+                          >
+                            {assistantInitials}
+                          </div>
+                        )}
+                        <h3 className={`text-sm font-semibold ${isDark ? "text-slate-200" : "text-slate-900"}`}>
+                          Help Desk
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewWidgetOpen(false)}
+                        className={`text-slate-500 hover:text-slate-700 ${isDark ? "hover:text-slate-300" : ""}`}
+                        aria-label="Close preview"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Messages */}
+                    <div className={`${themeStyles.spacing} space-y-3 max-h-[300px] overflow-y-auto`}>
+                      <div className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                        {greeting}
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="flex-shrink-0">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-white font-semibold text-xs bg-gradient-to-br from-[#29c4a9] to-[#1ea085]">
+                            {assistantInitials}
+                          </div>
+                        </div>
+                        <div className={`flex-1 rounded-lg px-3 py-2 text-sm ${isDark ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-900"}`}>
+                          Example assistant response
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 justify-end">
+                        <div className={`flex-1 rounded-lg px-3 py-2 text-sm text-white`} style={{ backgroundColor: brandColor }}>
+                          Example user message
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </OBDPanel>
 
       {/* Settings Panel */}
       <OBDPanel isDark={isDark}>
@@ -280,18 +538,60 @@ export default function WidgetSettings({
               <input
                 type="color"
                 value={brandColor}
-                onChange={(e) => setBrandColor(e.target.value)}
+                onChange={(e) => handleBrandColorChange(e.target.value)}
                 className="w-16 h-10 rounded border border-slate-300 cursor-pointer"
               />
               <input
                 type="text"
                 value={brandColor}
-                onChange={(e) => setBrandColor(e.target.value)}
+                onChange={(e) => handleBrandColorChange(e.target.value)}
                 className={getInputClasses(isDark, "flex-1")}
                 placeholder="#29c4a9"
                 maxLength={7}
               />
             </div>
+            {/* Auto-sync toggle */}
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="autoSyncBrandColor"
+                checked={autoSyncBrandColor}
+                onChange={(e) => {
+                  setAutoSyncBrandColor(e.target.checked);
+                  if (!e.target.checked) {
+                    setBrandColorOverridden(false);
+                  }
+                }}
+                className="w-4 h-4 rounded border-slate-300"
+              />
+              <label htmlFor="autoSyncBrandColor" className={`text-xs ${themeClasses.mutedText}`}>
+                Auto-sync brand color
+              </label>
+            </div>
+            {autoSyncBrandColor && (
+              <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                {obdBrandColor
+                  ? brandColorOverridden
+                    ? (
+                        <span className="flex items-center gap-2">
+                          <span>Overridden</span>
+                          <button
+                            type="button"
+                            onClick={handleRevertToSynced}
+                            className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                              isDark
+                                ? "text-[#29c4a9] hover:text-[#1ea085] hover:bg-slate-800"
+                                : "text-[#29c4a9] hover:text-[#1ea085] hover:bg-slate-100"
+                            }`}
+                          >
+                            Revert to synced
+                          </button>
+                        </span>
+                      )
+                    : "Synced with your OBD brand color"
+                  : "No brand color found yet — set one in Brand Profile."}
+              </p>
+            )}
           </div>
 
           {/* Greeting */}
@@ -322,6 +622,39 @@ export default function WidgetSettings({
               <option value="bottom-right">Bottom Right</option>
               <option value="bottom-left">Bottom Left</option>
             </select>
+          </div>
+
+          {/* Theme Presets */}
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              Widget Theme Preset
+            </label>
+            <div className="flex gap-2 mb-2">
+              {(["minimal", "bold", "clean"] as const).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setThemePreset(preset === themePreset ? null : preset)}
+                  className={`px-4 py-2 text-xs font-medium rounded-lg border transition-colors capitalize ${
+                    themePreset === preset
+                      ? isDark
+                        ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9]"
+                        : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9]"
+                      : isDark
+                        ? "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <p className={`text-xs ${themeClasses.mutedText}`}>
+              {getPresetDescription(themePreset)}
+            </p>
+            <p className={`text-xs mt-1 ${themeClasses.mutedText} opacity-75`}>
+              Presets only change styling — your knowledge + answers stay the same.
+            </p>
           </div>
 
           {/* Assistant Profile Image */}

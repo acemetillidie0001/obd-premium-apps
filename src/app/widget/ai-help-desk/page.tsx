@@ -21,7 +21,35 @@ export default function WidgetChatPage() {
   const [assistantAvatarUrl, setAssistantAvatarUrl] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string>("");
   const [avatarLoadError, setAvatarLoadError] = useState(false);
+  const [themePreset, setThemePreset] = useState<"minimal" | "bold" | "clean" | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Get theme preset styles
+  const getThemePresetStyles = (preset: typeof themePreset) => {
+    switch (preset) {
+      case "minimal":
+        return {
+          container: "rounded-lg shadow-sm",
+          header: "border-b border-opacity-30",
+          spacing: "p-3",
+        };
+      case "bold":
+        return {
+          container: "rounded-xl shadow-lg",
+          header: "border-b-2",
+          spacing: "p-4",
+        };
+      case "clean":
+      default:
+        return {
+          container: "rounded-lg shadow-md",
+          header: "border-b",
+          spacing: "p-3",
+        };
+    }
+  };
+  
+  const themeStyles = getThemePresetStyles(themePreset);
 
   // Helper function to get initials from business name
   const getInitials = (name: string): string => {
@@ -67,6 +95,19 @@ export default function WidgetChatPage() {
     }
     if (name) {
       setBusinessName(decodeURIComponent(name));
+    }
+    
+    // Load theme preset from localStorage
+    if (bid) {
+      try {
+        const stored = localStorage.getItem(`aiHelpDesk:widget:themePreset:${bid}`);
+        if (stored) {
+          const parsed = JSON.parse(stored) as typeof themePreset;
+          setThemePreset(parsed);
+        }
+      } catch {
+        // Silently fail
+      }
     }
   }, []);
 
@@ -156,9 +197,9 @@ export default function WidgetChatPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className={`flex flex-col h-full bg-white ${themeStyles.container}`}>
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b bg-slate-50">
+      <div className={`flex items-center justify-between p-4 ${themeStyles.header} bg-slate-50`}>
         <div className="flex items-center gap-3">
           {assistantAvatarUrl && !avatarLoadError ? (
             <img
@@ -197,7 +238,7 @@ export default function WidgetChatPage() {
 
       {/* Messages */}
       <div 
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className={`flex-1 overflow-y-auto ${themeStyles.spacing} space-y-4`}
         role="log"
         aria-live="polite"
         aria-label="Chat messages"

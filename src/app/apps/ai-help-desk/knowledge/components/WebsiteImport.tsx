@@ -249,7 +249,7 @@ export default function WebsiteImport({
             Website URL
           </label>
           <div className="flex gap-2">
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-0">
               <Globe
                 className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${
                   isDark ? "text-slate-400" : "text-slate-500"
@@ -261,7 +261,7 @@ export default function WebsiteImport({
                 type="url"
                 value={url}
                 onChange={handleUrlChange}
-                className={`${getInputClasses(isDark, "flex-1")} pl-10`}
+                className={`${getInputClasses(isDark, "w-full")} pl-10`}
                 placeholder="https://yourbusiness.com"
                 disabled={loading || importing}
                 aria-invalid={urlValidationError ? "true" : "false"}
@@ -272,7 +272,7 @@ export default function WebsiteImport({
               type="button"
               onClick={handlePreview}
               disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
-              className={SUBMIT_BUTTON_CLASSES}
+              className={`${SUBMIT_BUTTON_CLASSES} flex-shrink-0`}
             >
               {loading ? "Crawling..." : "Preview Import"}
             </button>

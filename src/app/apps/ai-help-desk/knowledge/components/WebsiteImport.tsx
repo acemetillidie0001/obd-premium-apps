@@ -107,7 +107,7 @@ export default function WebsiteImport({
     }
   };
 
-  // Extract first valid URL from text
+  // Extract first valid URL from text (returns first valid http/https URL found)
   const extractUrlFromText = (text: string): string | null => {
     if (!text || !text.trim()) return null;
     
@@ -117,7 +117,7 @@ export default function WebsiteImport({
     const matches = text.match(urlPattern);
     
     if (matches && matches.length > 0) {
-      // Return the first valid URL
+      // Return the FIRST valid URL found
       for (const match of matches) {
         if (isValidUrl(match)) {
           return match.trim();
@@ -141,10 +141,11 @@ export default function WebsiteImport({
     // Mark that user has typed (so we don't overwrite their input)
     if (!hasUserTyped && newUrl.trim()) {
       setHasUserTyped(true);
-      // Clear autofilled state if user modifies the autofilled value
-      if (isAutofilled) {
-        setIsAutofilled(false);
-      }
+    }
+    
+    // Clear autofilled state if user edits (input diverges from autofilled value)
+    if (isAutofilled) {
+      setIsAutofilled(false);
     }
     
     // Clear previous errors
@@ -422,7 +423,7 @@ export default function WebsiteImport({
     }
   };
 
-  // Drag and drop handlers
+  // Drag and drop handlers (only affect input container, not entire page)
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
     // Only handle if dragging text or URI list
     if (e.dataTransfer.types.includes("text/plain") || e.dataTransfer.types.includes("text/uri-list")) {
@@ -443,16 +444,25 @@ export default function WebsiteImport({
   };
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    setDragDropError(null);
+    // Only clear if actually leaving the container (not just moving to child element)
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      setDragDropError(null);
+    }
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    // Always clear drag-over state on drop
     setIsDragOver(false);
+    setDragDropError(null);
 
     // Don't handle if disabled
     if (loading || importing) {
@@ -477,7 +487,7 @@ export default function WebsiteImport({
       return;
     }
 
-    // Extract URL from dropped text
+    // Extract FIRST valid URL from dropped text (handles multiple URLs)
     const extractedUrl = extractUrlFromText(droppedText);
     
     if (!extractedUrl) {
@@ -502,6 +512,21 @@ export default function WebsiteImport({
     // Focus the input
     urlInputRef.current?.focus();
   };
+
+  // Handle escape key to clear drag-over state
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isDragOver) {
+        setIsDragOver(false);
+        setDragDropError(null);
+      }
+    };
+
+    if (isDragOver) {
+      window.addEventListener("keydown", handleEscape);
+      return () => window.removeEventListener("keydown", handleEscape);
+    }
+  }, [isDragOver]);
 
   return (
     <OBDPanel isDark={isDark}>
@@ -594,7 +619,7 @@ export default function WebsiteImport({
             <div className="mt-3 pt-3 border-t" style={{ borderColor: isDark ? "#334155" : "#e2e8f0" }}>
               <div className="flex items-center justify-between mb-2">
                 <label className={`text-xs font-medium ${themeClasses.mutedText}`}>
-                  Recently used URLs
+                  Recently used
                 </label>
                 <button
                   type="button"
@@ -616,6 +641,7 @@ export default function WebsiteImport({
                     type="button"
                     onClick={() => handleRecentUrlClick(recentUrl)}
                     disabled={loading || importing}
+                    title={recentUrl}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                       loading || importing
                         ? isDark
@@ -627,7 +653,7 @@ export default function WebsiteImport({
                     }`}
                     aria-label={`Use URL: ${recentUrl}`}
                   >
-                    <Globe className="w-3 h-3 opacity-60" aria-hidden="true" />
+                    <Globe className="w-3 h-3 opacity-60 flex-shrink-0" aria-hidden="true" />
                     <span className="max-w-[200px] truncate">{recentUrl}</span>
                   </button>
                 ))}

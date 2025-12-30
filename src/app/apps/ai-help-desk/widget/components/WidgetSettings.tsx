@@ -339,6 +339,10 @@ export default function WidgetSettings({
                   ref={tooltipButtonRef}
                   type="button"
                   onClick={() => setShowTooltip(!showTooltip)}
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                  onFocus={() => setShowTooltip(true)}
+                  onBlur={() => setShowTooltip(false)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
@@ -369,6 +373,8 @@ export default function WidgetSettings({
                         ? "bg-slate-800 border-slate-700 text-slate-200"
                         : "bg-white border-slate-300 text-slate-900"
                     }`}
+                    onMouseEnter={() => setShowTooltip(true)}
+                    onMouseLeave={() => setShowTooltip(false)}
                   >
                     <p className="text-xs leading-relaxed">
                       Square works best. 250×250 recommended. Transparent PNG looks great.

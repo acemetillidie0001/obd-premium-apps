@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { Globe } from "lucide-react";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
@@ -36,6 +37,7 @@ export default function WebsiteImport({
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState(false);
+  const urlInputRef = useRef<HTMLInputElement>(null);
 
   // Basic URL validation
   const isValidUrl = (urlString: string): boolean => {
@@ -67,6 +69,17 @@ export default function WebsiteImport({
       setUrlValidationError(null);
     }
   };
+
+  // Autofocus the URL input when component mounts and is ready
+  useEffect(() => {
+    if (urlInputRef.current && !loading && !importing) {
+      // Small delay to ensure component is fully rendered
+      const timer = setTimeout(() => {
+        urlInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, importing]);
 
   const handlePreview = async () => {
     if (!url.trim()) {
@@ -236,16 +249,25 @@ export default function WebsiteImport({
             Website URL
           </label>
           <div className="flex gap-2">
-            <input
-              type="url"
-              value={url}
-              onChange={handleUrlChange}
-              className={getInputClasses(isDark, "flex-1")}
-              placeholder="https://example.com"
-              disabled={loading || importing}
-              aria-invalid={urlValidationError ? "true" : "false"}
-              aria-describedby={urlValidationError ? "url-error" : "url-helper"}
-            />
+            <div className="relative flex-1">
+              <Globe
+                className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                } opacity-60 pointer-events-none`}
+                aria-hidden="true"
+              />
+              <input
+                ref={urlInputRef}
+                type="url"
+                value={url}
+                onChange={handleUrlChange}
+                className={`${getInputClasses(isDark, "flex-1")} pl-10`}
+                placeholder="https://yourbusiness.com"
+                disabled={loading || importing}
+                aria-invalid={urlValidationError ? "true" : "false"}
+                aria-describedby={urlValidationError ? "url-error" : "url-helper"}
+              />
+            </div>
             <button
               type="button"
               onClick={handlePreview}

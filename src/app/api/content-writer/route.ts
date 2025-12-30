@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface ContentWriterRequest {
   businessName?: string;
@@ -72,6 +81,34 @@ interface ContentWriterResponse {
   content: ContentOutput;
 }
 
+// Zod schema for request validation
+const contentWriterRequestSchema = z.object({
+  businessName: z.string().max(200).optional(),
+  businessType: z.string().max(200).optional(),
+  services: z.string().max(1000).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  targetAudience: z.string().max(500).optional(),
+  topic: z.string().min(1, "Topic is required").max(500),
+  contentGoal: z.string().max(500).optional(),
+  contentType: z.string().max(100).optional(),
+  customOutline: z.string().max(5000).optional(),
+  tone: z.string().max(500).optional(),
+  personalityStyle: z.enum(["Soft", "Bold", "High-Energy", "Luxury", ""]).optional(),
+  brandVoice: z.string().max(1000).optional(),
+  keywords: z.string().max(500).optional(),
+  language: z.enum(["English", "Spanish", "Bilingual"]).optional(),
+  length: z.enum(["Short", "Medium", "Long"]).optional(),
+  writingStyleTemplate: z.enum(["Default", "Story-Driven", "SEO-Friendly", "Short & Punchy", "Luxury Premium"]).optional(),
+  includeFAQ: z.boolean().optional(),
+  includeSocialBlurb: z.boolean().optional(),
+  includeMetaDescription: z.boolean().optional(),
+  mode: z.enum(["Content", "Ideas", "Both"]).optional(),
+  templateName: z.string().max(200).optional(),
+  templateNotes: z.string().max(1000).optional(),
+  previousTemplateStructure: z.string().max(5000).optional(),
+});
+
 async function generateContent(request: ContentWriterRequest): Promise<ContentWriterResponse> {
   const fields: string[] = [];
   
@@ -103,9 +140,10 @@ async function generateContent(request: ContentWriterRequest): Promise<ContentWr
   const userMessage = fields.join("\n");
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
       {
         role: "system",
         content: `You are the **OBD AI Content Writer & Blog Idea Generator (V3)**.
@@ -409,7 +447,8 @@ Additional rules:
       },
       { role: "user", content: userMessage },
     ],
-    temperature: 0.7,
+      temperature: 0.7,
+    }, { signal });
   });
 
   const rawResponse =
@@ -434,23 +473,45 @@ Additional rules:
     const parsed: ContentWriterResponse = JSON.parse(jsonString);
     return parsed;
   } catch (parseError) {
-    console.error("Failed to parse AI response as JSON:", parseError);
-    console.error("Raw response:", rawResponse);
+    apiLogger.error("content-writer.parse-error", {
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    });
     throw new Error("Invalid JSON response from AI");
   }
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: ContentWriterRequest = await request.json();
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
 
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
+  try {
+    const json = await request.json().catch(() => null);
+    if (!json) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
+        { status: 400 }
+      );
+    }
+
+    // Validate request body
+    const parsed = contentWriterRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
     const businessName = body.businessName?.trim();
     const businessType = body.businessType?.trim();
     const services = body.services?.trim();
     const city = body.city?.trim() || "Ocala";
     const state = body.state?.trim() || "Florida";
     const targetAudience = body.targetAudience?.trim();
-    const topic = body.topic?.trim();
+    const topic = body.topic.trim();
     const contentGoal = body.contentGoal?.trim();
     const contentType = body.contentType?.trim();
     const customOutline = body.customOutline?.trim();
@@ -458,7 +519,7 @@ export async function POST(request: NextRequest) {
     const personalityStyle = body.personalityStyle;
     const brandVoice = body.brandVoice?.trim();
     const keywords = body.keywords?.trim();
-    const language = body.language?.trim() || "English";
+    const language = body.language || "English";
     const length = body.length || "Medium";
     const writingStyleTemplate = body.writingStyleTemplate || "Default";
     const includeFAQ = body.includeFAQ ?? false;
@@ -468,13 +529,6 @@ export async function POST(request: NextRequest) {
     const templateName = body.templateName?.trim();
     const templateNotes = body.templateNotes?.trim();
     const previousTemplateStructure = body.previousTemplateStructure?.trim();
-
-    if (!topic) {
-      return NextResponse.json(
-        { error: "Topic is required." },
-        { status: 400 }
-      );
-    }
 
     const aiResponse = await generateContent({
       businessName,
@@ -503,15 +557,8 @@ export async function POST(request: NextRequest) {
       previousTemplateStructure,
     });
 
-    return NextResponse.json(aiResponse);
+    return apiSuccessResponse(aiResponse);
   } catch (error) {
-    console.error("Error generating content:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating content. Please try again later.",
-      },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

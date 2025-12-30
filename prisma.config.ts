@@ -30,11 +30,20 @@ const isProduction = process.env.VERCEL_ENV === "production" || process.env.NODE
 // Prisma CLI operations require DATABASE_URL_DIRECT (direct postgresql:// connection)
 // For non-production build-time client generation, allow fallback
 // (prisma generate doesn't need a real DB connection, only migrations do)
+// In Vercel/production, fall back to DATABASE_URL if DATABASE_URL_DIRECT is not set
+// Note: If DATABASE_URL uses prisma+postgres://, migrations may fail (Prisma Studio won't work)
 const databaseUrl = process.env.DATABASE_URL_DIRECT || 
   (isProduction 
-    ? (() => { throw new Error("DATABASE_URL_DIRECT is required in production for Prisma CLI operations"); })()
+    ? (process.env.DATABASE_URL || (() => { 
+        throw new Error("DATABASE_URL_DIRECT or DATABASE_URL is required in production for Prisma CLI operations"); 
+      })())
     : "postgresql://placeholder:placeholder@localhost:5432/placeholder"
   );
+
+// Warn if using prisma+postgres:// in production (migrations may fail)
+if (isProduction && databaseUrl.startsWith("prisma+postgres://")) {
+  console.warn("[Prisma Config] WARNING: Using prisma+postgres:// for migrations. Set DATABASE_URL_DIRECT with direct postgresql:// for best compatibility.");
+}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

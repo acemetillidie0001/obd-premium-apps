@@ -38,6 +38,7 @@ export default function WidgetSettings({
   const [greeting, setGreeting] = useState("Hi! How can I help you today?");
   const [position, setPosition] = useState<"bottom-right" | "bottom-left">("bottom-right");
   const [assistantAvatarUrl, setAssistantAvatarUrl] = useState<string>("");
+  const [avatarPreviewError, setAvatarPreviewError] = useState(false);
 
   // Load settings
   const loadSettings = async () => {
@@ -252,50 +253,97 @@ export default function WidgetSettings({
             </select>
           </div>
 
-          {/* Assistant Avatar */}
+          {/* Assistant Profile Image */}
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-              Assistant Avatar (optional)
+            <label 
+              htmlFor="assistantAvatarUrl"
+              className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+            >
+              Assistant Profile Image (Square)
             </label>
             <p className={`text-xs mb-3 ${themeClasses.mutedText}`}>
-              Shown to customers in the chat widget. Optional.
+              Optional. Use a square image (recommended 250×250).
             </p>
             
-            {assistantAvatarUrl && (
-              <div className="mb-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={assistantAvatarUrl}
-                    alt="Avatar preview"
-                    className="w-16 h-16 rounded-full object-cover border-2"
-                    style={{ borderColor: brandColor }}
-                    onError={(e) => {
-                      // Hide broken images
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
+            <div className="flex flex-col sm:flex-row gap-4 items-start">
+              <div className="flex-1 w-full">
+                <input
+                  id="assistantAvatarUrl"
+                  type="url"
+                  value={assistantAvatarUrl}
+                  onChange={(e) => {
+                    setAssistantAvatarUrl(e.target.value);
+                    setAvatarPreviewError(false);
+                  }}
+                  className={getInputClasses(isDark, "w-full")}
+                  placeholder="https://yourbusiness.com/logo.png"
+                  aria-describedby="assistantAvatarUrl-helper assistantAvatarUrl-error"
+                  aria-invalid={avatarPreviewError ? "true" : "false"}
+                />
+                {assistantAvatarUrl && (
                   <button
                     type="button"
-                    onClick={() => setAssistantAvatarUrl("")}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                    onClick={() => {
+                      setAssistantAvatarUrl("");
+                      setAvatarPreviewError(false);
+                    }}
+                    className={`mt-2 text-xs px-2 py-1 rounded transition-colors ${
                       isDark
-                        ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                     }`}
+                    aria-label="Clear assistant profile image"
                   >
-                    Remove Avatar
+                    Clear
                   </button>
-                </div>
+                )}
               </div>
+              
+              {/* Preview */}
+              {assistantAvatarUrl.trim() && (
+                <div className="flex-shrink-0">
+                  {avatarPreviewError ? (
+                    <div 
+                      className={`w-20 h-20 rounded-lg border-2 flex items-center justify-center ${
+                        isDark ? "border-slate-700 bg-slate-800" : "border-slate-300 bg-slate-100"
+                      }`}
+                    >
+                      <p className={`text-xs text-center px-2 ${themeClasses.mutedText}`}>
+                        Could not load image.
+                      </p>
+                    </div>
+                  ) : (
+                    <img
+                      src={assistantAvatarUrl}
+                      alt="Assistant profile image preview"
+                      className="w-20 h-20 rounded-lg object-cover border-2"
+                      style={{ borderColor: brandColor }}
+                      onError={() => {
+                        setAvatarPreviewError(true);
+                      }}
+                      onLoad={() => {
+                        setAvatarPreviewError(false);
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <p 
+              id="assistantAvatarUrl-helper"
+              className={`text-xs mt-2 ${themeClasses.mutedText}`}
+            >
+              Image will be displayed as a circular avatar in the chat widget.
+            </p>
+            {avatarPreviewError && (
+              <p 
+                id="assistantAvatarUrl-error"
+                className={`text-xs mt-1 ${isDark ? "text-yellow-400" : "text-yellow-600"}`}
+              >
+                Could not load image. Please check the URL.
+              </p>
             )}
-
-            <input
-              type="url"
-              value={assistantAvatarUrl}
-              onChange={(e) => setAssistantAvatarUrl(e.target.value)}
-              className={getInputClasses(isDark, "w-full")}
-              placeholder="https://example.com/avatar.png"
-            />
           </div>
 
           {/* Error Display */}

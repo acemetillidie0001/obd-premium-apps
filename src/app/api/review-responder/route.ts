@@ -45,6 +45,27 @@ interface ReviewResponderResponse {
   storytellingVersion?: string;
 }
 
+// Zod schema for request validation
+const reviewResponderRequestSchema = z.object({
+  businessName: z.string().min(1, "Business name is required").max(200),
+  businessType: z.string().min(1, "Business type is required").max(200),
+  services: z.string().max(1000).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  platform: z.enum(["Google", "OBD", "Facebook", "Other"]).optional(),
+  reviewRating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]).optional(),
+  reviewText: z.string().min(1, "Review text is required").max(5000),
+  customerName: z.string().max(200).optional(),
+  responseGoal: z.string().max(500).optional(),
+  brandVoice: z.string().max(1000).optional(),
+  personalityStyle: z.enum(["None", "Soft", "Bold", "High-Energy", "Luxury"]).optional(),
+  responseLength: z.enum(["Short", "Medium", "Long"]).optional(),
+  language: z.enum(["English", "Spanish", "Bilingual"]).optional(),
+  includeQnaBox: z.boolean().optional(),
+  includeMetaDescription: z.boolean().optional(),
+  includeStoryVersion: z.boolean().optional(),
+});
+
 async function generateReviewResponse(request: ReviewResponderRequest): Promise<ReviewResponderResponse> {
   const fields: string[] = [];
   

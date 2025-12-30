@@ -126,11 +126,14 @@ export default function KnowledgeEditor({
       }`}
       onClick={onClose}
     >
-      <OBDPanel
-        isDark={isDark}
-        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      <div
         onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl"
       >
+        <OBDPanel
+          isDark={isDark}
+          className="w-full max-h-[90vh] overflow-y-auto"
+        >
         <div className="space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between">
@@ -304,6 +307,7 @@ export default function KnowledgeEditor({
           </form>
         </div>
       </OBDPanel>
+      </div>
     </div>
   );
 }

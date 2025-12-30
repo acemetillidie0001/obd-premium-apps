@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { LocalKeywordLegend } from "@/components/obd/LocalKeywordLegend";
+import {
+  generateKeywordsCsv,
+  generateFullReportTxt,
+  getCsvFilename,
+  getTxtFilename,
+  downloadBlob,
+} from "@/lib/exports/local-keyword-exports";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
@@ -14,6 +21,7 @@ import type {
   LocalKeywordCluster,
   RankCheckResult,
   RankHistoryItem,
+  LocalKeywordIntent,
 } from "@/app/api/local-keyword-research/types";
 
 const defaultFormValues: LocalKeywordRequest = {
@@ -47,6 +55,17 @@ export default function LocalKeywordResearchPage() {
   const [result, setResult] = useState<LocalKeywordResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedKeyword, setCopiedKeyword] = useState<string | null>(null);
+  const [lastRequest, setLastRequest] = useState<LocalKeywordRequest | null>(null);
+
+  // Sorting and filtering state
+  const [sortBy, setSortBy] = useState<"score" | "volume" | "cpc" | "difficulty" | "intent" | "keyword">("score");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [filterDifficulty, setFilterDifficulty] = useState<"all" | "Easy" | "Medium" | "Hard">("all");
+  const [filterIntent, setFilterIntent] = useState<"all" | LocalKeywordIntent>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Ref for scrolling to results
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Rank check state
   const [rankKeyword, setRankKeyword] = useState("");
@@ -75,43 +94,42 @@ export default function LocalKeywordResearchPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const performRequest = async (requestPayload: LocalKeywordRequest, isRegenerate = false) => {
     setError(null);
     setIsLoading(true);
-    setResult(null);
-
-    if (!form.businessType.trim()) {
-      setError(
-        "Please enter your business type (e.g., Massage Spa, Plumber, Restaurant)."
-      );
-      setIsLoading(false);
-      return;
-    }
-
-    if (!form.services.trim()) {
-      setError("Please list at least one service or specialty.");
-      setIsLoading(false);
-      return;
+    // Don't clear result on regenerate - preserve current results while loading
+    if (!isRegenerate) {
+      setResult(null);
     }
 
     try {
       const res = await fetch("/api/local-keyword-research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(requestPayload),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(
-          data?.error ||
-            "There was a problem generating keyword ideas. Please try again."
+          (data && typeof data === "object" && "error" in data && typeof data.error === "string")
+            ? data.error
+            : "There was a problem generating keyword ideas. Please try again."
         );
       }
 
-      const data: LocalKeywordResponse = await res.json();
+      const jsonData = await res.json();
+      // Handle both { ok: true, data: ... } and direct response formats (backward compatible)
+      const data: LocalKeywordResponse = (jsonData && typeof jsonData === "object" && "ok" in jsonData && jsonData.ok === true && "data" in jsonData)
+        ? jsonData.data
+        : jsonData;
       setResult(data);
+      setLastRequest(requestPayload);
+      
+      // Scroll to results after a brief delay
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
     } catch (err) {
       console.error(err);
       setError(
@@ -122,6 +140,29 @@ export default function LocalKeywordResearchPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!form.businessType.trim()) {
+      setError(
+        "Please enter your business type (e.g., Massage Spa, Plumber, Restaurant)."
+      );
+      return;
+    }
+
+    if (!form.services.trim()) {
+      setError("Please list at least one service or specialty.");
+      return;
+    }
+
+    await performRequest(form);
+  };
+
+  const handleRegenerate = async () => {
+    if (!lastRequest) return;
+    await performRequest(lastRequest, true);
   };
 
   const handleCopyText = async (text: string, id?: string) => {
@@ -136,45 +177,353 @@ export default function LocalKeywordResearchPage() {
     }
   };
 
+  const handleExportCsv = () => {
+    if (!filteredAndSortedKeywords.length) return;
+    const meta = {
+      businessName: form.businessName || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
+      goal: form.primaryGoal || undefined,
+      generatedAt: new Date(),
+    };
+    const csv = generateKeywordsCsv(filteredAndSortedKeywords, meta);
+    const filename = getCsvFilename(form.businessName);
+    downloadBlob(csv, filename, "text/csv");
+  };
+
+  const handleExportTxt = () => {
+    if (!result) return;
+    const meta = {
+      businessName: form.businessName || undefined,
+      city: form.city || undefined,
+      state: form.state || undefined,
+      goal: form.primaryGoal || undefined,
+      generatedAt: new Date(),
+    };
+    const settings = {
+      maxKeywords: form.maxKeywords,
+      nearMe: form.includeNearMeVariants,
+      radiusMiles: form.radiusMiles,
+      neighborhoods: form.includeNeighborhoods,
+      zipCodes: form.includeZipCodes,
+      language: form.language,
+    };
+    const txt = generateFullReportTxt(result, meta, settings);
+    const filename = getTxtFilename(form.businessName);
+    downloadBlob(txt, filename, "text/plain");
+  };
+
+  // Determine metrics mode
+  const getMetricsMode = (keywords: LocalKeywordIdea[]): { mode: string; helperText: string } => {
+    const hasGoogleAds = keywords.some((k) => k.dataSource === "google-ads");
+    const hasAnyMetrics = keywords.some(
+      (k) => typeof k.monthlySearchesExact === "number" || typeof k.cpcUsd === "number"
+    );
+
+    if (hasGoogleAds) {
+      return {
+        mode: "Live Google Ads",
+        helperText: "Metrics are pulled from Google Ads Keyword Planner.",
+      };
+    } else if (hasAnyMetrics) {
+      return {
+        mode: "Estimated",
+        helperText: "Google Ads live metrics will appear once Basic Access is approved.",
+      };
+    } else {
+      return {
+        mode: "Estimates",
+        helperText: "Search volume & CPC are estimates while Google Ads Basic Access is pending.",
+      };
+    }
+  };
+
+  // Difficulty ordering helper
+  const getDifficultyOrder = (difficulty: "Easy" | "Medium" | "Hard"): number => {
+    switch (difficulty) {
+      case "Easy":
+        return 1;
+      case "Medium":
+        return 2;
+      case "Hard":
+        return 3;
+      default:
+        return 0;
+    }
+  };
+
+  // Filter and sort keywords
+  const filteredAndSortedKeywords = useMemo(() => {
+    if (!result?.topPriorityKeywords) return [];
+
+    let filtered = [...result.topPriorityKeywords];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((k) =>
+        k.keyword.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply difficulty filter
+    if (filterDifficulty !== "all") {
+      filtered = filtered.filter((k) => k.difficultyLabel === filterDifficulty);
+    }
+
+    // Apply intent filter
+    if (filterIntent !== "all") {
+      filtered = filtered.filter((k) => k.intent === filterIntent);
+    }
+
+      // Apply sorting
+      filtered.sort((a, b) => {
+        let aVal: number | string;
+        let bVal: number | string;
+        // Determine effective sort order: for difficulty/intent/keyword, default to asc if user hasn't changed it
+        const effectiveOrder =
+          sortBy === "difficulty" || sortBy === "intent" || sortBy === "keyword"
+            ? sortOrder === "desc"
+              ? "desc"
+              : "asc" // Default to asc for these
+            : sortOrder; // Use user's choice for score/volume/cpc
+
+        switch (sortBy) {
+          case "score":
+            aVal = a.opportunityScore ?? 0;
+            bVal = b.opportunityScore ?? 0;
+            break;
+          case "volume":
+            aVal = a.monthlySearchesExact ?? -1;
+            bVal = b.monthlySearchesExact ?? -1;
+            break;
+          case "cpc":
+            aVal = a.cpcUsd ?? -1;
+            bVal = b.cpcUsd ?? -1;
+            break;
+          case "difficulty":
+            aVal = getDifficultyOrder(a.difficultyLabel);
+            bVal = getDifficultyOrder(b.difficultyLabel);
+            break;
+          case "intent":
+            aVal = a.intent;
+            bVal = b.intent;
+            break;
+          case "keyword":
+            aVal = a.keyword.toLowerCase();
+            bVal = b.keyword.toLowerCase();
+            break;
+          default:
+            return 0;
+        }
+
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return effectiveOrder === "desc" ? bVal - aVal : aVal - bVal;
+        } else {
+          const comparison = String(aVal).localeCompare(String(bVal));
+          return effectiveOrder === "desc" ? -comparison : comparison;
+        }
+      });
+
+    return filtered;
+  }, [result?.topPriorityKeywords, searchQuery, filterDifficulty, filterIntent, sortBy, sortOrder]);
+
   const renderKeywordTable = (keywords: LocalKeywordIdea[]) => {
     if (!keywords?.length) return null;
 
-    // Detect if metrics are present
-    const hasVolume = keywords.some(
+    // Separate all keywords (for metadata) from visible keywords (for rendering)
+    const allKeywords = keywords;
+    const visibleKeywords = filteredAndSortedKeywords;
+
+    // Detect if metrics are present (use allKeywords for metadata)
+    const hasVolume = allKeywords.some(
       (k) => typeof k.monthlySearchesExact === "number"
     );
-    const hasCpc = keywords.some((k) => typeof k.cpcUsd === "number");
+    const hasCpc = allKeywords.some((k) => typeof k.cpcUsd === "number");
+
+    const metricsInfo = getMetricsMode(allKeywords);
+    const intentOptions: LocalKeywordIntent[] = [
+      "Informational",
+      "Transactional",
+      "Commercial",
+      "Navigational",
+      "Local",
+      "Mixed",
+    ];
 
     return (
       <OBDPanel isDark={isDark} className="mt-8">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <OBDHeading level={2} isDark={isDark}>
-            Top Priority Keywords
-          </OBDHeading>
-          <button
-            type="button"
-            onClick={() =>
-              handleCopyText(
-                keywords
-                  .map(
-                    (k) =>
-                      `${k.keyword} — ${k.intent} — ${k.suggestedPageType} — ${k.difficultyLabel} — Score: ${k.opportunityScore}${hasVolume && typeof k.monthlySearchesExact === "number" ? ` — Volume: ${k.monthlySearchesExact}` : ""}${hasCpc && typeof k.cpcUsd === "number" ? ` — CPC: $${k.cpcUsd.toFixed(2)}` : ""}`
+        <div className="mb-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <OBDHeading level={2} isDark={isDark}>
+                Top Priority Keywords
+              </OBDHeading>
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border ${
+                  isDark
+                    ? "bg-slate-800/50 border-slate-600 text-slate-200"
+                    : "bg-slate-100 border-slate-300 text-slate-700"
+                }`}
+              >
+                Metrics: {metricsInfo.mode}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Export CSV (Top Keywords)
+              </button>
+              <button
+                type="button"
+                onClick={handleExportTxt}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Export TXT (Full Report)
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyText(
+                    visibleKeywords
+                      .map(
+                        (k) =>
+                          `${k.keyword} — ${k.intent} — ${k.suggestedPageType} — ${k.difficultyLabel} — Score: ${k.opportunityScore}${hasVolume && typeof k.monthlySearchesExact === "number" ? ` — Volume: ${k.monthlySearchesExact}` : ""}${hasCpc && typeof k.cpcUsd === "number" ? ` — CPC: $${k.cpcUsd.toFixed(2)}` : ""}`
+                      )
+                      .join("\n")
                   )
-                  .join("\n")
-              )
-            }
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-              isDark
-                ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            Copy All
-          </button>
+                }
+                className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Copy All
+              </button>
+            </div>
+          </div>
+          <p className={`text-xs ${themeClasses.mutedText} mb-4`}>
+            {metricsInfo.helperText}
+          </p>
+
+          {/* Sorting and filtering controls */}
+          <div className="mb-4 flex flex-wrap items-center gap-3 p-3 rounded-lg border bg-slate-50/50 dark:bg-slate-800/30 border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-2">
+              <label className={`text-xs font-medium ${themeClasses.labelText}`}>
+                Sort:
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  const newSortBy = e.target.value as
+                    | "score"
+                    | "volume"
+                    | "cpc"
+                    | "difficulty"
+                    | "intent"
+                    | "keyword";
+                  setSortBy(newSortBy);
+                  // Set default sort order based on field type
+                  if (newSortBy === "difficulty" || newSortBy === "intent" || newSortBy === "keyword") {
+                    setSortOrder("asc");
+                  } else {
+                    setSortOrder("desc");
+                  }
+                }}
+                className={getInputClasses(isDark, "text-xs py-1 px-2 w-auto min-w-[140px]")}
+              >
+                <option value="score">Opportunity Score</option>
+                {hasVolume && <option value="volume">Volume</option>}
+                {hasCpc && <option value="cpc">CPC</option>}
+                <option value="difficulty">Difficulty</option>
+                <option value="intent">Intent</option>
+                <option value="keyword">Keyword</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+                className={`px-2 py-1 text-xs rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+                title={sortOrder === "desc" ? "Sort descending" : "Sort ascending"}
+              >
+                {sortOrder === "desc" ? "↓" : "↑"}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className={`text-xs font-medium ${themeClasses.labelText}`}>
+                Difficulty:
+              </label>
+              <select
+                value={filterDifficulty}
+                onChange={(e) =>
+                  setFilterDifficulty(
+                    e.target.value as "all" | "Easy" | "Medium" | "Hard"
+                  )
+                }
+                className={getInputClasses(isDark, "text-xs py-1 px-2 w-auto min-w-[100px]")}
+              >
+                <option value="all">All</option>
+                <option value="Easy">Easy</option>
+                <option value="Medium">Medium</option>
+                <option value="Hard">Hard</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className={`text-xs font-medium ${themeClasses.labelText}`}>
+                Intent:
+              </label>
+              <select
+                value={filterIntent}
+                onChange={(e) =>
+                  setFilterIntent(
+                    e.target.value === "all" ? "all" : (e.target.value as LocalKeywordIntent)
+                  )
+                }
+                className={getInputClasses(isDark, "text-xs py-1 px-2 w-auto min-w-[120px]")}
+              >
+                <option value="all">All</option>
+                {intentOptions.map((intent) => (
+                  <option key={intent} value={intent}>
+                    {intent}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <label className={`text-xs font-medium ${themeClasses.labelText}`}>
+                Search:
+              </label>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter keywords…"
+                className={getInputClasses(isDark, "text-xs py-1 px-2 flex-1")}
+              />
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs md:text-sm">
-            <thead className={`border-b text-[11px] uppercase tracking-wide ${themeClasses.mutedText} md:text-xs`}>
+            <thead className={`border-b text-[11px] uppercase tracking-wide ${themeClasses.mutedText} md:text-xs md:sticky md:top-0 md:z-10 ${isDark ? "md:bg-slate-800" : "md:bg-white"}`}>
               <tr>
                 <th className="py-2 pr-4">Keyword</th>
                 <th className="py-2 pr-4">Intent</th>
@@ -187,8 +536,41 @@ export default function LocalKeywordResearchPage() {
               </tr>
             </thead>
             <tbody>
-              {keywords.map((k) => (
-                <tr key={k.keyword} className={`border-b ${isDark ? "border-slate-700" : "border-slate-200"} last:border-0`}>
+              {visibleKeywords.length === 0 ? (
+                <tr>
+                  <td colSpan={6 + (hasVolume ? 1 : 0) + (hasCpc ? 1 : 0)} className="py-8 text-center">
+                    <div className={`rounded-2xl border p-6 mx-auto max-w-md ${
+                      isDark
+                        ? "bg-slate-800/50 border-slate-700"
+                        : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <p className={`text-sm font-medium mb-2 ${themeClasses.headingText}`}>
+                        No keywords match your filters
+                      </p>
+                      <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                        Try clearing filters or broadening your search.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterDifficulty("all");
+                          setFilterIntent("all");
+                          setSearchQuery("");
+                        }}
+                        className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+                          isDark
+                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                        }`}
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                visibleKeywords.map((k) => (
+                  <tr key={k.keyword} className={`border-b ${isDark ? "border-slate-700" : "border-slate-200"} last:border-0`}>
                   <td className={`py-2 pr-4 font-medium ${themeClasses.headingText}`}>{k.keyword}</td>
                   <td className={`py-2 pr-4 ${themeClasses.labelText}`}>{k.intent}</td>
                   <td className={`py-2 pr-4 ${themeClasses.labelText}`}>{k.suggestedPageType}</td>
@@ -246,7 +628,8 @@ export default function LocalKeywordResearchPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>
@@ -273,9 +656,30 @@ export default function LocalKeywordResearchPage() {
               }`}
             >
               <div className="mb-3">
-                <h3 className={`text-base font-semibold md:text-lg ${themeClasses.headingText}`}>
-                  {cluster.name}
-                </h3>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <h3 className={`text-base font-semibold md:text-lg ${themeClasses.headingText}`}>
+                    {cluster.name}
+                  </h3>
+                  {cluster.keywords && cluster.keywords.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clusterText = cluster.keywords
+                          .map((k) => `${k.keyword} — ${k.intent} — ${k.difficultyLabel}`)
+                          .join("\n");
+                        handleCopyText(clusterText, `cluster-${cluster.name}`);
+                      }}
+                      aria-label={copiedKeyword === `cluster-${cluster.name}` ? "Copied cluster keywords" : `Copy all keywords from ${cluster.name} cluster`}
+                      className={`px-2 py-1 text-xs font-medium rounded-lg transition-colors flex-shrink-0 ${
+                        isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      {copiedKeyword === `cluster-${cluster.name}` ? "Copied" : "Copy Cluster"}
+                    </button>
+                  )}
+                </div>
                 <p className={`mt-1 text-xs md:text-sm ${themeClasses.mutedText}`}>
                   {cluster.description}
                 </p>
@@ -399,6 +803,16 @@ export default function LocalKeywordResearchPage() {
       title="OBD Local Keyword Research Tool"
       tagline="Discover exactly what local customers are searching for in Ocala and surrounding areas."
     >
+      {/* Status Label */}
+      <div className="mt-4 mb-2">
+        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+          isDark
+            ? "bg-slate-800/50 border-slate-600 text-slate-300"
+            : "bg-slate-100 border-slate-300 text-slate-700"
+        }`}>
+          Status: Production Ready (Pre-Google Ads Live Metrics)
+        </span>
+      </div>
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
@@ -518,7 +932,7 @@ export default function LocalKeywordResearchPage() {
               <input
                 type="url"
                 id="websiteUrl"
-                value={form.websiteUrl}
+                value={form.websiteUrl ?? ""}
                 onChange={(e) =>
                   updateFormValue("websiteUrl", e.target.value)
                 }
@@ -563,7 +977,7 @@ export default function LocalKeywordResearchPage() {
                       updateFormValue("includeZipCodes", e.target.checked)
                     }
                     className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
+                    aria-label="Include ZIP codes"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -582,7 +996,7 @@ export default function LocalKeywordResearchPage() {
                       updateFormValue("includeNeighborhoods", e.target.checked)
                     }
                     className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
+                    aria-label="Include neighborhoods"
                   />
                 </div>
               </div>
@@ -718,7 +1132,7 @@ export default function LocalKeywordResearchPage() {
                       updateFormValue("includeBlogIdeas", e.target.checked)
                     }
                     className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
+                    aria-label="Include blog and article ideas"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -735,7 +1149,7 @@ export default function LocalKeywordResearchPage() {
                       updateFormValue("includeFaqIdeas", e.target.checked)
                     }
                     className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
+                    aria-label="Include FAQ ideas"
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2">
@@ -754,7 +1168,7 @@ export default function LocalKeywordResearchPage() {
                       updateFormValue("includeGmbPostIdeas", e.target.checked)
                     }
                     className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
+                    aria-label="Include Google Business Profile post ideas"
                   />
                 </div>
               </div>
@@ -784,11 +1198,33 @@ export default function LocalKeywordResearchPage() {
 
       {/* Results */}
       {result && (
-        <div className="space-y-6">
+        <div ref={resultsRef} className="space-y-6">
           <OBDPanel isDark={isDark} className="mt-8">
-            <OBDHeading level={2} isDark={isDark}>
-              Step 2 — Your local keyword strategy
-            </OBDHeading>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <OBDHeading level={2} isDark={isDark}>
+                  Step 2 — Your local keyword strategy
+                </OBDHeading>
+              </div>
+              {lastRequest && (
+                <button
+                  type="button"
+                  onClick={handleRegenerate}
+                  disabled={isLoading}
+                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
+                    isLoading
+                      ? "opacity-50 cursor-not-allowed"
+                      : ""
+                  } ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {isLoading ? "Regenerating…" : "Regenerate"}
+                </button>
+              )}
+            </div>
             <p className={`mt-2 text-sm ${themeClasses.labelText}`}>
               {result.summary || "Your keyword strategy has been generated."}
             </p>
@@ -863,13 +1299,24 @@ export default function LocalKeywordResearchPage() {
                   if (!res.ok) {
                     const data = await res.json().catch(() => null);
                     throw new Error(
-                      data?.error ||
-                        "We couldn't retrieve rank data at this time. Please try again shortly."
+                      (data && typeof data === "object" && "error" in data && typeof data.error === "string")
+                        ? data.error
+                        : "We couldn't retrieve rank data at this time. Please try again shortly."
                     );
                   }
 
-                  const data = await res.json();
-                  setRankResult(data.result);
+                  const jsonData = await res.json();
+                  // Handle both { ok: true, data: { result: ... } } and { result: ... } formats
+                  const resultData = (jsonData && typeof jsonData === "object" && "ok" in jsonData && jsonData.ok === true && "data" in jsonData && jsonData.data && typeof jsonData.data === "object" && "result" in jsonData.data)
+                    ? jsonData.data.result
+                    : (jsonData && typeof jsonData === "object" && "result" in jsonData)
+                    ? jsonData.result
+                    : null;
+                  if (resultData) {
+                    setRankResult(resultData);
+                  } else {
+                    throw new Error("Invalid response format from rank check API.");
+                  }
                 } catch (err) {
                   console.error(err);
                   setRankError(
@@ -1045,6 +1492,9 @@ export default function LocalKeywordResearchPage() {
             </OBDHeading>
             <p className={`mt-2 text-sm ${themeClasses.mutedText}`}>
               Track how your search visibility changes over time for your most important keywords.
+            </p>
+            <p className={`mt-2 text-xs ${themeClasses.mutedText} italic`}>
+              Coming soon — requires database to save history.
             </p>
 
             {rankHistory === null || rankHistory.length === 0 ? (

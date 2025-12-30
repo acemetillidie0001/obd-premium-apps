@@ -1,13 +1,74 @@
 // src/app/api/local-keyword-research/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
   LocalKeywordIdea,
+  LocalKeywordIntent,
 } from "./types";
 import { fetchKeywordMetrics } from "@/lib/local-keyword-metrics";
+
+// Simple in-memory rate limiter (per-IP)
+interface RateLimitEntry {
+  count: number;
+  windowStart: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const RATE_LIMIT_MAX_REQUESTS = 20; // per window per IP
+
+/**
+ * Get client IP from request headers
+ */
+function getClientIP(req: NextRequest): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) {
+    return forwarded.split(",")[0].trim();
+  }
+  const realIP = req.headers.get("x-real-ip");
+  if (realIP) {
+    return realIP.trim();
+  }
+  return "unknown";
+}
+
+/**
+ * Check rate limit for an IP
+ * Returns true if allowed, false if rate limited
+ */
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+    // New window or expired window - reset
+    rateLimitMap.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false; // Rate limit exceeded
+  }
+
+  entry.count++;
+  return true;
+}
+
+/**
+ * Prune old entries from rate limit map to prevent memory growth
+ */
+function pruneRateLimitMap(): void {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap.entries()) {
+    if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}
 
 interface RawKeywordIdea {
   keyword: string;
@@ -234,21 +295,37 @@ function sanitizeAndClampRequest(body: Record<string, unknown>): LocalKeywordReq
   return request;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // Prune old entries periodically (more frequent if map is large)
+  if (rateLimitMap.size > 1000 || Math.random() < 0.1) {
+    pruneRateLimitMap();
+  }
+
+  // Check rate limit
+  const clientIP = getClientIP(req);
+  if (!checkRateLimit(clientIP)) {
+    return apiErrorResponse(
+      "Too many requests. Please try again in a few minutes.",
+      "RATE_LIMITED",
+      429
+    );
+  }
+
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return apiErrorResponse("Invalid request body.", "VALIDATION_ERROR", 400);
+    }
 
     if (!body?.businessType || !body?.services) {
-      return NextResponse.json(
-        {
-          error:
-            "Missing required fields: businessType and services are required.",
-        },
-        { status: 400 }
+      return apiErrorResponse(
+        "Missing required fields: businessType and services are required.",
+        "VALIDATION_ERROR",
+        400
       );
     }
 
-    const requestData = sanitizeAndClampRequest(body);
+    const requestData = sanitizeAndClampRequest(body as Record<string, unknown>);
 
     // -------- STEP 1: generate raw keyword ideas --------
     const openai = getOpenAIClient();
@@ -279,9 +356,10 @@ export async function POST(req: Request) {
 
     const ideasContent = ideasCompletion.choices[0]?.message?.content;
     if (!ideasContent) {
-      return NextResponse.json(
-        { error: "No keyword ideas received from the keyword engine." },
-        { status: 500 }
+      return apiErrorResponse(
+        "No keyword ideas received from the keyword engine.",
+        "UNKNOWN_ERROR",
+        500
       );
     }
 
@@ -290,12 +368,10 @@ export async function POST(req: Request) {
       ideasJson = JSON.parse(ideasContent);
     } catch (err) {
       console.error("Failed to parse ideas JSON:", err, ideasContent);
-      return NextResponse.json(
-        {
-          error:
-            "The keyword idea engine returned an invalid response. Please try again.",
-        },
-        { status: 500 }
+      return apiErrorResponse(
+        "The keyword idea engine returned an invalid response. Please try again.",
+        "UNKNOWN_ERROR",
+        500
       );
     }
 
@@ -304,12 +380,10 @@ export async function POST(req: Request) {
       .filter(Boolean);
 
     if (!rawKeywords.length) {
-      return NextResponse.json(
-        {
-          error:
-            "No keyword ideas were generated. Try adding more detail about your services.",
-        },
-        { status: 200 }
+      return apiErrorResponse(
+        "No keyword ideas were generated. Try adding more detail about your services.",
+        "VALIDATION_ERROR",
+        400
       );
     }
 
@@ -341,9 +415,10 @@ export async function POST(req: Request) {
     const finalContent = finalCompletion.choices[0]?.message?.content;
 
     if (!finalContent) {
-      return NextResponse.json(
-        { error: "No content received from keyword strategy engine." },
-        { status: 500 }
+      return apiErrorResponse(
+        "No content received from keyword strategy engine.",
+        "UNKNOWN_ERROR",
+        500
       );
     }
 
@@ -360,42 +435,89 @@ export async function POST(req: Request) {
       // Ensure opportunityScore is within valid range and preserve metrics
       const normalizeKeyword = (k: unknown): LocalKeywordIdea => {
         const kw = k as Record<string, unknown>;
+        
+        // Validate intent - fallback to "Local" or "Mixed"
+        const validIntents: LocalKeywordIntent[] = [
+          "Informational",
+          "Transactional",
+          "Commercial",
+          "Navigational",
+          "Local",
+          "Mixed",
+        ];
+        const intent = (typeof kw.intent === "string" && validIntents.includes(kw.intent as LocalKeywordIntent))
+          ? (kw.intent as LocalKeywordIntent)
+          : "Local";
+        
+        // Validate difficultyLabel - fallback to "Medium"
+        const validDifficulties = ["Easy", "Medium", "Hard"] as const;
+        const difficultyLabel = (typeof kw.difficultyLabel === "string" && validDifficulties.includes(kw.difficultyLabel as "Easy" | "Medium" | "Hard"))
+          ? (kw.difficultyLabel as "Easy" | "Medium" | "Hard")
+          : "Medium";
+        
+        // Validate dataSource - ensure it's one of the valid types, never null
+        const validDataSources = ["ai", "google-ads", "mock", "mixed"] as const;
+        const dataSource: "ai" | "google-ads" | "mock" | "mixed" = (typeof kw.dataSource === "string" && validDataSources.includes(kw.dataSource as "ai" | "google-ads" | "mock" | "mixed"))
+          ? (kw.dataSource as "ai" | "google-ads" | "mock" | "mixed")
+          : "ai";
+        
+        // Clamp opportunityScore to 1-100
+        const opportunityScoreRaw = Number(kw.opportunityScore);
+        const opportunityScore = Math.max(1, Math.min(100, Math.round(Number.isNaN(opportunityScoreRaw) ? 50 : opportunityScoreRaw)));
+        
+        // Safely extract optional notes
+        const notes = typeof kw.notes === "string" ? kw.notes : undefined;
+        
+        // Safely extract metrics (number | null)
+        const monthlySearchesExact = typeof kw.monthlySearchesExact === "number" ? kw.monthlySearchesExact : (kw.monthlySearchesExact === null ? null : undefined);
+        const cpcUsd = typeof kw.cpcUsd === "number" ? kw.cpcUsd : (kw.cpcUsd === null ? null : undefined);
+        const adsCompetitionIndex = typeof kw.adsCompetitionIndex === "number" ? kw.adsCompetitionIndex : (kw.adsCompetitionIndex === null ? null : undefined);
+        
+        // Explicitly return only known LocalKeywordIdea fields
         return {
-          ...kw,
-          opportunityScore: Math.max(1, Math.min(100, Number(kw.opportunityScore) || 50)),
-          // Preserve metrics if present
-          monthlySearchesExact: typeof kw.monthlySearchesExact === "number" ? kw.monthlySearchesExact : kw.monthlySearchesExact ?? null,
-          cpcUsd: typeof kw.cpcUsd === "number" ? kw.cpcUsd : kw.cpcUsd ?? null,
-          adsCompetitionIndex: typeof kw.adsCompetitionIndex === "number" ? kw.adsCompetitionIndex : kw.adsCompetitionIndex ?? null,
-          dataSource: kw.dataSource || null,
-        } as LocalKeywordIdea;
+          keyword: typeof kw.keyword === "string" ? kw.keyword : "",
+          intent,
+          suggestedPageType: typeof kw.suggestedPageType === "string" ? kw.suggestedPageType : "",
+          opportunityScore,
+          difficultyLabel,
+          notes,
+          monthlySearchesExact,
+          cpcUsd,
+          adsCompetitionIndex,
+          dataSource,
+        };
       };
       
       parsed.topPriorityKeywords = (parsed.topPriorityKeywords as unknown[]).map(normalizeKeyword) as LocalKeywordIdea[];
-      parsed.keywordClusters = parsed.keywordClusters.map((cluster: any) => ({
-        ...cluster,
+      interface RawCluster {
+        name?: string;
+        description?: string;
+        recommendedUse?: string;
+        keywords?: unknown[];
+      }
+      
+      parsed.keywordClusters = (parsed.keywordClusters as RawCluster[]).map((cluster) => ({
+        name: cluster.name || "",
+        description: cluster.description || "",
+        recommendedUse: cluster.recommendedUse || "",
         keywords: ((cluster.keywords || []) as unknown[]).map(normalizeKeyword) as LocalKeywordIdea[],
       }));
     } catch (err) {
       console.error("Failed to parse final JSON from model:", err, finalContent);
-      return NextResponse.json(
-        {
-          error:
-            "The keyword strategy engine returned an invalid response. Please try again.",
-        },
-        { status: 500 }
+      return apiErrorResponse(
+        "The keyword strategy engine returned an invalid response. Please try again.",
+        "UNKNOWN_ERROR",
+        500
       );
     }
 
-    return NextResponse.json(parsed);
+    return apiSuccessResponse(parsed);
   } catch (err) {
     console.error("Local keyword research API error:", err);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating your local keyword strategy. Please try again.",
-      },
-      { status: 500 }
+    return apiErrorResponse(
+      "Something went wrong while generating your local keyword strategy. Please try again.",
+      "UNKNOWN_ERROR",
+      500
     );
   }
 }

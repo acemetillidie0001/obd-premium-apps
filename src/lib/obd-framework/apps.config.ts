@@ -185,8 +185,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "local-keyword-research",
     name: "Local Keyword Research Tool",
     description: "Discover what Ocala customers actually search for before they find you.",
+    href: "/apps/local-keyword-research",
     category: "google",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Open Tool",
     icon: "search",
   },
   

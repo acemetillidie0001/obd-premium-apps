@@ -5,6 +5,52 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Local Keyword Research Tool — V3.1 — 2025-12-29
+
+**Status:** Production Ready (Pre-Google Ads Live Metrics) — Google Ads Basic Access Pending
+
+### Polish
+
+- **Metrics Badge Micro-Copy Clarity**: Updated badge text from "Mixed/Estimated" to "Estimated" with clearer helper text explaining Google Ads Basic Access pending status
+- **Optional Sticky Table Header (Desktop Only)**: Top Priority Keywords table header now sticks to top of scroll container on desktop (≥ md breakpoint) for better usability
+- **Cluster Cards "Copy Cluster" Button**: Added button to each Keyword Cluster card header that copies all keywords in format: `keyword — intent — difficulty` (one per line)
+
+### Notes
+
+- No backend/API changes — all improvements are frontend-only polish
+- No schema changes
+- Google Ads Basic Access still pending — live metrics will be enabled once approved
+- No breaking changes
+- All features are additive
+
+## Local Keyword Research Tool — V3 — 2025-01-XX
+
+**Status:** Production Ready (Pre-Google Ads Live Metrics) — Google Basic Access Pending
+
+### Highlights
+
+- **Keyword Generation & Strategy**: AI-powered local keyword discovery with smart clustering and priority scoring
+- **Export Functionality**: CSV and TXT exports with metadata headers and safe filename generation
+- **Sorting & Filtering**: Comprehensive table controls for difficulty, intent, and keyword search
+- **Metrics Status Badge**: Clear indication of metrics source (Live Google Ads, Mixed/Estimated, or Estimates)
+- **Rate Limiting**: Per-IP rate limiting (20 requests per 10 minutes) to prevent abuse
+- **Empty State Handling**: Helpful UI when filters return no results
+
+### Technical Improvements
+
+- Safe filename sanitization (max 60 chars, cross-platform compatible)
+- Export metadata headers with business info, location, goal, and timestamps
+- In-memory rate limiting with automatic pruning
+- Strict TypeScript with no `any` types
+- V3 styling patterns (OBDPanel, OBDHeading, getThemeClasses)
+
+### Notes
+
+- Metrics currently use estimated/mock data until Google Ads Basic Access approval
+- Saved Rank History requires database integration (coming soon)
+- No breaking changes
+- All features are additive
+
 ## Social Auto-Poster — V3A++ — 2025-12-25
 
 **Status:** Production Ready (Pre-Images)

@@ -248,35 +248,33 @@ export default function WebsiteImport({
           <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
             Website URL
           </label>
-          <div className="flex gap-2">
-            <div className="relative flex-1 min-w-0">
-              <Globe
-                className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${
-                  isDark ? "text-slate-400" : "text-slate-500"
-                } opacity-60 pointer-events-none`}
-                aria-hidden="true"
-              />
-              <input
-                ref={urlInputRef}
-                type="url"
-                value={url}
-                onChange={handleUrlChange}
-                className={`${getInputClasses(isDark, "w-full")} pl-10`}
-                placeholder="https://yourbusiness.com"
-                disabled={loading || importing}
-                aria-invalid={urlValidationError ? "true" : "false"}
-                aria-describedby={urlValidationError ? "url-error" : "url-helper"}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handlePreview}
-              disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
-              className={`${SUBMIT_BUTTON_CLASSES} flex-shrink-0`}
-            >
-              {loading ? "Crawling..." : "Preview Import"}
-            </button>
+          <div className="relative w-full">
+            <Globe
+              className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              } opacity-60 pointer-events-none z-10`}
+              aria-hidden="true"
+            />
+            <input
+              ref={urlInputRef}
+              type="url"
+              value={url}
+              onChange={handleUrlChange}
+              className={`${getInputClasses(isDark, "w-full min-w-0")} pl-10`}
+              placeholder="https://yourbusiness.com"
+              disabled={loading || importing}
+              aria-invalid={urlValidationError ? "true" : "false"}
+              aria-describedby={urlValidationError ? "url-error" : "url-helper"}
+            />
           </div>
+          <button
+            type="button"
+            onClick={handlePreview}
+            disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
+            className={`${SUBMIT_BUTTON_CLASSES} w-full mt-3`}
+          >
+            {loading ? "Crawling..." : "Preview Import"}
+          </button>
           {urlValidationError ? (
             <p id="url-error" className={`text-sm mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
               {urlValidationError}

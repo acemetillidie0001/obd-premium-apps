@@ -1521,8 +1521,8 @@ interface ChatPanelProps {
   setChatInput: (input: string) => void;
   chatLoading: boolean;
   chatError: string | null;
-  messagesContainerRef: React.RefObject<HTMLDivElement>;
-  chatEndRef: React.RefObject<HTMLDivElement>;
+  messagesContainerRef: React.RefObject<HTMLDivElement | null>;
+  chatEndRef: React.RefObject<HTMLDivElement | null>;
   onChatSubmit: (e: React.FormEvent) => void;
   onNewConversation: () => void;
 }

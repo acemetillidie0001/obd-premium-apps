@@ -993,7 +993,7 @@ export default function AIHelpDeskSetupPage() {
 
                   {/* Environment Variables */}
                   <div>
-                    <OBDHeading level={3} isDark={isDark} className="mb-2 text-sm">
+                    <OBDHeading level={2} isDark={isDark} className="mb-2 text-sm">
                       Environment Variables
                     </OBDHeading>
                     <div className="space-y-2">
@@ -1016,7 +1016,7 @@ export default function AIHelpDeskSetupPage() {
 
                   {/* Database Tables */}
                   <div>
-                    <OBDHeading level={3} isDark={isDark} className="mb-2 text-sm">
+                    <OBDHeading level={2} isDark={isDark} className="mb-2 text-sm">
                       Database Tables
                     </OBDHeading>
                     <div className="space-y-2">

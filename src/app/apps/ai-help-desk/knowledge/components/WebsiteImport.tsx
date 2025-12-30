@@ -189,7 +189,7 @@ export default function WebsiteImport({
   return (
     <OBDPanel isDark={isDark}>
       <div className="space-y-4">
-        <OBDHeading level={3} isDark={isDark}>
+        <OBDHeading level={2} isDark={isDark}>
           Import from Website
         </OBDHeading>
         <p className={`text-sm ${themeClasses.mutedText}`}>

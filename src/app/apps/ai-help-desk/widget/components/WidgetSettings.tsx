@@ -333,7 +333,7 @@ export default function WidgetSettings({
         <OBDPanel isDark={isDark}>
           <div className="space-y-4">
             <div>
-              <OBDHeading level={3} isDark={isDark} className="mb-2">
+              <OBDHeading level={2} isDark={isDark} className="mb-2">
                 Embed Code
               </OBDHeading>
               <p className={`text-sm ${themeClasses.mutedText}`}>

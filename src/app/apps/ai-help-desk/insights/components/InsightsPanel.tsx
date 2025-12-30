@@ -267,7 +267,7 @@ export default function InsightsPanel({
       {/* Top Questions */}
       {!loading && insights && insights.topQuestions.length > 0 && (
         <OBDPanel isDark={isDark}>
-          <OBDHeading level={3} isDark={isDark} className="mb-4">
+          <OBDHeading level={2} isDark={isDark} className="mb-4">
             Top Questions ({insights.topQuestions.length})
           </OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>

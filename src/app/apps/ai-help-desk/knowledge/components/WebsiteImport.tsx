@@ -29,6 +29,7 @@ export default function WebsiteImport({
   const themeClasses = getThemeClasses(isDark);
 
   const [url, setUrl] = useState("");
+  const [urlValidationError, setUrlValidationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewPages, setPreviewPages] = useState<PreviewPage[]>([]);
@@ -36,9 +37,45 @@ export default function WebsiteImport({
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState(false);
 
+  // Basic URL validation
+  const isValidUrl = (urlString: string): boolean => {
+    if (!urlString.trim()) return false;
+    try {
+      const url = new URL(urlString.trim());
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  };
+
+  // Handle URL input change with validation
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newUrl = e.target.value;
+    setUrl(newUrl);
+    
+    // Clear previous errors
+    setError(null);
+    
+    // Validate URL if it's not empty
+    if (newUrl.trim()) {
+      if (!isValidUrl(newUrl)) {
+        setUrlValidationError("Please enter a valid URL (must start with http:// or https://)");
+      } else {
+        setUrlValidationError(null);
+      }
+    } else {
+      setUrlValidationError(null);
+    }
+  };
+
   const handlePreview = async () => {
     if (!url.trim()) {
       setError("Please enter a website URL");
+      return;
+    }
+
+    if (!isValidUrl(url)) {
+      setUrlValidationError("Please enter a valid URL (must start with http:// or https://)");
       return;
     }
 
@@ -192,9 +229,6 @@ export default function WebsiteImport({
         <OBDHeading level={2} isDark={isDark}>
           Import from Website
         </OBDHeading>
-        <p className={`text-sm ${themeClasses.mutedText}`}>
-          Enter your website URL to crawl and import content into your knowledge base. We'll crawl up to 10 pages from the same domain.
-        </p>
 
         {/* URL Input */}
         <div>
@@ -205,20 +239,31 @@ export default function WebsiteImport({
             <input
               type="url"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={handleUrlChange}
               className={getInputClasses(isDark, "flex-1")}
               placeholder="https://example.com"
               disabled={loading || importing}
+              aria-invalid={urlValidationError ? "true" : "false"}
+              aria-describedby={urlValidationError ? "url-error" : "url-helper"}
             />
             <button
               type="button"
               onClick={handlePreview}
-              disabled={loading || importing || !url.trim() || !businessId.trim()}
+              disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
               className={SUBMIT_BUTTON_CLASSES}
             >
               {loading ? "Crawling..." : "Preview Import"}
             </button>
           </div>
+          {urlValidationError ? (
+            <p id="url-error" className={`text-sm mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+              {urlValidationError}
+            </p>
+          ) : (
+            <p id="url-helper" className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+              We'll crawl up to 10 pages from the same domain.
+            </p>
+          )}
         </div>
 
         {/* Error Display */}

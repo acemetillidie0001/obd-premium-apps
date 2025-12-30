@@ -81,7 +81,13 @@ export default function WebsiteImport({
     }
   }, [loading, importing]);
 
-  const handlePreview = async () => {
+  const handlePreview = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    // Prevent any default behavior
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     if (!url.trim()) {
       setError("Please enter a website URL");
       return;
@@ -99,6 +105,7 @@ export default function WebsiteImport({
 
     setLoading(true);
     setError(null);
+    setUrlValidationError(null);
     setPreviewPages([]);
     setSelectedPages(new Set());
     setImportSuccess(false);
@@ -269,9 +276,14 @@ export default function WebsiteImport({
           </div>
           <button
             type="button"
-            onClick={handlePreview}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handlePreview(e);
+            }}
             disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
             className={`${SUBMIT_BUTTON_CLASSES} w-full mt-3`}
+            aria-disabled={loading || importing || !url.trim() || !businessId.trim() || !!urlValidationError}
           >
             {loading ? "Crawling..." : "Preview Import"}
           </button>

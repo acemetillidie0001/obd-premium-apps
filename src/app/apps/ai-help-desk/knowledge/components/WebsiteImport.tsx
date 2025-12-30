@@ -92,6 +92,8 @@ export default function WebsiteImport({
   const [isAutofilled, setIsAutofilled] = useState(false);
   const [hasUserTyped, setHasUserTyped] = useState(false);
   const [recentUrls, setRecentUrls] = useState<string[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [dragDropError, setDragDropError] = useState<string | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   // Basic URL validation
@@ -103,6 +105,32 @@ export default function WebsiteImport({
     } catch {
       return false;
     }
+  };
+
+  // Extract first valid URL from text
+  const extractUrlFromText = (text: string): string | null => {
+    if (!text || !text.trim()) return null;
+    
+    // Try to find URLs in the text using a regex pattern
+    // Matches http:// or https:// followed by valid URL characters
+    const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
+    const matches = text.match(urlPattern);
+    
+    if (matches && matches.length > 0) {
+      // Return the first valid URL
+      for (const match of matches) {
+        if (isValidUrl(match)) {
+          return match.trim();
+        }
+      }
+    }
+    
+    // If no URL pattern found, try treating the whole text as a URL
+    if (isValidUrl(text.trim())) {
+      return text.trim();
+    }
+    
+    return null;
   };
 
   // Handle URL input change with validation
@@ -121,6 +149,7 @@ export default function WebsiteImport({
     
     // Clear previous errors
     setError(null);
+    setDragDropError(null);
     
     // Validate URL if it's not empty
     if (newUrl.trim()) {
@@ -393,6 +422,87 @@ export default function WebsiteImport({
     }
   };
 
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only handle if dragging text or URI list
+    if (e.dataTransfer.types.includes("text/plain") || e.dataTransfer.types.includes("text/uri-list")) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(true);
+      setDragDropError(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only handle if dragging text or URI list
+    if (e.dataTransfer.types.includes("text/plain") || e.dataTransfer.types.includes("text/uri-list")) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    setDragDropError(null);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    // Don't handle if disabled
+    if (loading || importing) {
+      return;
+    }
+
+    // Try to get dropped data
+    let droppedText = "";
+    
+    // Try text/uri-list first (for links)
+    if (e.dataTransfer.types.includes("text/uri-list")) {
+      droppedText = e.dataTransfer.getData("text/uri-list");
+    }
+    
+    // Fall back to text/plain
+    if (!droppedText && e.dataTransfer.types.includes("text/plain")) {
+      droppedText = e.dataTransfer.getData("text/plain");
+    }
+
+    if (!droppedText || !droppedText.trim()) {
+      setDragDropError("No URL found in dropped content. Please drop a valid URL.");
+      return;
+    }
+
+    // Extract URL from dropped text
+    const extractedUrl = extractUrlFromText(droppedText);
+    
+    if (!extractedUrl) {
+      setDragDropError("No valid URL found in dropped content. Please drop a URL starting with http:// or https://");
+      return;
+    }
+
+    // Set the URL and trigger validation
+    setUrl(extractedUrl);
+    setHasUserTyped(true);
+    setIsAutofilled(false);
+    setError(null);
+    setDragDropError(null);
+    
+    // Trigger validation
+    if (isValidUrl(extractedUrl)) {
+      setUrlValidationError(null);
+    } else {
+      setUrlValidationError("Please enter a valid URL (must start with http:// or https://)");
+    }
+    
+    // Focus the input
+    urlInputRef.current?.focus();
+  };
+
   return (
     <OBDPanel isDark={isDark}>
       <div className="space-y-4">
@@ -405,7 +515,19 @@ export default function WebsiteImport({
           <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
             Website URL
           </label>
-          <div className="relative w-full">
+          <div
+            className={`relative w-full transition-all ${
+              isDragOver
+                ? isDark
+                  ? "ring-2 ring-[#29c4a9] ring-opacity-50 bg-slate-800/50"
+                  : "ring-2 ring-[#29c4a9] ring-opacity-50 bg-slate-50"
+                : ""
+            }`}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <Globe
               className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${
                 isDark ? "text-slate-400" : "text-slate-500"
@@ -421,7 +543,13 @@ export default function WebsiteImport({
               placeholder="https://yourbusiness.com"
               disabled={loading || importing}
               aria-invalid={urlValidationError ? "true" : "false"}
-              aria-describedby={urlValidationError ? "url-error" : "url-helper"}
+              aria-describedby={
+                urlValidationError
+                  ? "url-error"
+                  : dragDropError
+                    ? "drag-drop-error"
+                    : "url-helper"
+              }
             />
           </div>
           <button
@@ -440,6 +568,10 @@ export default function WebsiteImport({
           {urlValidationError ? (
             <p id="url-error" className={`text-sm mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
               {urlValidationError}
+            </p>
+          ) : dragDropError ? (
+            <p id="drag-drop-error" className={`text-sm mt-1 ${isDark ? "text-yellow-400" : "text-yellow-600"}`}>
+              {dragDropError}
             </p>
           ) : isAutofilled && !hasUserTyped ? (
             <p id="url-helper" className={`text-sm mt-1 ${themeClasses.mutedText}`}>

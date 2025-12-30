@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface FAQRequest {
   businessName?: string | null;
@@ -16,6 +25,23 @@ interface FAQRequest {
   hasEmoji?: "None" | "Minimal" | "Normal";
   theme?: string | null;
 }
+
+// Zod schema for request validation
+const faqRequestSchema = z.object({
+  businessName: z.string().max(200).nullable().optional(),
+  businessType: z.string().max(200).nullable().optional(),
+  city: z.string().max(100).nullable().optional(),
+  state: z.string().max(100).nullable().optional(),
+  topic: z.string().max(500).nullable().optional(),
+  details: z.string().max(2000).nullable().optional(),
+  brandVoice: z.string().max(1000).nullable().optional(),
+  personalityStyle: z.enum(["Soft", "Bold", "High-Energy", "Luxury"]).nullable().optional(),
+  faqCount: z.number().int().min(3).max(12).optional(),
+  answerLength: z.enum(["Short", "Medium", "Long"]).optional(),
+  tone: z.string().max(500).nullable().optional(),
+  hasEmoji: z.enum(["None", "Minimal", "Normal"]).optional(),
+  theme: z.string().max(500).nullable().optional(),
+});
 
 async function generateFAQs({
   businessName,
@@ -58,12 +84,13 @@ Emoji Style: ${hasEmojiValue}
 `.trim();
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `You are the AI engine for the OBD AI FAQ Generator (V3).
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are the AI engine for the OBD AI FAQ Generator (V3).
 Your role is to generate professional, helpful, and SEO-conscious FAQ sets
 specifically designed for Ocala businesses.
 
@@ -192,10 +219,11 @@ A: ...
 END OF SYSTEM PROMPT
 ==================================================
 `,
-      },
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.6,
+        },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.6,
+    }, { signal });
   });
 
   const response =
@@ -206,9 +234,30 @@ END OF SYSTEM PROMPT
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: FAQRequest = await request.json();
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
 
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
+  try {
+    const json = await request.json().catch(() => null);
+    if (!json) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
+        { status: 400 }
+      );
+    }
+
+    // Validate request body
+    const parsed = faqRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
     const businessName = body.businessName?.trim() || null;
     const businessType = body.businessType?.trim() || null;
     const city = body.city?.trim() || null;
@@ -246,16 +295,9 @@ export async function POST(request: NextRequest) {
       theme,
     });
 
-    return NextResponse.json({ response: aiResponse });
+    return apiSuccessResponse({ response: aiResponse });
   } catch (error) {
-    console.error("Error generating FAQs:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating FAQs. Please try again later.",
-      },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 

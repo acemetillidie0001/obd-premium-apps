@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
     if (!userIsAdmin && !isEmailAdmin) {
       return apiErrorResponse(
         "Admin access required",
-        "FORBIDDEN",
+        "UNAUTHORIZED",
         403
       );
     }

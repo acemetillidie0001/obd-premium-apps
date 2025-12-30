@@ -497,15 +497,16 @@ export default function AIHelpDeskPage() {
     !setupStatus.db.hasAiWorkspaceMap;
 
   // Determine if we can show the main UI
-  // Can show UI if: setup is complete (env + table exist) AND (mapping exists OR no businessId entered yet)
+  // Can show UI if: setup is complete (env + table exist) AND (mapping exists OR no businessId entered yet OR mapping check is in progress)
   // Note: Dev fallback (AI_HELP_DESK_DEV_WORKSPACE_SLUG) is handled server-side, so we still require mapping here
   // but the server will use dev fallback if NODE_ENV is not production
+  // Allow UI to show while user is typing (mappingCheckLoading) to prevent disappearing input
   const canShowMainUI =
     !needsSetup &&
     setupStatus &&
     setupStatus.env.hasBaseUrl &&
     setupStatus.db.hasAiWorkspaceMap &&
-    (!businessId.trim() || currentMapping);
+    (!businessId.trim() || currentMapping || mappingCheckLoading);
 
   return (
     <OBDPageContainer

@@ -72,7 +72,7 @@ export default function WebsiteImport({
       setPreviewPages(json.data.pages || []);
       
       // Auto-select all pages by default
-      const allIndices = new Set(json.data.pages.map((_: PreviewPage, idx: number) => idx));
+      const allIndices = new Set<number>(json.data.pages.map((_: PreviewPage, idx: number) => idx));
       setSelectedPages(allIndices);
     } catch (err) {
       console.error("Preview error:", err);

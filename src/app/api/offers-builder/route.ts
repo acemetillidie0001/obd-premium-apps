@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
@@ -13,6 +13,54 @@ import {
   OffersBuilderRequest,
   OffersBuilderResponse,
 } from "@/app/apps/offers-builder/types";
+
+// Zod schema for request validation
+const offersBuilderRequestSchema = z.object({
+  businessName: z.string().min(1, "Business name is required").max(200),
+  businessType: z.string().min(1, "Business type is required").max(200),
+  services: z.array(z.string()).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  promoType: z.enum([
+    "Discount",
+    "Limited-Time Offer",
+    "Seasonal Promotion",
+    "Holiday Special",
+    "Flash Sale",
+    "Referral Bonus",
+    "Loyalty Reward",
+    "New Customer Offer",
+    "Bundle Deal",
+    "Other",
+  ]),
+  promoTitle: z.string().max(200).optional(),
+  promoDescription: z.string().min(1, "Promotion description is required").max(2000),
+  offerValue: z.string().max(200).optional(),
+  offerCode: z.string().max(50).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  goal: z.string().max(500).optional(),
+  targetAudience: z.string().max(500).optional(),
+  outputPlatforms: z.array(z.enum([
+    "Facebook",
+    "Instagram",
+    "Google Business Profile",
+    "X",
+    "Email",
+    "SMS",
+    "Flyer",
+    "Website Banner",
+  ])).min(1, "At least one output platform must be selected"),
+  brandVoice: z.string().max(1000).optional(),
+  personalityStyle: z.enum(["None", "Soft", "Bold", "High-Energy", "Luxury"]),
+  length: z.enum(["Short", "Medium", "Long"]),
+  language: z.enum(["English", "Spanish", "Bilingual"]),
+  includeHashtags: z.boolean(),
+  hashtagStyle: z.string().max(100).optional(),
+  variationsCount: z.number().int().min(1).max(5).optional(),
+  variationMode: z.enum(["Conservative", "Moderate", "Creative"]),
+  wizardMode: z.boolean().optional(),
+});
 
 /**
  * Sample payload for manual testing reference:

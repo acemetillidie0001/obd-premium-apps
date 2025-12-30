@@ -1,10 +1,43 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { HelpCircle } from "lucide-react";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+
+/**
+ * Verification checklist:
+ * - Tooltip works (mouse + keyboard)
+ * - Use OBD Icon fills input but doesn't auto-save
+ * - Clear still works
+ * - Initials show when no avatar or on image load failure
+ * - Bubble uses avatar if present; initials otherwise
+ * - Mobile layout ok
+ */
+
+// Helper function to get initials from business name
+const getInitials = (name: string): string => {
+  if (!name || !name.trim()) {
+    return "AI";
+  }
+  
+  const words = name.trim().split(/\s+/).filter((w) => w.length > 0);
+  
+  if (words.length === 0) {
+    return "AI";
+  }
+  
+  if (words.length === 1) {
+    // Single word: take first 1-2 letters
+    const first = words[0];
+    return first.substring(0, Math.min(2, first.length)).toUpperCase();
+  }
+  
+  // Multiple words: take first letter of first two words
+  return (words[0][0] + words[1][0]).toUpperCase();
+};
 
 interface WidgetSettingsData {
   enabled: boolean;
@@ -18,11 +51,13 @@ interface WidgetSettingsData {
 interface WidgetSettingsProps {
   isDark: boolean;
   businessId: string;
+  businessName?: string; // Optional business name for initials fallback
 }
 
 export default function WidgetSettings({
   isDark,
   businessId,
+  businessName = "",
 }: WidgetSettingsProps) {
   const themeClasses = getThemeClasses(isDark);
 
@@ -39,6 +74,15 @@ export default function WidgetSettings({
   const [position, setPosition] = useState<"bottom-right" | "bottom-left">("bottom-right");
   const [assistantAvatarUrl, setAssistantAvatarUrl] = useState<string>("");
   const [avatarPreviewError, setAvatarPreviewError] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const tooltipButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // OBD Icon URL
+  const OBD_ICON_URL = "https://ocalabusinessdirectory.com/wp-content/uploads/2025/10/Copy-of-Black-White-Elegant-Typography-Glitch-Logo-Teal-250-x-80-px.png";
+  
+  // Get initials for fallback
+  const assistantInitials = getInitials(businessName);
 
   // Load settings
   const loadSettings = async () => {
@@ -77,6 +121,33 @@ export default function WidgetSettings({
   useEffect(() => {
     loadSettings();
   }, [businessId]);
+
+  // Close tooltip when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        tooltipRef.current &&
+        tooltipButtonRef.current &&
+        !tooltipRef.current.contains(event.target as Node) &&
+        !tooltipButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowTooltip(false);
+      }
+    };
+
+    if (showTooltip) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showTooltip]);
+
+  // Handle "Use OBD Icon" button
+  const handleUseOBDIcon = () => {
+    setAssistantAvatarUrl(OBD_ICON_URL);
+    setAvatarPreviewError(false);
+    // Trigger validation by simulating input change
+    // The URL validation will happen automatically via the onChange handler
+  };
 
   const handleSave = async () => {
     if (!businessId.trim()) {
@@ -255,12 +326,57 @@ export default function WidgetSettings({
 
           {/* Assistant Profile Image */}
           <div>
-            <label 
-              htmlFor="assistantAvatarUrl"
-              className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-            >
-              Assistant Profile Image (Square)
-            </label>
+            <div className="flex items-center gap-2 mb-2">
+              <label 
+                htmlFor="assistantAvatarUrl"
+                className={`block text-sm font-medium ${themeClasses.labelText}`}
+              >
+                Assistant Profile Image (Square)
+              </label>
+              {/* Tooltip */}
+              <div className="relative">
+                <button
+                  ref={tooltipButtonRef}
+                  type="button"
+                  onClick={() => setShowTooltip(!showTooltip)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowTooltip(!showTooltip);
+                    }
+                    if (e.key === "Escape") {
+                      setShowTooltip(false);
+                    }
+                  }}
+                  className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                    isDark
+                      ? "border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+                      : "border-slate-300 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                  }`}
+                  aria-label="Recommended image size info"
+                  aria-describedby="avatar-tooltip"
+                  aria-expanded={showTooltip}
+                >
+                  <HelpCircle className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                {showTooltip && (
+                  <div
+                    ref={tooltipRef}
+                    id="avatar-tooltip"
+                    role="tooltip"
+                    className={`absolute left-0 top-6 z-50 w-64 p-3 rounded-lg border shadow-lg ${
+                      isDark
+                        ? "bg-slate-800 border-slate-700 text-slate-200"
+                        : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    <p className="text-xs leading-relaxed">
+                      Square works best. 250×250 recommended. Transparent PNG looks great.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
             <p className={`text-xs mb-3 ${themeClasses.mutedText}`}>
               Optional. Use a square image (recommended 250×250).
             </p>
@@ -280,27 +396,44 @@ export default function WidgetSettings({
                   aria-describedby="assistantAvatarUrl-helper assistantAvatarUrl-error"
                   aria-invalid={avatarPreviewError ? "true" : "false"}
                 />
-                {assistantAvatarUrl && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {assistantAvatarUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssistantAvatarUrl("");
+                        setAvatarPreviewError(false);
+                      }}
+                      className={`text-xs px-2 py-1 rounded transition-colors ${
+                        isDark
+                          ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                          : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                      }`}
+                      aria-label="Clear assistant profile image"
+                    >
+                      Clear
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => {
-                      setAssistantAvatarUrl("");
-                      setAvatarPreviewError(false);
-                    }}
-                    className={`mt-2 text-xs px-2 py-1 rounded transition-colors ${
+                    onClick={handleUseOBDIcon}
+                    className={`text-xs px-2 py-1 rounded transition-colors ${
                       isDark
                         ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
                         : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                     }`}
-                    aria-label="Clear assistant profile image"
+                    aria-label="Use OBD icon as assistant profile image"
                   >
-                    Clear
+                    Use OBD Icon
                   </button>
-                )}
+                </div>
+                <p className={`text-xs mt-2 ${themeClasses.mutedText} opacity-75`}>
+                  Tip: Transparent PNGs look best in dark mode.
+                </p>
               </div>
               
               {/* Preview */}
-              {assistantAvatarUrl.trim() && (
+              {assistantAvatarUrl.trim() ? (
                 <div className="flex-shrink-0">
                   {avatarPreviewError ? (
                     <div 
@@ -308,9 +441,17 @@ export default function WidgetSettings({
                         isDark ? "border-slate-700 bg-slate-800" : "border-slate-300 bg-slate-100"
                       }`}
                     >
-                      <p className={`text-xs text-center px-2 ${themeClasses.mutedText}`}>
-                        Could not load image.
-                      </p>
+                      {/* Fallback to initials when image fails */}
+                      <div
+                        className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                          isDark
+                            ? "bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                            : "bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                        }`}
+                        aria-label="Assistant avatar initials"
+                      >
+                        {assistantInitials}
+                      </div>
                     </div>
                   ) : (
                     <img
@@ -326,6 +467,26 @@ export default function WidgetSettings({
                       }}
                     />
                   )}
+                </div>
+              ) : (
+                /* Show initials preview when no URL */
+                <div className="flex-shrink-0">
+                  <div
+                    className={`w-20 h-20 rounded-lg border-2 flex items-center justify-center ${
+                      isDark ? "border-slate-700 bg-slate-800" : "border-slate-300 bg-slate-100"
+                    }`}
+                  >
+                    <div
+                      className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-semibold text-sm ${
+                        isDark
+                          ? "bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                          : "bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                      }`}
+                      aria-label="Assistant avatar initials"
+                    >
+                      {assistantInitials}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

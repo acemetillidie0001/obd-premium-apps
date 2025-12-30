@@ -67,15 +67,27 @@ export async function GET(request: NextRequest) {
     const isLeft = position === "bottom-left";
 
     // Generate the widget script
+    // Use initials fallback ("AI") when no avatar is set (businessName not available in widget script)
     const avatarButtonCode = assistantAvatarUrl
       ? `const buttonImg = document.createElement('img');
       buttonImg.src = '${assistantAvatarUrl}';
       buttonImg.alt = 'Chat assistant';
       buttonImg.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
+      buttonImg.onerror = function() {
+        // Fallback to initials if image fails
+        buttonImg.style.display = 'none';
+        const initialsDiv = document.createElement('div');
+        initialsDiv.textContent = 'AI';
+        initialsDiv.style.cssText = 'width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(to bottom right, #29c4a9, #1ea085);color:white;font-weight:600;font-size:20px;';
+        button.appendChild(initialsDiv);
+      };
       button.appendChild(buttonImg);`
-      : `button.innerHTML = '💬';`;
+      : `const initialsDiv = document.createElement('div');
+      initialsDiv.textContent = 'AI';
+      initialsDiv.style.cssText = 'width:100%;height:100%;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(to bottom right, #29c4a9, #1ea085);color:white;font-weight:600;font-size:20px;';
+      button.appendChild(initialsDiv);`;
 
-    const buttonBgColor = assistantAvatarUrl ? 'transparent' : brandColor;
+    const buttonBgColor = assistantAvatarUrl ? 'transparent' : 'transparent';
 
     const script = `
 (function() {

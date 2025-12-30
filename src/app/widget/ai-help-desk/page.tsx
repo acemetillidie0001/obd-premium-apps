@@ -19,7 +19,31 @@ export default function WidgetChatPage() {
   const [threadId, setThreadId] = useState<string | undefined>();
   const [greeting, setGreeting] = useState("Hi! How can I help you today?");
   const [assistantAvatarUrl, setAssistantAvatarUrl] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string>("");
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Helper function to get initials from business name
+  const getInitials = (name: string): string => {
+    if (!name || !name.trim()) {
+      return "AI";
+    }
+    
+    const words = name.trim().split(/\s+/).filter((w) => w.length > 0);
+    
+    if (words.length === 0) {
+      return "AI";
+    }
+    
+    if (words.length === 1) {
+      // Single word: take first 1-2 letters
+      const first = words[0];
+      return first.substring(0, Math.min(2, first.length)).toUpperCase();
+    }
+    
+    // Multiple words: take first letter of first two words
+    return (words[0][0] + words[1][0]).toUpperCase();
+  };
 
   // Get params from URL
   useEffect(() => {
@@ -28,6 +52,7 @@ export default function WidgetChatPage() {
     const k = params.get("key");
     const g = params.get("greeting");
     const avatar = params.get("avatar");
+    const name = params.get("name"); // Optional business name for initials
     
     setBusinessId(bid);
     setKey(k);
@@ -38,6 +63,10 @@ export default function WidgetChatPage() {
     }
     if (avatar) {
       setAssistantAvatarUrl(decodeURIComponent(avatar));
+      setAvatarLoadError(false); // Reset error when URL changes
+    }
+    if (name) {
+      setBusinessName(decodeURIComponent(name));
     }
   }, []);
 
@@ -131,18 +160,22 @@ export default function WidgetChatPage() {
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b bg-slate-50">
         <div className="flex items-center gap-3">
-          {assistantAvatarUrl ? (
+          {assistantAvatarUrl && !avatarLoadError ? (
             <img
               src={assistantAvatarUrl}
               alt="Chat assistant avatar"
               className="w-8 h-8 rounded-full object-cover"
-              onError={(e) => {
-                // Hide broken images
-                (e.target as HTMLImageElement).style.display = "none";
+              onError={() => {
+                setAvatarLoadError(true);
               }}
             />
           ) : (
-            <span className="text-2xl">💬</span>
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+              aria-label="Assistant avatar initials"
+            >
+              {getInitials(businessName)}
+            </div>
           )}
           <h2 className="text-lg font-semibold text-slate-900">Help Desk</h2>
         </div>
@@ -181,18 +214,22 @@ export default function WidgetChatPage() {
             >
               {message.role === "assistant" && (
                 <div className="flex-shrink-0">
-                  {assistantAvatarUrl ? (
+                  {assistantAvatarUrl && !avatarLoadError ? (
                     <img
                       src={assistantAvatarUrl}
                       alt=""
                       className="w-8 h-8 rounded-full object-cover"
-                      onError={(e) => {
-                        // Hide broken images
-                        (e.target as HTMLImageElement).style.display = "none";
+                      onError={() => {
+                        setAvatarLoadError(true);
                       }}
                     />
                   ) : (
-                    <span className="text-xl">💬</span>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs bg-gradient-to-br from-[#29c4a9] to-[#1ea085]"
+                      aria-label="Assistant avatar initials"
+                    >
+                      {getInitials(businessName)}
+                    </div>
                   )}
                 </div>
               )}
@@ -211,17 +248,22 @@ export default function WidgetChatPage() {
 
         {loading && (
           <div className="flex items-start gap-2 justify-start">
-            {assistantAvatarUrl ? (
+            {assistantAvatarUrl && !avatarLoadError ? (
               <img
                 src={assistantAvatarUrl}
                 alt=""
                 className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
+                onError={() => {
+                  setAvatarLoadError(true);
                 }}
               />
             ) : (
-              <span className="text-xl flex-shrink-0">💬</span>
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs bg-gradient-to-br from-[#29c4a9] to-[#1ea085] flex-shrink-0"
+                aria-label="Assistant avatar initials"
+              >
+                {getInitials(businessName)}
+              </div>
             )}
             <div className="bg-slate-100 rounded-lg px-4 py-2">
               <div className="flex gap-1">

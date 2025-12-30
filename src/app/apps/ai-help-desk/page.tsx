@@ -976,7 +976,7 @@ export default function AIHelpDeskPage() {
 
           {tabMode === "widget" && (
             <div className="mt-6">
-              <WidgetSettings isDark={isDark} businessId={businessId} />
+              <WidgetSettings isDark={isDark} businessId={businessId} businessName={businessName} />
             </div>
           )}
 

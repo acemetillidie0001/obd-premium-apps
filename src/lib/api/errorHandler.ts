@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { TenantSafetyError } from "@/lib/integrations/anythingllm/scoping";
 
 /**
  * Standardized API Error Handler
@@ -19,6 +20,10 @@ export type ApiErrorCode =
   | "OPENAI_TIMEOUT"
   | "TIMEOUT"
   | "UPSTREAM_ERROR"
+  | "UPSTREAM_NOT_FOUND"
+  | "BUSINESS_REQUIRED"
+  | "MAPPING_REQUIRED"
+  | "TENANT_SAFETY_BLOCKED"
   | "UNKNOWN_ERROR";
 
 export interface ApiErrorResponse {
@@ -81,6 +86,37 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
   // Log full error details server-side (never sent to client)
   console.error("[API Error Handler]", error);
 
+  // Handle TenantSafetyError from scoping utilities (check first, before generic Error)
+  if (error instanceof TenantSafetyError) {
+    return apiErrorResponse(
+      error.message,
+      "TENANT_SAFETY_BLOCKED",
+      400
+    );
+  }
+
+  // Handle business/mapping requirement errors (check Error instances before OpenAI errors)
+  if (error instanceof Error) {
+    const errorMessage = error.message.toLowerCase();
+    
+    if (errorMessage.includes("business id is required") || errorMessage.includes("businessid is required")) {
+      return apiErrorResponse(
+        "Business ID is required",
+        "BUSINESS_REQUIRED",
+        400
+      );
+    }
+    
+    if (errorMessage.includes("no workspace mapping found") || 
+        (errorMessage.includes("mapping") && errorMessage.includes("required"))) {
+      return apiErrorResponse(
+        "Workspace mapping is required. Please create a mapping in the database or use the setup wizard.",
+        "MAPPING_REQUIRED",
+        404
+      );
+    }
+  }
+
   // OpenAI API errors
   if (error instanceof OpenAI.APIError) {
     // Handle timeout specifically
@@ -125,6 +161,17 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
         "Upstream timeout",
         "OPENAI_TIMEOUT",
         504
+      );
+    }
+
+    // Handle UPSTREAM_NOT_FOUND errors (from AnythingLLM client)
+    if (errCode === "UPSTREAM_NOT_FOUND") {
+      const errDetails = (error as { details?: unknown }).details;
+      return apiErrorResponse(
+        error.message || "Upstream service not found",
+        "UPSTREAM_NOT_FOUND",
+        404,
+        errDetails
       );
     }
   }

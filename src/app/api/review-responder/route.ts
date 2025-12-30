@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface ReviewResponderRequest {
   businessName: string;
@@ -60,9 +69,10 @@ async function generateReviewResponse(request: ReviewResponderRequest): Promise<
   const userMessage = fields.join("\n");
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
       {
         role: "system",
         content: `You are the **OBD AI Review Responder V3**, a specialized assistant for the Ocala Business Directory (OBD). Your job is to create polished, professional, and human-sounding responses to customer reviews for local Ocala businesses.
@@ -286,9 +296,11 @@ Rules:
 4. Return:
    - One valid JSON object following the exact OUTPUT FORMAT above.`,
       },
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.6,
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.6,
+      response_format: { type: "json_object" },
+    }, { signal });
   });
 
   const rawResponse =
@@ -328,24 +340,46 @@ Rules:
 
     return parsed;
   } catch (parseError) {
-    console.error("Failed to parse AI response as JSON:", parseError);
-    console.error("Raw response:", rawResponse);
+    apiLogger.error("review-responder.parse-error", {
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    });
     throw new Error("Invalid JSON response from AI");
   }
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: ReviewResponderRequest = await request.json();
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
 
-    const businessName = body.businessName?.trim();
-    const businessType = body.businessType?.trim();
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
+  try {
+    const json = await request.json().catch(() => null);
+    if (!json) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
+        { status: 400 }
+      );
+    }
+
+    // Validate request body
+    const parsed = reviewResponderRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
+    const businessName = body.businessName.trim();
+    const businessType = body.businessType.trim();
     const services = body.services?.trim() || "";
     const city = body.city?.trim() || "Ocala";
     const state = body.state?.trim() || "Florida";
     const platform = body.platform || "Google";
     const reviewRating = typeof body.reviewRating === "number" ? body.reviewRating : 5;
-    const reviewText = body.reviewText?.trim();
+    const reviewText = body.reviewText.trim();
     const customerName = body.customerName?.trim() || "";
     const responseGoal = body.responseGoal?.trim() || "";
     const brandVoice = body.brandVoice?.trim() || "";
@@ -355,20 +389,6 @@ export async function POST(request: NextRequest) {
     const includeQnaBox = body.includeQnaBox ?? true;
     const includeMetaDescription = body.includeMetaDescription ?? true;
     const includeStoryVersion = body.includeStoryVersion ?? true;
-
-    if (!businessName || !businessType || !reviewText) {
-      return NextResponse.json(
-        { error: "Business name, business type, and review text are required." },
-        { status: 400 }
-      );
-    }
-
-    if (reviewRating < 1 || reviewRating > 5) {
-      return NextResponse.json(
-        { error: "Review rating must be between 1 and 5." },
-        { status: 400 }
-      );
-    }
 
     const aiResponse = await generateReviewResponse({
       businessName,
@@ -390,15 +410,15 @@ export async function POST(request: NextRequest) {
       includeStoryVersion,
     });
 
-    return NextResponse.json(aiResponse);
+    apiLogger.info("review-responder.request.success", {
+      rating: body.reviewRating,
+      platform: body.platform,
+    });
+    return apiSuccessResponse(aiResponse);
   } catch (error) {
-    console.error("Error generating review response:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating a response. Please try again later.",
-      },
-      { status: 500 }
-    );
+    apiLogger.error("review-responder.request.error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return handleApiError(error);
   }
 }

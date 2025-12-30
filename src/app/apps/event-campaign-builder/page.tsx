@@ -98,37 +98,37 @@ export default function EventCampaignBuilderPage() {
 
     // Validation
     if (!form.businessName.trim()) {
-      setError("Please enter a business name.");
+      setError("Please enter a business name to continue.");
       return;
     }
 
     if (!form.businessType.trim()) {
-      setError("Please enter a business type.");
+      setError("Please enter a business type to continue.");
       return;
     }
 
     if (!form.eventName.trim()) {
-      setError("Please enter an event name.");
+      setError("Please enter an event name to continue.");
       return;
     }
 
     if (!form.eventDescription.trim()) {
-      setError("Please describe the event.");
+      setError("Please describe your event—add a bit more detail so we can create the best campaign for you.");
       return;
     }
 
     if (!form.eventDate.trim()) {
-      setError("Please enter an event date.");
+      setError("Please enter an event date to continue.");
       return;
     }
 
     if (!form.eventTime.trim()) {
-      setError("Please enter an event time.");
+      setError("Please enter an event time to continue.");
       return;
     }
 
     if (!form.eventLocation.trim()) {
-      setError("Please enter an event location.");
+      setError("Please enter an event location to continue.");
       return;
     }
 
@@ -140,7 +140,7 @@ export default function EventCampaignBuilderPage() {
       !form.includeEmail &&
       !form.includeSms
     ) {
-      setError("Please select at least one channel.");
+      setError("Please select at least one channel (Facebook, Instagram, Email, etc.) to generate your campaign.");
       return;
     }
 
@@ -155,47 +155,32 @@ export default function EventCampaignBuilderPage() {
         body: JSON.stringify(form),
       });
 
-      if (!res.ok) {
-        let errorMessage = `Server error: ${res.status}`;
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          errorMessage = `Server error: ${res.status} ${res.statusText || ""}`;
-        }
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
         throw new Error(errorMessage);
       }
 
-      const response = await res.json();
-      
-      // Handle new response format: { ok: true, data: EventCampaignResponse }
-      if (response.ok && response.data) {
-        setResult(response.data);
-        setShowSuccessToast(true);
-        setTimeout(() => setShowSuccessToast(false), 3000);
-        // Scroll to results
-        setTimeout(() => {
-          const resultsElement = document.getElementById("campaign-results");
-          if (resultsElement) {
-            resultsElement.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        }, 100);
-      } else if (response.error) {
-        throw new Error(response.error);
-      } else {
-        // Fallback for old format (direct EventCampaignResponse)
-        setResult(response);
-        setShowSuccessToast(true);
-        setTimeout(() => setShowSuccessToast(false), 3000);
-      }
+      // Handle standardized response format: { ok: true, data: EventCampaignResponse }
+      const response = jsonResponse.data || jsonResponse;
+      setResult(response);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+      // Scroll to results
+      setTimeout(() => {
+        const resultsElement = document.getElementById("campaign-results");
+        if (resultsElement) {
+          resultsElement.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 100);
       
       setLastPayload({ ...form });
     } catch (error) {
       console.error("EventCampaignBuilder Submit Error:", error);
-      let errorMessage = "Something went wrong while generating your campaign. Please try again.";
-      if (error instanceof Error) {
-        errorMessage = error.message || errorMessage;
-      }
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
       setError(errorMessage);
       setResult(null);
     } finally {

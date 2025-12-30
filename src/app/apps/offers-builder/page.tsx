@@ -198,22 +198,22 @@ export default function OffersBuilderPage() {
 
     // Validation
     if (!form.businessName.trim()) {
-      setError("Business name is required.");
+      setError("Please enter a business name to continue.");
       return;
     }
 
     if (!form.businessType.trim()) {
-      setError("Business type is required.");
+      setError("Please enter a business type to continue.");
       return;
     }
 
     if (!form.promoDescription.trim()) {
-      setError("Promotion description is required.");
+      setError("Please describe your promotion to generate your offers.");
       return;
     }
 
     if (form.outputPlatforms.length === 0) {
-      setError("At least one output platform must be selected.");
+      setError("Please select at least one platform (Facebook, Instagram, etc.) to generate your offers.");
       return;
     }
 
@@ -245,28 +245,22 @@ export default function OffersBuilderPage() {
         body: JSON.stringify(apiPayload),
       });
 
-      if (!res.ok) {
-        let errorMessage = `Server error: ${res.status}`;
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (parseError) {
-          // If JSON parsing fails, use status-based message
-          errorMessage = `Server error: ${res.status} ${res.statusText || ""}`;
-        }
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
         throw new Error(errorMessage);
       }
 
-      const data: OffersBuilderResponse = await res.json();
+      // Handle standardized response format: { ok: true, data: OffersBuilderResponse }
+      const data: OffersBuilderResponse = jsonResponse.data || jsonResponse;
       setResult(data);
       setLastPayload({ ...form });
     } catch (error) {
       console.error("OffersBuilder Submit Error:", error);
-      // Extract error message from API response if available
-      let errorMessage = "An error occurred while generating offers. Please try again.";
-      if (error instanceof Error) {
-        errorMessage = error.message || errorMessage;
-      }
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
       setError(errorMessage);
       setResult(null);
     } finally {

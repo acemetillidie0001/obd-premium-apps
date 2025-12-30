@@ -1,3 +1,15 @@
+/**
+ * ⚠️ AUTH IS STABLE AND FROZEN ⚠️
+ * 
+ * DO NOT MODIFY THIS FILE unless you are intentionally changing login behavior.
+ * 
+ * If login breaks, check:
+ * - /api/health/auth endpoint for configuration status
+ * - Server logs for [AUTH] lines to see email delivery method
+ * 
+ * Auth route handler is critical infrastructure - changes here affect all users.
+ */
+
 import { handlers } from "@/lib/auth";
 import { NextRequest } from "next/server";
 

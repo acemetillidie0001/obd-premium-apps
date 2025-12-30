@@ -2,12 +2,25 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { getDatabaseUrl } from "./dbUrl";
+import "./dbStartupCheck"; // Run startup checks when Prisma is imported
 
+/**
+ * Prisma Client for Runtime (Next.js Application)
+ * 
+ * IMPORTANT: This uses DATABASE_URL (not DATABASE_URL_DIRECT).
+ * 
+ * - Runtime may use prisma+postgres:// (Accelerate/Data Proxy) or direct postgresql://
+ * - Prisma CLI operations (migrations, studio) use DATABASE_URL_DIRECT from schema.prisma
+ * - This separation allows using Accelerate in production while maintaining CLI tool compatibility
+ * 
+ * See prisma/schema.prisma for Prisma CLI configuration (uses DATABASE_URL_DIRECT).
+ */
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-// Get normalized database URL (ensures sslmode=require and connection_limit=1)
+// Get normalized database URL from DATABASE_URL (runtime connection)
+// Ensures sslmode=require and connection_limit=1 for serverless environments
 const connectionString = getDatabaseUrl();
 
 // Configure Pool with SSL for Railway Postgres

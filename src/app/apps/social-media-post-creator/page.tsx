@@ -387,20 +387,22 @@ export default function SocialMediaPostCreatorPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json();
-      setAiResponse(data.response || "Error generating post");
+      // Handle standardized response format: { ok: true, data: { response: string } }
+      const responseData = jsonResponse.data || jsonResponse;
+      setAiResponse(responseData.response || "Error generating post");
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while generating the post. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
       setAiResponse("");
     } finally {
       setLoading(false);
@@ -411,7 +413,7 @@ export default function SocialMediaPostCreatorPage() {
     e.preventDefault();
     
     if (!topic.trim()) {
-      alert("Please enter a topic or message");
+      setError("Please enter a topic or message to generate your social media posts.");
       return;
     }
 

@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface SocialPostRequest {
   businessName?: string;
@@ -26,6 +35,33 @@ interface SocialPostRequest {
   platform?: string;
   tone?: string;
 }
+
+// Zod schema for request validation
+const socialPostRequestSchema = z.object({
+  businessName: z.string().max(200).optional(),
+  businessType: z.string().max(200).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  topic: z.string().min(1, "Topic is required").max(500),
+  details: z.string().max(2000).optional(),
+  brandVoice: z.string().max(1000).nullable().optional(),
+  personalityStyle: z.enum(["Soft", "Bold", "High-Energy", "Luxury", ""]).nullable().optional(),
+  postLength: z.enum(["Short", "Medium", "Long"]).optional(),
+  campaignType: z.enum(["Everyday Post", "Event", "Limited-Time Offer", "New Service Announcement"]).optional(),
+  outputMode: z.enum(["Standard", "InstagramCarousel", "ContentCalendar"]).optional(),
+  carouselSlides: z.number().int().min(3).max(10).optional(),
+  numberOfPosts: z.number().int().min(1).max(10).optional(),
+  platforms: z.object({
+    facebook: z.boolean().optional(),
+    instagram: z.boolean().optional(),
+    googleBusinessProfile: z.boolean().optional(),
+    x: z.boolean().optional(),
+  }).optional(),
+  hashtagStyle: z.enum(["None", "Minimal", "Normal"]).optional(),
+  emojiStyle: z.enum(["None", "Minimal", "Normal"]).optional(),
+  platform: z.string().max(100).optional(),
+  tone: z.string().max(500).optional(),
+});
 
 async function generateSocialPosts({
   platform,
@@ -76,9 +112,10 @@ async function generateSocialPosts({
   const userMessage = JSON.stringify(payload, null, 2);
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
       {
         role: "system",
         content: `
@@ -334,9 +371,10 @@ CTA: ...
 (No extra commentary.)
 `,
       },
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.7,
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.7,
+    }, { signal });
   });
 
   const response =
@@ -347,17 +385,31 @@ CTA: ...
 }
 
 export async function POST(request: NextRequest) {
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
+
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
   try {
-    const body: SocialPostRequest = await request.json();
-
-    const topic = body.topic?.trim();
-
-    if (!topic) {
+    const json = await request.json().catch(() => null);
+    if (!json) {
       return NextResponse.json(
-        { error: "Topic is required." },
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
+
+    // Validate request body
+    const parsed = socialPostRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
+    const topic = body.topic.trim();
 
     // Apply safe defaults
     const numberOfPostsValue = body.numberOfPosts 
@@ -407,16 +459,16 @@ export async function POST(request: NextRequest) {
       emojiStyle: emojiStyleValue,
     });
 
-    return NextResponse.json({ response: aiResponse });
+    apiLogger.info("social-media-post-creator.request.success", {
+      outputMode: body.outputMode || "Standard",
+      numberOfPosts: body.numberOfPosts || 3,
+    });
+    return apiSuccessResponse({ response: aiResponse });
   } catch (error) {
-    console.error("Error generating social media posts:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating posts. Please try again later.",
-      },
-      { status: 500 }
-    );
+    apiLogger.error("social-media-post-creator.request.error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return handleApiError(error);
   }
 }
 

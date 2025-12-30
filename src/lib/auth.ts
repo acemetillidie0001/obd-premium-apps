@@ -1,3 +1,17 @@
+/**
+ * ⚠️ AUTH IS STABLE AND FROZEN ⚠️
+ * 
+ * DO NOT MODIFY THIS FILE unless you are intentionally changing login behavior.
+ * 
+ * If login breaks, check:
+ * - /api/health/auth endpoint for configuration status
+ * - Server logs for [AUTH] lines to see email delivery method
+ * 
+ * Auth configuration is critical infrastructure - changes here affect all users.
+ */
+
+import "server-only";
+
 import NextAuth from "next-auth";
 import Email from "next-auth/providers/email";
 import { PrismaAdapter } from "@auth/prisma-adapter";
@@ -62,14 +76,19 @@ function validateAuthEnv() {
     missing.push("AUTH_URL or NEXTAUTH_URL");
   }
 
-  // Check Resend API key
-  if (!process.env.RESEND_API_KEY) {
-    missing.push("RESEND_API_KEY");
-  }
+  // Skip email config validation in development (we'll log magic links instead)
+  const isDevMode = process.env.NODE_ENV === "development";
+  
+  if (!isDevMode) {
+    // Check Resend API key (only required in production)
+    if (!process.env.RESEND_API_KEY) {
+      missing.push("RESEND_API_KEY");
+    }
 
-  // Check email from
-  if (!process.env.EMAIL_FROM) {
-    missing.push("EMAIL_FROM");
+    // Check email from (only required in production)
+    if (!process.env.EMAIL_FROM) {
+      missing.push("EMAIL_FROM");
+    }
   }
 
   // Check database URL
@@ -96,28 +115,43 @@ See ENV_VARS_CHECKLIST.md for detailed instructions.
 
 // Run validation on module load (only in Node.js runtime, not during build)
 // Don't throw during module load - it prevents NextAuth from initializing
-// Instead, log warnings and let NextAuth handle the error
-try {
-  validateAuthEnv();
-} catch (error) {
-  // Log error but don't throw - NextAuth will handle missing config gracefully
-  console.error("[NextAuth] Environment validation failed:", error instanceof Error ? error.message : String(error));
-  console.warn("[NextAuth] Continuing with fallback values - this may cause Configuration errors");
+// In development, skip validation entirely to allow dev mode email logging
+const isDevMode = process.env.NODE_ENV === "development";
+if (!isDevMode) {
+  try {
+    validateAuthEnv();
+  } catch (error) {
+    // Log error but don't throw - NextAuth will handle missing config gracefully
+    console.error("[NextAuth] Environment validation failed:", error instanceof Error ? error.message : String(error));
+    console.warn("[NextAuth] Continuing with fallback values - this may cause Configuration errors");
+  }
+} else {
+  console.log("[NextAuth] Development mode: Email validation skipped, magic links will be logged to console");
+}
+
+// Log email delivery method at startup (invariant check)
+const hasResendKey = !!process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== "placeholder_resend_key_please_update";
+const hasEmailFrom = !!process.env.EMAIL_FROM && process.env.EMAIL_FROM !== "noreply@example.com";
+if (hasResendKey && hasEmailFrom) {
+  console.log("[AUTH] Email delivery: RESEND (enabled)");
+} else {
+  console.warn("[AUTH WARNING] Email delivery disabled — console fallback active");
 }
 
 // Get email from address with validation
 // Handles formats like "Display Name <email@domain.com>" or just "email@domain.com"
 const getEmailFrom = (): string => {
   const emailFrom = process.env.EMAIL_FROM;
-  // Allow fallback during build, but validate at runtime
+  const isDevelopment = process.env.NODE_ENV === "development";
+  
+  // In development, we don't actually send emails, so a placeholder is fine
   if (!emailFrom) {
     const isBuildTime = process.env.NEXT_PHASE === "phase-production-build" ||
                         process.env.NEXT_PHASE === "phase-development-build";
-    if (isBuildTime) {
-      return "noreply@example.com"; // Fallback for build only
+    if (isBuildTime || isDevelopment) {
+      return "noreply@example.com"; // Fallback for build/dev
     }
-    // At runtime, log warning but return fallback to prevent NextAuth initialization failure
-    // The actual email sending will fail gracefully with a clear error
+    // At runtime in production, log warning but return fallback to prevent NextAuth initialization failure
     console.warn("[NextAuth] EMAIL_FROM not set, using fallback. Email sending will fail.");
     return "noreply@example.com"; // Fallback to prevent config error
   }
@@ -146,7 +180,7 @@ export const authConfig = {
   adapter: PrismaAdapter(prisma) as any,
   providers: [
     Email({
-      from: getEmailFrom(),
+      from: process.env.NODE_ENV === "development" ? "noreply@localhost" : getEmailFrom(),
       // Normalize email identifier to prevent AdapterError with undefined
       // This ensures the email is always valid before it reaches the adapter
       normalizeIdentifier: (identifier: string) => {
@@ -164,31 +198,50 @@ export const authConfig = {
       },
       // NextAuth v5 requires server config even when using sendVerificationRequest
       // This config is validated but not used when sendVerificationRequest is provided
-      // We provide minimal valid config to satisfy NextAuth validation
+      // Provide minimal valid config to satisfy NextAuth validation
+      // In development, use dummy values (won't be used since we log to console)
       server: {
-        host: "smtp.resend.com",
-        port: 465,
-        secure: true,
+        host: process.env.NODE_ENV === "development" ? "localhost" : "smtp.resend.com",
+        port: process.env.NODE_ENV === "development" ? 587 : 465,
+        secure: process.env.NODE_ENV !== "development",
         auth: {
-          user: "resend",
-          pass: process.env.RESEND_API_KEY || "dummy-placeholder",
+          user: process.env.NODE_ENV === "development" ? "dev" : "resend",
+          pass: process.env.NODE_ENV === "development" ? "dev" : (process.env.RESEND_API_KEY || "dummy-placeholder"),
         },
       },
+      /**
+       * INVARIANT: Magic-link email delivery behavior
+       * 
+       * REQUIRED BEHAVIOR (DO NOT VIOLATE):
+       * - If RESEND_API_KEY + EMAIL_FROM exist → magic links MUST be emailed via Resend
+       * - Console magic-link logging is ONLY allowed when email delivery is NOT configured
+       * - Production must NEVER log magic links to console
+       * - Email delivery is the default and expected behavior
+       * 
+       * Any change that violates this invariant (e.g., logging to console when Resend is configured,
+       * or making email delivery conditional on NODE_ENV when credentials exist) is a REGRESSION.
+       */
       sendVerificationRequest: async ({ identifier, url }) => {
         if (!identifier || typeof identifier !== "string" || !identifier.includes("@")) {
           throw new Error(`Invalid email identifier: ${identifier}`);
         }
         
-        try {
-          const { Resend } = await import("resend");
-          const resendApiKey = getEnvVar("RESEND_API_KEY");
-          const resend = new Resend(resendApiKey);
+        // Check if Resend is configured
+        const hasResendKey = !!process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== "placeholder_resend_key_please_update";
+        const hasEmailFrom = !!process.env.EMAIL_FROM && process.env.EMAIL_FROM !== "noreply@example.com";
+        
+        // If Resend is configured, send email (default behavior)
+        if (hasResendKey && hasEmailFrom) {
+          try {
+            const { Resend } = await import("resend");
+            const resendApiKey = process.env.RESEND_API_KEY!;
+            const resend = new Resend(resendApiKey);
 
-          await resend.emails.send({
-            from: getEnvVar("EMAIL_FROM"),
-            to: identifier,
-            subject: "Sign in to OBD Premium Apps",
-            html: `
+            await resend.emails.send({
+              from: process.env.EMAIL_FROM!,
+              to: identifier,
+              subject: "Sign in to OBD Premium Apps",
+              html: `
               <!DOCTYPE html>
               <html>
                 <head>
@@ -215,17 +268,31 @@ export const authConfig = {
               </html>
             `,
             text: `Sign in to OBD Premium Apps\n\nClick this link to sign in: ${url}\n\nThis link will expire in 24 hours.\n\nIf you didn't request this email, you can safely ignore it.`,
-          });
-        } catch (err: unknown) {
-          // Safe error logging without exposing secrets
-          const error = err instanceof Error ? err : new Error(String(err));
-          const errorCode = (err as any)?.code ?? null;
-          console.error("[NextAuth Email] Failed to send verification email:", {
-            area: "auth_email_send",
-            message: error.message,
-            code: errorCode,
-          });
-          throw err;
+            });
+          } catch (err: unknown) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            const errorCode = (err as any)?.code ?? null;
+            console.error("[NextAuth Email] Failed to send verification email:", {
+              area: "auth_email_send",
+              message: error.message,
+              code: errorCode,
+            });
+            throw err;
+          }
+        } else {
+          // Fallback: Only log to console in development when Resend is NOT configured
+          if (process.env.NODE_ENV === "development") {
+            console.warn("\n" + "=".repeat(80));
+            console.warn("[AUTH WARNING] Email delivery disabled — console fallback active");
+            console.warn("=".repeat(80));
+            console.warn("DEV MAGIC LINK: " + url);
+            console.warn(`Email: ${identifier}`);
+            console.warn("Copy the URL above and paste it into your browser to sign in.");
+            console.warn(`Note: Email sending skipped (RESEND_API_KEY or EMAIL_FROM not configured)`);
+            console.warn("=".repeat(80) + "\n");
+          } else {
+            throw new Error("RESEND_API_KEY and EMAIL_FROM must be configured to send verification emails");
+          }
         }
       },
     }),

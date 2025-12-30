@@ -12,6 +12,9 @@ interface OBDPageContainerProps {
   onThemeToggle: () => void;
   title: string;
   tagline: string;
+  // Optional controlled theme props (for persisted theme)
+  theme?: "light" | "dark";
+  onThemeChange?: (next: "light" | "dark") => void;
 }
 
 export default function OBDPageContainer({
@@ -20,15 +23,28 @@ export default function OBDPageContainer({
   onThemeToggle,
   title,
   tagline,
+  theme: controlledTheme,
+  onThemeChange,
 }: OBDPageContainerProps) {
-  const theme = getThemeClasses(isDark);
+  // Use controlled theme if provided, otherwise use isDark prop (backward compatible)
+  const effectiveIsDark = controlledTheme ? controlledTheme === "dark" : isDark;
+  const theme = getThemeClasses(effectiveIsDark);
+
+  // Handle theme toggle: prefer onThemeChange if provided, otherwise use onThemeToggle
+  const handleThemeToggle = () => {
+    if (onThemeChange && controlledTheme) {
+      onThemeChange(controlledTheme === "light" ? "dark" : "light");
+    } else {
+      onThemeToggle();
+    }
+  };
 
   return (
-    <main className={`${getPageBackground(isDark)} transition-colors`}>
+    <main className={`${getPageBackground(effectiveIsDark)} transition-colors`}>
       <div className={CONTAINER_WIDTH}>
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Sidebar */}
-          <OBDAppSidebar isDark={isDark} />
+          <OBDAppSidebar isDark={effectiveIsDark} />
 
           {/* Main Content */}
           <section className="flex-1">
@@ -36,7 +52,7 @@ export default function OBDPageContainer({
             <div className="mb-4">
               <Link
                 href="/"
-                className={getBreadcrumbClasses(isDark)}
+                className={getBreadcrumbClasses(effectiveIsDark)}
               >
                 ← Dashboard
               </Link>
@@ -51,7 +67,7 @@ export default function OBDPageContainer({
             </p>
 
             {/* Theme toggle */}
-            <ThemeToggle isDark={isDark} onToggle={onThemeToggle} />
+            <ThemeToggle isDark={effectiveIsDark} onToggle={handleThemeToggle} />
 
             {/* Page content */}
             {children}

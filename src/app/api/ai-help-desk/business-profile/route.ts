@@ -60,7 +60,10 @@ export async function GET(request: NextRequest) {
       websiteUrl,
     });
   } catch (error) {
-    return handleApiError(error, "ai-help-desk.business-profile.get");
+    apiLogger.error("ai-help-desk.business-profile.get", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return handleApiError(error);
   }
 }
 

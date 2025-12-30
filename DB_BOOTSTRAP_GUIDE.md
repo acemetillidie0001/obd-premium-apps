@@ -25,18 +25,55 @@
 
 ---
 
+## Database URL Configuration
+
+### Two Database URLs Required
+
+This project uses **two separate database URL environment variables** for different purposes:
+
+1. **`DATABASE_URL`** - Used by Next.js runtime (application code)
+   - May be `prisma+postgres://...` (Prisma Accelerate/Data Proxy) for optimized queries
+   - May be direct `postgresql://...` connection string
+   - Used for all runtime database operations via Prisma Client
+   - Set in `.env.local` or Vercel environment variables
+   - **Runtime is completely isolated from CLI tool configuration**
+
+2. **`DATABASE_URL_DIRECT`** - Used by Prisma CLI tools only
+   - **MUST be** a direct `postgresql://...` connection string
+   - Required for: `prisma migrate`, `prisma studio`, `prisma db`, `prisma generate`
+   - Set in `.env` file at repo root
+   - **Prisma Studio does NOT support `prisma+postgres://` protocol**
+   - Used by `prisma/schema.prisma` datasource configuration
+
+### Why Two URLs?
+
+- **Prisma Accelerate/Data Proxy** (`prisma+postgres://`) optimizes runtime queries with connection pooling and caching
+- **Prisma CLI tools** (migrations, studio) require direct PostgreSQL connections and do not support Accelerate protocol
+- This separation allows using Accelerate in production for better performance while maintaining full CLI tool compatibility
+- Runtime and CLI operations are completely isolated - changes to one do not affect the other
+
+---
+
 ## Database Bootstrap Workflow
 
-### Step 1: Verify DATABASE_URL is Set
+### Step 1: Verify Environment Variables are Set
 
-**In Vercel:**
-1. Go to Project → Settings → Environment Variables
-2. Verify `DATABASE_URL` is set for **Production** environment
-3. Format should be: `postgresql://user:password@host:port/database?sslmode=require`
+**For Prisma CLI Operations (migrations, studio):**
+- **`DATABASE_URL_DIRECT`** must be in `.env` file at repo root
+- Format: `postgresql://user:password@host:port/database?sslmode=require`
+- Example: `postgresql://postgres:password@localhost:5432/mydb?sslmode=require`
 
-**Locally (if testing):**
+**For Next.js Runtime:**
+- **`DATABASE_URL`** in `.env.local` or Vercel environment variables
+- May be `prisma+postgres://...` (Accelerate) or direct `postgresql://...`
+- Example: `prisma+postgres://localhost:51213/?api_key=...` (Accelerate) or direct URL
+
+**Verification:**
 ```bash
-# Check if DATABASE_URL is in .env.local
+# Check if DATABASE_URL_DIRECT is in .env (for Prisma CLI)
+cat .env | grep DATABASE_URL_DIRECT
+
+# Check if DATABASE_URL is in .env.local (for Next.js runtime)
 cat .env.local | grep DATABASE_URL
 ```
 
@@ -80,6 +117,7 @@ npx prisma studio
 ```
 - Opens browser at `http://localhost:5555`
 - Check that `User`, `Account`, `Session`, `VerificationToken` tables exist
+- **Note:** Prisma Studio requires `DATABASE_URL_DIRECT` (direct `postgresql://` connection)
 
 **Option B: Using Railway Dashboard**
 1. Go to Railway Dashboard → Your Postgres Service
@@ -184,18 +222,29 @@ curl https://apps.ocalabusinessdirectory.com/api/auth/csrf
 
 ## Quick Reference Commands
 
+**Note:** All Prisma CLI commands below require `DATABASE_URL_DIRECT` in `.env` file (direct `postgresql://` connection).
+
 ```bash
-# Generate Prisma Client
+# Generate Prisma Client (uses DATABASE_URL_DIRECT from schema)
 npx prisma generate
+# Or use package.json script:
+pnpm db:generate
 
-# Deploy migrations (production-safe)
-npx prisma migrate deploy
-
-# View database in browser (local only)
-npx prisma studio
-
-# Check migration status
+# Check migration status (see which migrations are pending)
 npx prisma migrate status
+# Or use package.json script:
+pnpm db:status
+
+# Deploy migrations (production-safe, uses DATABASE_URL_DIRECT)
+npx prisma migrate deploy
+# Or use package.json script:
+pnpm db:deploy
+
+# View database in browser (local only, requires DATABASE_URL_DIRECT)
+npx prisma studio
+# Or use package.json script:
+pnpm db:studio
+# Note: Prisma Studio does NOT support prisma+postgres:// protocol
 
 # Reset database (⚠️ DESTRUCTIVE - only for development)
 npx prisma migrate reset
@@ -203,19 +252,139 @@ npx prisma migrate reset
 
 ---
 
+## Migration Safety and Recovery
+
+### When Prisma Studio Shows "No tables found"
+
+This typically means migrations have not been applied to your database.
+
+**Diagnostic Steps:**
+1. Check if `DATABASE_URL` is set:
+   ```bash
+   # Check .env file (for Prisma CLI/Studio)
+   cat .env | grep DATABASE_URL
+   ```
+2. Verify migration status:
+   ```bash
+   pnpm db:status
+   ```
+   - If pending migrations are shown, you need to deploy them
+   - If error connecting to database, check `DATABASE_URL` is correct
+
+**Recovery Steps:**
+1. **Deploy pending migrations:**
+   ```bash
+   pnpm db:deploy
+   ```
+   This applies all pending migrations without creating new migration files (production-safe).
+
+2. **Verify tables exist:**
+   ```bash
+   pnpm db:studio
+   ```
+   Should now show tables: `User`, `Account`, `Session`, `VerificationToken`, etc.
+
+3. **Check app startup logs:**
+   - App startup should log: `[DB Startup] DATABASE_URL present: YES`
+   - App startup should log: `[DB Startup] ✓ Database connection successful`
+   - App startup should log: `[DB Startup] ✓ Database tables found (migrations appear applied)`
+
+### Common Failure Scenarios and Fixes
+
+#### Scenario 1: DATABASE_URL_DIRECT Missing or Prisma+postgres Protocol Error
+**Symptoms:**
+- Prisma Studio shows "No tables found" or connection errors
+- Error: "The prisma+postgres protocol with localhost is not supported in Prisma Studio yet"
+- Migration commands fail with connection errors
+- App logs: `[DB Startup] DATABASE_URL_DIRECT present: NO`
+
+**Fix:**
+1. **Add `DATABASE_URL_DIRECT` to `.env` file:**
+   - Must be a direct `postgresql://` connection string (NOT `prisma+postgres://`)
+   - Format: `postgresql://user:password@host:port/database?sslmode=require`
+   - Example: `DATABASE_URL_DIRECT=postgresql://postgres:password@localhost:5432/mydb?sslmode=require`
+2. **Keep `DATABASE_URL` as-is:**
+   - `DATABASE_URL` may remain `prisma+postgres://...` (for Accelerate/Data Proxy)
+   - `DATABASE_URL` is used by Next.js runtime, not Prisma CLI
+3. **Verify both are set:**
+   ```bash
+   # Check DATABASE_URL_DIRECT (for Prisma CLI)
+   cat .env | grep DATABASE_URL_DIRECT
+   
+   # Check DATABASE_URL (for runtime)
+   cat .env.local | grep DATABASE_URL
+   ```
+
+#### Scenario 2: DATABASE_URL Missing for Runtime
+**Symptoms:**
+- App runtime database operations fail
+- App logs: `[DB Startup] DATABASE_URL present: NO`
+- API endpoints return database errors
+
+**Fix:**
+1. Ensure `DATABASE_URL` is in `.env.local` (for Next.js runtime)
+2. For production, ensure `DATABASE_URL` is set in Vercel environment variables
+3. Format: May be `prisma+postgres://...` (Accelerate) or direct `postgresql://...`
+
+#### Scenario 3: Migrations Not Applied
+**Symptoms:**
+- Prisma Studio shows "No tables found"
+- App logs: `[DB Startup] ⚠️  User table not found. Migrations may not be applied.`
+- `pnpm db:status` shows pending migrations
+
+**Fix:**
+```bash
+pnpm db:deploy
+```
+This applies all pending migrations to the database.
+
+#### Scenario 4: Wrong Database
+**Symptoms:**
+- Prisma Studio connects but shows wrong tables or no tables
+- App connects to different database than expected
+
+**Fix:**
+1. Verify `DATABASE_URL` points to the correct database
+2. Check environment variables are loaded correctly
+3. For production, verify Vercel environment variables are set for the correct environment (Production vs Preview)
+
+#### Scenario 5: Database Server Unreachable
+**Symptoms:**
+- Connection timeout errors
+- `[DB Startup] ⚠️  Database check failed: ECONNREFUSED`
+- Migration commands fail to connect
+
+**Fix:**
+1. Verify database server is running
+2. Check network connectivity
+3. Verify `DATABASE_URL` host and port are correct
+4. Check firewall rules if applicable
+
+#### Scenario 6: Authentication Failed
+**Symptoms:**
+- `[DB Startup] ⚠️  Database check failed: authentication failed`
+- Migration commands fail with authentication errors
+
+**Fix:**
+1. Verify `DATABASE_URL` credentials (username/password) are correct
+2. Check if database user has necessary permissions
+3. For production, verify Vercel environment variables are set correctly
+
+---
+
 ## Files Changed
 
 ### 1. `prisma/schema.prisma`
-**Change**: Added `url = env("DATABASE_URL")` to datasource block
+**Change**: Removed `url` from datasource block (Prisma 7.2.0 requirement when using `prisma.config.ts`)
 
 ```prisma
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")  // ← Added this line
+  // Note: URL is configured in prisma.config.ts, not here (Prisma 7.2.0 requirement)
 }
 ```
 
-**Why**: Prisma needs to know where to connect. This was missing and would cause connection issues.
+**Why**: Prisma 7.2.0 requires datasource URLs to be configured in `prisma.config.ts` when that file exists, not in `schema.prisma`. The URL (`DATABASE_URL_DIRECT`) is configured in `prisma.config.ts` for CLI operations, while `DATABASE_URL` (which may be `prisma+postgres://` for Accelerate) is used by the Next.js runtime.
 
 ---
 

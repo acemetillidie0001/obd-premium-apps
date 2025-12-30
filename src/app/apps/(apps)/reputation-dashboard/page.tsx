@@ -271,6 +271,7 @@ function SimpleBarChart({
 }
 
 export default function ReputationDashboardPage() {
+  const [mounted, setMounted] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -314,7 +315,7 @@ export default function ReputationDashboardPage() {
     rating: 5,
     reviewText: "",
     authorName: "",
-    reviewDate: new Date().toISOString().split("T")[0],
+    reviewDate: "", // Will be set after mount to avoid hydration mismatch
     responded: false,
     responseDate: "",
     responseText: "",
@@ -333,7 +334,15 @@ export default function ReputationDashboardPage() {
   // localStorage persistence
   const STORAGE_KEY = "reputation-dashboard-data";
 
+  // Set mounted flag and initialize client-only values after hydration
   useEffect(() => {
+    setMounted(true);
+    // Set reviewDate only after mount to avoid hydration mismatch
+    setNewReview((prev) => ({
+      ...prev,
+      reviewDate: prev.reviewDate || new Date().toISOString().split("T")[0],
+    }));
+    
     // Load from localStorage on mount
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -687,6 +696,12 @@ export default function ReputationDashboardPage() {
     >
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
+        {!mounted ? (
+          <div className="space-y-6">
+            <div className="h-8 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+            <div className="h-32 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+          </div>
+        ) : (
         <form onSubmit={handleSubmit}>
           <div className="space-y-6">
             {/* Business Info */}
@@ -939,6 +954,7 @@ export default function ReputationDashboardPage() {
             </button>
           </div>
         </form>
+        )}
       </OBDPanel>
 
       {/* Add Review Modal */}

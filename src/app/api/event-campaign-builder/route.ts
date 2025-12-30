@@ -1,6 +1,12 @@
 // src/app/api/event-campaign-builder/route.ts
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
 import OpenAI from "openai";
 import { z } from "zod";
 import {
@@ -8,58 +14,11 @@ import {
   EventCampaignResponse,
 } from "@/app/apps/event-campaign-builder/types";
 
+export const runtime = "nodejs";
+
 const isDev = process.env.NODE_ENV !== "production";
 
-// ---- RATE LIMITING ---- //
-
-interface RateLimitEntry {
-  count: number;
-  windowStart: number;
-}
-
-// Rate limit: IP -> { count, windowStart }
-const rateLimits = new Map<string, RateLimitEntry>();
-
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX_REQUESTS = 20; // per window per IP (higher than Google Business Pro since this is a premium feature)
-
-/**
- * Get client IP for rate limiting
- */
-function getClientIP(req: Request): string {
-  // Try various headers (for proxies, load balancers, etc.)
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-  const realIP = req.headers.get("x-real-ip");
-  if (realIP) {
-    return realIP.trim();
-  }
-  // Fallback (may not work in all environments)
-  return "global";
-}
-
-/**
- * Check rate limit for a client IP
- */
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimits.get(ip);
-
-  if (!entry || now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
-    // New window or expired window
-    rateLimits.set(ip, { count: 1, windowStart: now });
-    return true;
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
-    return false; // Rate limit exceeded
-  }
-
-  entry.count++;
-  return true;
-}
+// Rate limiting is handled by shared utility (src/lib/api/rateLimit.ts)
 
 // TODO: Paste your full system prompt here (the big one we wrote)
 const SYSTEM_PROMPT = `You are an expert event marketing copywriter for local businesses in Ocala, Florida.
@@ -505,8 +464,15 @@ function errorResponse(
 // ---- MAIN HANDLER ---- //
 
 export async function POST(req: Request) {
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
+
+  apiLogger.info("event-campaign-builder.request.start");
+
   try {
     if (!process.env.OPENAI_API_KEY) {
+      apiLogger.error("event-campaign-builder.openai-key-missing");
       return errorResponse(
         "Server is not configured with an OpenAI API key.",
         500,
@@ -521,9 +487,7 @@ export async function POST(req: Request) {
     // 1) Validate and normalize input
     const parsed = eventCampaignFormSchema.safeParse(json);
     if (!parsed.success) {
-      return errorResponse("Please fix the highlighted form errors.", 400, {
-        issues: parsed.error.format(),
-      });
+      return validationErrorResponse(parsed.error);
     }
 
     const formValues = normalizeFormValues(parsed.data);
@@ -544,12 +508,9 @@ export async function POST(req: Request) {
     }
 
     // 3) Rate limiting check
-    const clientIP = getClientIP(req);
-    if (!checkRateLimit(clientIP)) {
-      return errorResponse(
-        "Rate limit exceeded. Please try again in a few minutes.",
-        429,
-      );
+    const rateLimitCheck = await checkRateLimit(req);
+    if (rateLimitCheck) {
+      return rateLimitCheck;
     }
 
     // 4) Calculate dynamic token limit based on language and channels
@@ -565,11 +526,12 @@ export async function POST(req: Request) {
     // - max_tokens: Dynamic (2200 for standard, 3000 for bilingual + email/SMS)
     // - response_format: json_object (ensures strict JSON output, reduces parsing errors)
     const openai = getOpenAIClient();
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.7, // Slightly more deterministic than 0.8
-      max_tokens: maxTokens,
-      messages: [
+    const completion = await withOpenAITimeout(async (signal) => {
+      return openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0.7, // Slightly more deterministic than 0.8
+        max_tokens: maxTokens,
+        messages: [
         {
           role: "system",
           content: SYSTEM_PROMPT,
@@ -579,13 +541,15 @@ export async function POST(req: Request) {
           content: JSON.stringify(formValues),
         },
       ],
-      response_format: {
-        type: "json_object", // Enforces JSON-only output, reduces markdown wrapping issues
-      },
+        response_format: {
+          type: "json_object", // Enforces JSON-only output, reduces markdown wrapping issues
+        },
+      }, { signal });
     });
 
     const rawContent = completion.choices[0]?.message?.content;
     if (!rawContent) {
+      apiLogger.error("event-campaign-builder.openai-empty-response");
       return errorResponse(
         "The AI did not return any content. Please try again.",
         500,
@@ -607,17 +571,85 @@ export async function POST(req: Request) {
       );
     }
 
+    // Pre-process the response to handle common AI response issues with optional fields
+    // Convert null values to undefined for optional fields (schema expects undefined, not null)
+    if (parsedResponse && typeof parsedResponse === 'object' && 'assets' in parsedResponse) {
+      const assets = (parsedResponse as any).assets;
+      if (assets) {
+        // Handle SMS field
+        if ('smsBlasts' in assets) {
+          if (assets.smsBlasts === null) {
+            delete assets.smsBlasts;
+          } else if (!Array.isArray(assets.smsBlasts)) {
+            assets.smsBlasts = typeof assets.smsBlasts === 'string' ? [assets.smsBlasts] : [];
+          }
+        }
+        
+        // Handle emailAnnouncement field - convert null to undefined
+        if ('emailAnnouncement' in assets && assets.emailAnnouncement === null) {
+          delete assets.emailAnnouncement;
+        }
+        
+        // Handle imageCaption field - convert null to undefined
+        if ('imageCaption' in assets && assets.imageCaption === null) {
+          delete assets.imageCaption;
+        }
+      }
+    }
+
     const validated = eventCampaignResponseSchema.safeParse(parsedResponse);
     if (!validated.success) {
+      // Log validation errors for debugging
+      apiLogger.error("event-campaign-builder.validation-failed", {
+        errorCount: validated.error.issues.length,
+        errorPaths: validated.error.issues.slice(0, 5).map(issue => issue.path.join('.')),
+        responseLength: rawContent.length,
+      });
+      
+      // Try to provide a more helpful error message by identifying the issue
+      const errorIssues = validated.error.issues;
+      const errorPaths: string[] = [];
+      
+      errorIssues.forEach(issue => {
+        const path = issue.path.join('.') || 'root';
+        errorPaths.push(path);
+      });
+      
+      // Build detailed error message with specific field issues
+      const firstFewIssues = validated.error.issues.slice(0, 3);
+      let detailedError = "The AI response was not in the expected format.\n";
+      
+      firstFewIssues.forEach((issue, idx) => {
+        const path = issue.path.join('.') || 'root';
+        detailedError += `\n${idx + 1}. Field "${path}": ${issue.message}`;
+      });
+      
+      if (validated.error.issues.length > 3) {
+        detailedError += `\n... and ${validated.error.issues.length - 3} more issue(s)`;
+      }
+      
+      detailedError += "\n\nPlease try again.";
+      
+      // Always include debug info in development, but also include a summary in production
+      const debugInfo = {
+        validationIssues: validated.error.format(),
+        errorPaths: errorPaths.slice(0, 10),
+        parsedKeys: Object.keys(parsedResponse as Record<string, unknown>),
+        rawContentPreview: rawContent.substring(0, 1000), // First 1000 chars
+        topIssues: firstFewIssues.map(issue => ({
+          path: issue.path.join('.') || 'root',
+          message: issue.message,
+          code: issue.code,
+        })),
+      };
+      
       return errorResponse(
-        "The AI response was not in the expected format. Please try again.",
+        detailedError,
         500,
-        isDev
-          ? {
-              validationIssues: validated.error.format(),
-              rawContent,
-            }
-          : undefined,
+        isDev ? debugInfo : { 
+          errorPaths: errorPaths.slice(0, 5),
+          topIssues: debugInfo.topIssues,
+        },
       );
     }
 
@@ -643,62 +675,31 @@ export async function POST(req: Request) {
         emailAnnouncement: formValues.includeEmail
           ? assets.emailAnnouncement
           : undefined,
-        smsBlasts: formValues.includeSms ? assets.smsBlasts ?? [] : undefined,
+        smsBlasts: formValues.includeSms 
+          ? (assets.smsBlasts && Array.isArray(assets.smsBlasts) ? assets.smsBlasts : [])
+          : undefined,
         imageCaption: formValues.includeImageCaption
           ? assets.imageCaption
           : undefined,
       },
     };
 
-    return NextResponse.json(
-      {
-        ok: true,
-        data: enforcedResult,
+    apiLogger.info("event-campaign-builder.request.success", {
+      channelsEnabled: {
+        facebook: formValues.includeFacebook,
+        instagram: formValues.includeInstagram,
+        x: formValues.includeX,
+        googleBusiness: formValues.includeGoogleBusiness,
+        email: formValues.includeEmail,
+        sms: formValues.includeSms,
       },
-      { status: 200 },
-    );
-  } catch (err: unknown) {
-    console.error("Event Campaign Builder error:", err);
+    });
 
-    // Handle specific OpenAI API errors
-    if (err instanceof OpenAI.APIError) {
-      return errorResponse(
-        `OpenAI API error: ${err.message}`,
-        500,
-        isDev
-          ? {
-              code: err.code,
-              type: err.type,
-              status: err.status,
-            }
-          : undefined,
-      );
-    }
-
-    // Handle network/timeout errors
-    const errName = err instanceof Error && "name" in err ? (err as Error & { name?: string }).name : undefined;
-    const errCode = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
-    if (errName === "AbortError" || errCode === "ECONNABORTED") {
-      return errorResponse(
-        "Request timed out. Please try again.",
-        504,
-      );
-    }
-
-    // Generic fallback
-    const errMessage = err instanceof Error ? err.message : String(err);
-    const errStack = err instanceof Error ? err.stack : undefined;
-    const errNameForDev = err instanceof Error ? err.name : undefined;
-    return errorResponse(
-      "Something went wrong while generating your event campaign.",
-      500,
-      isDev
-        ? {
-            message: errMessage,
-            stack: errStack,
-            name: errNameForDev,
-          }
-        : undefined,
-    );
+    return apiSuccessResponse(enforcedResult);
+  } catch (error) {
+    apiLogger.error("event-campaign-builder.request.error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return handleApiError(error);
   }
 }

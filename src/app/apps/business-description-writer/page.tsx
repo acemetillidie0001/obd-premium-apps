@@ -150,22 +150,22 @@ export default function BusinessDescriptionWriterPage() {
         body: JSON.stringify(apiPayload),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json();
-      // Handle both wrapped (data.result) and unwrapped (data) responses
-      const response: BusinessDescriptionResponse = (data as { result?: BusinessDescriptionResponse }).result || data;
+      // Handle standardized response format: { ok: true, data: BusinessDescriptionResponse }
+      const response: BusinessDescriptionResponse = jsonResponse.data || jsonResponse;
       setResult(response);
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while generating the description. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
       setResult(null);
     } finally {
       setLoading(false);
@@ -176,7 +176,7 @@ export default function BusinessDescriptionWriterPage() {
     e.preventDefault();
 
     if (!formValues.businessName.trim()) {
-      alert("Please enter a business name");
+      setError("Please enter a business name to continue.");
       return;
     }
 

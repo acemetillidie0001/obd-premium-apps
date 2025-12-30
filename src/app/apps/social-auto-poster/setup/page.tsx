@@ -10,6 +10,7 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { mapMetaError, mapCallbackError } from "@/lib/apps/social-auto-poster/metaErrorMapper";
 import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { isMetaReviewMode } from "@/lib/premium-client";
 import type {
   SocialAutoposterSettings,
   PostingMode,
@@ -230,6 +231,12 @@ export default function SocialAutoPosterSetupPage() {
           setIsPremiumUser(true); // 404 means user is premium but no settings exist
           return;
         }
+        if (res.status === 503) {
+          // Service Unavailable - DB is down, don't treat as non-premium
+          setIsPremiumUser(null); // Keep as null to show neutral state
+          setError("Subscription status temporarily unavailable. Please try again later.");
+          return;
+        }
         if (res.status === 403) {
           setIsPremiumUser(false);
           setError("Premium access required. Please upgrade to use Social Auto-Poster.");
@@ -244,8 +251,9 @@ export default function SocialAutoPosterSetupPage() {
       setIsPremiumUser(true); // Success means user is premium
     } catch (err) {
       console.error("Failed to load settings:", err);
+      // Network errors or other errors - don't assume user is non-premium
+      setIsPremiumUser(null);
       setError(err instanceof Error ? err.message : "Failed to load settings");
-      // Don't set premium status on error - let it remain null
     } finally {
       setLoading(false);
     }
@@ -699,8 +707,8 @@ export default function SocialAutoPosterSetupPage() {
                   Connect your Facebook and Instagram accounts to enable automatic posting.
                 </p>
 
-                {/* Non-premium users: Show upgrade prompt */}
-                {isPremiumUser === false ? (
+                {/* Non-premium users: Show upgrade prompt (unless review mode) */}
+                {isPremiumUser === false && !isMetaReviewMode() ? (
                   <div className={`p-6 rounded-xl border ${
                     isDark 
                       ? "border-slate-700 bg-slate-800/50" 
@@ -729,6 +737,34 @@ export default function SocialAutoPosterSetupPage() {
                         >
                           Upgrade to Premium
                         </a>
+                      </div>
+                    </div>
+                  </div>
+                ) : isMetaReviewMode() && (isPremiumUser === false || isPremiumUser === null) ? (
+                  <div className={`p-4 rounded-xl border ${
+                    isDark 
+                      ? "border-yellow-700/50 bg-yellow-900/20 text-yellow-400" 
+                      : "border-yellow-200 bg-yellow-50 text-yellow-800"
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg">⚠️</span>
+                      <div className="text-sm">
+                        <div className="font-medium mb-1">Limited Review Mode</div>
+                        <div>Database temporarily unavailable — connection testing enabled for Meta App Review. Publishing remains gated by feature flag.</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : isPremiumUser === null ? (
+                  <div className={`p-4 rounded-xl border ${
+                    isDark 
+                      ? "border-slate-700 bg-slate-800/50 text-slate-300" 
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg">ℹ️</span>
+                      <div className="text-sm">
+                        <div className="font-medium mb-1">Subscription Status Unavailable</div>
+                        <div>Unable to verify subscription status. Please try again later.</div>
                       </div>
                     </div>
                   </div>

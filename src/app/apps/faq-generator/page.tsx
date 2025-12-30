@@ -228,20 +228,22 @@ export default function FAQGeneratorPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json();
-      setAiResponse(data.response || "Error generating FAQs");
+      // Handle standardized response format: { ok: true, data: { response: string } }
+      const responseData = jsonResponse.data || jsonResponse;
+      setAiResponse(responseData.response || "Error generating FAQs");
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while generating the FAQs. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
       setAiResponse("");
     } finally {
       setLoading(false);
@@ -252,7 +254,7 @@ export default function FAQGeneratorPage() {
     e.preventDefault();
     
     if (!topic.trim()) {
-      alert("Please enter a topic");
+      setError("Please enter a topic to generate your FAQs.");
       return;
     }
 

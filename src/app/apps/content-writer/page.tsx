@@ -189,21 +189,22 @@ export default function ContentWriterPage() {
         body: JSON.stringify(apiPayload),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json();
-      const response: ContentWriterResponse = data;
+      // Handle standardized response format: { ok: true, data: ContentWriterResponse }
+      const response: ContentWriterResponse = jsonResponse.data || jsonResponse;
       setContentResponse(response);
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong generating your content. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
       setContentResponse(null);
     } finally {
       setLoading(false);
@@ -214,7 +215,7 @@ export default function ContentWriterPage() {
     e.preventDefault();
 
     if (!formValues.topic.trim()) {
-      setError("Please enter a topic");
+      setError("Please enter a topic to generate your content.");
       return;
     }
 

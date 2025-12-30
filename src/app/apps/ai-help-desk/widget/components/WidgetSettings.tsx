@@ -412,7 +412,12 @@ export default function WidgetSettings({
             </button>
           </div>
           
-          {(showPreview || typeof window === "undefined" || window.innerWidth >= 768) && (
+          {(() => {
+            // Show preview on desktop by default, on mobile only if toggled
+            if (typeof window === "undefined") return true;
+            if (window.innerWidth >= 768) return true;
+            return showPreview;
+          })() && (
             <div className="relative">
               {/* Preview Container */}
               <div className={`relative ${isDark ? "bg-slate-900" : "bg-slate-100"} rounded-lg p-8 min-h-[400px]`}>

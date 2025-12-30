@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 import {
   OffersBuilderRequest,
   OffersBuilderResponse,
@@ -36,9 +45,10 @@ async function generateOffers(
   const userMessage = JSON.stringify(request, null, 2);
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
       {
         role: "system",
         content: `You are the **OBD Offers & Promotions Builder AI**, a specialist copywriter for the **Ocala Business Directory (OBD)**.
@@ -435,7 +445,9 @@ Your goal: Help Ocala businesses create high-converting promotions that feel aut
         content: `${userMessage}\n\nReturn ONLY JSON that matches the OffersBuilderResponse interface. Do not include markdown, commentary, or explanations.`,
       },
     ],
-    temperature: 0.7,
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+    }, { signal });
   });
 
   const rawResponse =
@@ -466,9 +478,9 @@ Your goal: Help Ocala businesses create high-converting promotions that feel aut
     const parsed: OffersBuilderResponse = JSON.parse(jsonString);
     return parsed;
   } catch (parseError) {
-    console.error("Failed to parse AI response as JSON:", parseError);
-    console.error("Raw response (first 500 chars):", rawResponse.substring(0, 500));
-    console.error("Cleaned JSON string (first 500 chars):", jsonString.substring(0, 500));
+    apiLogger.error("offers-builder.parse-error", {
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    });
     
     // In development, provide more context about the parse error
     const errorDetails = parseError instanceof Error ? parseError.message : String(parseError);
@@ -477,117 +489,79 @@ Your goal: Help Ocala businesses create high-converting promotions that feel aut
 }
 
 export async function POST(request: NextRequest) {
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
+
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
   try {
-    const body: OffersBuilderRequest = await request.json();
-
-    const {
-      businessName,
-      businessType,
-      services,
-      city,
-      state,
-      promoType,
-      promoDescription,
-      promoTitle,
-      offerValue,
-      offerCode,
-      startDate,
-      endDate,
-      goal,
-      targetAudience,
-      outputPlatforms,
-      brandVoice,
-      personalityStyle,
-      length,
-      language,
-      includeHashtags,
-      hashtagStyle,
-      variationsCount,
-      variationMode,
-    } = body;
-
-    // Validation - Required fields
-    if (!businessName?.trim()) {
+    const json = await request.json().catch(() => null);
+    if (!json) {
       return NextResponse.json(
-        { error: "Business name is required." },
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
 
-    if (!businessType?.trim()) {
-      return NextResponse.json(
-        { error: "Business type is required." },
-        { status: 400 }
-      );
+    // Validate request body
+    const parsed = offersBuilderRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
     }
 
-    if (!promoDescription?.trim()) {
-      return NextResponse.json(
-        { error: "Promotion description is required." },
-        { status: 400 }
-      );
-    }
+    const body = parsed.data;
 
-    if (!outputPlatforms || outputPlatforms.length === 0) {
+    // Schema validation ensures required fields are present
+    // Validate outputPlatforms if present (required by the interface)
+    if (!body.outputPlatforms || body.outputPlatforms.length === 0) {
       return NextResponse.json(
-        { error: "At least one output platform must be selected." },
+        { ok: false, error: "At least one output platform must be selected", code: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
 
     // Prepare request - convert empty strings to undefined for optional fields
     const offersRequest: OffersBuilderRequest = {
-      businessName: businessName.trim(),
-      businessType: businessType.trim(),
-      services: services || [],
-      city: city?.trim() || "Ocala",
-      state: state?.trim() || "Florida",
-      promoType: promoType || "Discount",
-      promoDescription: promoDescription.trim(),
-      promoTitle: promoTitle?.trim() || undefined,
-      offerValue: offerValue?.trim() || undefined,
-      offerCode: offerCode?.trim() || undefined,
-      startDate: startDate?.trim() || undefined,
-      endDate: endDate?.trim() || undefined,
-      goal: goal?.trim() || undefined,
-      targetAudience: targetAudience?.trim() || undefined,
-      outputPlatforms,
-      brandVoice: brandVoice?.trim() || undefined,
-      personalityStyle: personalityStyle || "None",
-      length: length || "Medium",
-      language: language || "English",
-      includeHashtags: includeHashtags ?? true,
-      hashtagStyle: hashtagStyle?.trim() || "Local",
-      variationsCount: Math.max(1, Math.min(5, variationsCount || 1)),
-      variationMode: variationMode || "Conservative",
-      wizardMode: body.wizardMode || false,
+      businessName: body.businessName.trim(),
+      businessType: body.businessType.trim(),
+      services: body.services || [],
+      city: body.city?.trim() || "Ocala",
+      state: body.state?.trim() || "Florida",
+      promoType: body.promoType,
+      promoDescription: body.promoDescription.trim(),
+      promoTitle: body.promoTitle?.trim() || undefined,
+      offerValue: body.offerValue?.trim() || undefined,
+      offerCode: body.offerCode?.trim() || undefined,
+      startDate: body.startDate?.trim() || undefined,
+      endDate: body.endDate?.trim() || undefined,
+      goal: body.goal?.trim() || undefined,
+      targetAudience: body.targetAudience?.trim() || undefined,
+      outputPlatforms: body.outputPlatforms,
+      brandVoice: body.brandVoice?.trim() || undefined,
+      personalityStyle: body.personalityStyle || "None",
+      length: body.length || "Medium",
+      language: body.language || "English",
+      includeHashtags: body.includeHashtags ?? true,
+      hashtagStyle: body.hashtagStyle?.trim() || "Local",
+      variationsCount: Math.max(1, Math.min(5, body.variationsCount || 1)),
+      variationMode: body.variationMode || "Conservative",
+      wizardMode: body.wizardMode ?? false,
     };
 
     const aiResponse = await generateOffers(offersRequest);
 
-    return NextResponse.json(aiResponse);
+    apiLogger.info("offers-builder.request.success", {
+      promoType: offersRequest.promoType,
+      platforms: offersRequest.outputPlatforms?.length || 0,
+    });
+    return apiSuccessResponse(aiResponse);
   } catch (error) {
-    console.error("OffersBuilder API Error:", error);
-    
-    // Provide detailed error message in development, generic in production
-    let errorMessage = "Something went wrong.";
-    if (error instanceof Error) {
-      errorMessage = process.env.NODE_ENV === "development" 
-        ? error.message 
-        : "Something went wrong.";
-      // Log full error details for debugging
-      console.error("Full error details:", {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-      });
-    }
-    
-    return NextResponse.json(
-      {
-        error: errorMessage,
-      },
-      { status: 500 }
-    );
+    apiLogger.error("offers-builder.request.error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return handleApiError(error);
   }
 }

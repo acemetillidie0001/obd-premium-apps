@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { OBD_APPS, AppCategory } from "@/lib/obd-framework/apps.config";
 import { getAppIcon } from "@/lib/obd-framework/app-icons";
 import { getAppPreview } from "@/lib/obd-framework/app-previews";
+import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 
 const DASHBOARD_SECTIONS: { id: AppCategory; title: string; tagline: string }[] = [
   { id: "content", title: "Content & Writing Tools", tagline: "Create descriptions, posts, FAQs, and content tailored to Ocala customers." },
@@ -16,8 +16,7 @@ const DASHBOARD_SECTIONS: { id: AppCategory; title: string; tagline: string }[] 
 ];
 
 export default function HomeClient() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+  const { theme, isDark, toggleTheme } = useOBDTheme();
 
   const pageBg = isDark ? "bg-slate-950" : "bg-slate-50";
   const panelBg = isDark ? "bg-gradient-to-b from-slate-900/95 to-slate-950" : "bg-white";
@@ -45,7 +44,7 @@ export default function HomeClient() {
         <div className="mt-4 flex justify-center">
           <button
             type="button"
-            onClick={() => setTheme(isDark ? "light" : "dark")}
+            onClick={toggleTheme}
             className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs font-medium shadow-sm transition ${
               isDark
                 ? "border-slate-700 bg-slate-800/80 text-slate-200 hover:bg-slate-800"

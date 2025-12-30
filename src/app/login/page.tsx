@@ -9,7 +9,15 @@ export default async function LoginPage({
 }) {
   // Server-side check: Only redirect if session is definitively authenticated (has email)
   // This prevents redirect loops by ensuring we only redirect when we have a valid, complete session
-  const session = await auth();
+  let session;
+  try {
+    session = await auth();
+  } catch (error) {
+    // If auth() fails (e.g., JWTSessionError from invalid cookies), treat as not authenticated
+    // This allows the login page to render instead of crashing
+    console.warn("[LoginPage] Auth check failed, treating as unauthenticated:", error instanceof Error ? error.message : String(error));
+    session = null;
+  }
   if (session?.user?.email) {
     // Get callbackUrl, but never redirect to /login or /login/* paths
     const callbackUrl = searchParams.callbackUrl || searchParams.next || "/";

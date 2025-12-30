@@ -1,5 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface ImageCaptionRequest {
   businessName?: string;
@@ -48,6 +57,28 @@ interface ImageCaptionResponse {
   };
 }
 
+// Zod schema for request validation
+const imageCaptionRequestSchema = z.object({
+  businessName: z.string().max(200).optional(),
+  businessType: z.string().max(200).optional(),
+  services: z.union([z.string().max(1000), z.array(z.string()).max(50)]).optional(),
+  city: z.string().max(100).optional(),
+  state: z.string().max(100).optional(),
+  imageContext: z.string().min(1, "Image context is required").max(1000),
+  imageDetails: z.string().max(1000).optional(),
+  platform: z.enum(["Facebook", "Instagram", "InstagramStory", "GoogleBusinessProfile", "X", "Generic"]).optional(),
+  goal: z.enum(["Awareness", "Promotion", "Event", "Testimonial", "BehindTheScenes", "Educational"]).optional(),
+  callToActionPreference: z.enum(["Soft", "Direct", "None"]).optional(),
+  brandVoice: z.string().max(1000).optional(),
+  personalityStyle: z.enum(["Soft", "Bold", "High-Energy", "Luxury", ""]).optional(),
+  captionLength: z.enum(["Short", "Medium", "Long"]).optional(),
+  includeHashtags: z.boolean().optional(),
+  hashtagStyle: z.enum(["Local", "Branded", "Mixed"]).optional(),
+  variationsCount: z.number().int().min(1).max(5).optional(),
+  variationMode: z.enum(["Safe", "Creative", "Storytelling", "Punchy"]).optional(),
+  language: z.enum(["English", "Spanish", "Bilingual"]).optional(),
+});
+
 async function generateImageCaptions(request: ImageCaptionRequest): Promise<ImageCaptionResponse> {
   // Normalize services to string
   const servicesStr = Array.isArray(request.services)
@@ -79,12 +110,13 @@ async function generateImageCaptions(request: ImageCaptionRequest): Promise<Imag
   const userMessage = fields.join("\n");
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `You are **OBD AI Image Caption Generator V3**, a specialized caption writer for the Ocala Business Directory (OBD). Your job is to create on-brand, high-converting image captions for local Ocala businesses, ready to paste into Facebook, Instagram, Google Business Profile, and X.
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are **OBD AI Image Caption Generator V3**, a specialized caption writer for the Ocala Business Directory (OBD). Your job is to create on-brand, high-converting image captions for local Ocala businesses, ready to paste into Facebook, Instagram, Google Business Profile, and X.
 
 You ALWAYS follow:
 - The JSON input format
@@ -420,9 +452,11 @@ FIELDS:
 4. Return:
    - One valid JSON object following the exact OUTPUT FORMAT above.`,
       },
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.7,
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.7,
+      response_format: { type: "json_object" },
+    }, { signal });
   });
 
   const rawResponse =
@@ -447,22 +481,44 @@ FIELDS:
     const parsed: ImageCaptionResponse = JSON.parse(jsonString);
     return parsed;
   } catch (parseError) {
-    console.error("Failed to parse AI response as JSON:", parseError);
-    console.error("Raw response:", rawResponse);
+    apiLogger.error("image-caption-generator.parse-error", {
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    });
     throw new Error("Invalid JSON response from AI");
   }
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: ImageCaptionRequest = await request.json();
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
 
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
+  try {
+    const json = await request.json().catch(() => null);
+    if (!json) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
+        { status: 400 }
+      );
+    }
+
+    // Validate request body
+    const parsed = imageCaptionRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
     const businessName = body.businessName?.trim();
     const businessType = body.businessType?.trim();
     const services = body.services;
     const city = body.city?.trim() || "Ocala";
     const state = body.state?.trim() || "Florida";
-    const imageContext = body.imageContext?.trim();
+    const imageContext = body.imageContext.trim();
     const imageDetails = body.imageDetails?.trim();
     const platform = body.platform || "Generic";
     const goal = body.goal || "Awareness";
@@ -475,13 +531,6 @@ export async function POST(request: NextRequest) {
     const variationsCount = Math.min(Math.max(1, body.variationsCount || 3), 5);
     const variationMode = body.variationMode || "Safe";
     const language = body.language || "English";
-
-    if (!imageContext) {
-      return NextResponse.json(
-        { error: "Image context is required." },
-        { status: 400 }
-      );
-    }
 
     const aiResponse = await generateImageCaptions({
       businessName,
@@ -504,15 +553,8 @@ export async function POST(request: NextRequest) {
       language,
     });
 
-    return NextResponse.json(aiResponse);
+    return apiSuccessResponse(aiResponse);
   } catch (error) {
-    console.error("Error generating image captions:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating captions. Please try again later.",
-      },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

@@ -5,6 +5,26 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## AI Help Desk — V3 — 2025-01-XX
+
+**Status:** Production Ready
+
+### Enhancements
+
+- **Widget Live Preview:** Real-time preview of widget appearance with interactive bubble and mini widget window
+- **Widget Theme Presets:** Three styling options (Minimal, Bold, Clean) for widget customization
+- **Brand Color Auto-Sync:** Toggle to automatically sync widget color with OBD brand color
+- **Assistant Avatar Enhancements:** Complete avatar management with tooltip, quick-fill, and initials fallback
+- **Website Import Polish:** Drag-and-drop URLs, recent URLs storage, autofill from business profile
+- **UX Copy Updates:** Friendlier messaging for business connection warnings and CTAs
+
+### Technical
+
+- Fixed TypeScript error in business profile API route
+- Improved preview window mobile responsiveness
+- Enhanced accessibility with proper ARIA labels and keyboard navigation
+- All changes backwards compatible (no breaking changes)
+
 ## Local Keyword Research Tool — V3.1 — 2025-12-29
 
 **Status:** Production Ready (Pre-Google Ads Live Metrics) — Google Ads Basic Access Pending

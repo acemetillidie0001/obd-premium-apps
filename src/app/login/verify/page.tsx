@@ -41,7 +41,11 @@ function VerifyContent() {
               )}
             </p>
             <p className="text-sm text-slate-500 mt-2">
-              If you don't see it, check spam or wait a minute.
+              {process.env.NODE_ENV === "development" ? (
+                "Check server logs for your magic link (development mode)."
+              ) : (
+                "If you don't see it, check spam or wait a minute."
+              )}
             </p>
           </div>
 

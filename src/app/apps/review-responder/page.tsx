@@ -194,21 +194,22 @@ export default function ReviewResponderPage() {
         body: JSON.stringify(values),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const data = await res.json() as ReviewResponderResponse;
-
+      // Handle standardized response format: { ok: true, data: ReviewResponderResponse }
+      const data = (jsonResponse.data || jsonResponse) as ReviewResponderResponse;
       setResult(data);
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong generating review responses. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -218,12 +219,12 @@ export default function ReviewResponderPage() {
     e.preventDefault();
 
     if (!formValues.businessName.trim() || !formValues.businessType.trim() || !formValues.reviewText.trim()) {
-      setError("Business name, business type, and review text are required");
+      setError("Please fill in the business name, business type, and review text to continue.");
       return;
     }
 
     if (formValues.reviewRating < 1 || formValues.reviewRating > 5) {
-      setError("Review rating must be between 1 and 5");
+      setError("Please select a review rating between 1 and 5 stars.");
       return;
     }
 

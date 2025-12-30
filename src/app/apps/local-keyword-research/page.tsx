@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
+import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { LocalKeywordLegend } from "@/components/obd/LocalKeywordLegend";
 import {
@@ -46,8 +47,7 @@ const defaultFormValues: LocalKeywordRequest = {
 };
 
 export default function LocalKeywordResearchPage() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+  const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
 
   const [form, setForm] = useState<LocalKeywordRequest>(defaultFormValues);
@@ -798,6 +798,8 @@ export default function LocalKeywordResearchPage() {
 
   return (
     <OBDPageContainer
+      theme={theme}
+      onThemeChange={setTheme}
       isDark={isDark}
       onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
       title="OBD Local Keyword Research Tool"

@@ -13,6 +13,17 @@ export function getDatabaseUrl(): string {
     throw new Error("DATABASE_URL environment variable is not set");
   }
 
+  // In development, if DATABASE_URL uses prisma+postgres:// (Accelerate/Data Proxy)
+  // but PrismaClient isn't configured with an adapter, use DATABASE_URL_DIRECT instead
+  if (
+    process.env.NODE_ENV === "development" &&
+    connectionString.startsWith("prisma+postgres://") &&
+    process.env.DATABASE_URL_DIRECT
+  ) {
+    console.log("[DB URL] Dev fallback: using DATABASE_URL_DIRECT for runtime");
+    connectionString = process.env.DATABASE_URL_DIRECT;
+  }
+
   // Track which parameters we're adding (for logging only)
   const hasSslmode = connectionString.includes("sslmode=");
   const hasConnectionLimit = connectionString.includes("connection_limit=");

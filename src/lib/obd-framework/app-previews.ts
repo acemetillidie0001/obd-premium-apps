@@ -58,9 +58,6 @@ export const appPreviews: Record<string, string> = {
   "light-crm":
     "Track leads, notes, and follow-ups in one simple dashboard. Manage customer relationships without the complexity of enterprise CRM systems—perfect for local businesses that need organization without overhead.",
   
-  "obd-chatbot":
-    "Add a smart assistant that answers questions, captures leads, and guides visitors. Provide instant support 24/7, qualify leads automatically, and improve customer satisfaction with AI-powered chat.",
-  
   "logo-generator":
     "Explore logo concepts and refinements designed for local Ocala brands. Generate professional logo options that reflect your brand identity, with variations and refinements based on your feedback.",
   

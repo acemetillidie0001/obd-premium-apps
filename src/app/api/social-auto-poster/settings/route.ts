@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { hasPremiumAccess } from "@/lib/premium";
+import { hasPremiumAccessSafe } from "@/lib/premium";
 import { Prisma } from "@prisma/client";
 import type {
   SaveSettingsRequest,
@@ -34,8 +34,24 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const hasAccess = await hasPremiumAccess();
-    if (!hasAccess) {
+    // Use safe premium check that distinguishes between "not premium" and "DB unavailable"
+    const premiumCheck = await hasPremiumAccessSafe();
+    if (!premiumCheck.ok) {
+      if (premiumCheck.error === "UNAVAILABLE") {
+        // DB unavailable - return 503 Service Unavailable, not 403 Forbidden
+        // This prevents UI from showing "Upgrade to Premium" CTA
+        return NextResponse.json(
+          { error: "Subscription status temporarily unavailable. Please try again later." },
+          { status: 503 }
+        );
+      }
+      // UNAUTHORIZED - user not logged in (shouldn't reach here due to auth check above)
+      return NextResponse.json(
+        { error: premiumCheck.message || "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    if (!premiumCheck.isPremium) {
       return NextResponse.json(
         { error: "Premium access required" },
         { status: 403 }
@@ -165,8 +181,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const hasAccess = await hasPremiumAccess();
-    if (!hasAccess) {
+    // Use safe premium check that distinguishes between "not premium" and "DB unavailable"
+    const premiumCheck = await hasPremiumAccessSafe();
+    if (!premiumCheck.ok) {
+      if (premiumCheck.error === "UNAVAILABLE") {
+        // DB unavailable - return 503 Service Unavailable, not 403 Forbidden
+        // This prevents UI from showing "Upgrade to Premium" CTA
+        return NextResponse.json(
+          { error: "Subscription status temporarily unavailable. Please try again later." },
+          { status: 503 }
+        );
+      }
+      // UNAUTHORIZED - user not logged in (shouldn't reach here due to auth check above)
+      return NextResponse.json(
+        { error: premiumCheck.message || "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    if (!premiumCheck.isPremium) {
       return NextResponse.json(
         { error: "Premium access required" },
         { status: 403 }

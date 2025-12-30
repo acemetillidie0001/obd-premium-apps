@@ -83,7 +83,7 @@ export default function ImageCaptionGeneratorPage() {
     setResult(null);
 
     if (!form.imageContext.trim()) {
-      setError("Image Context is required");
+      setError("Please describe your image so we can create the perfect caption.");
       return;
     }
 
@@ -107,23 +107,22 @@ export default function ImageCaptionGeneratorPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
+      const jsonResponse = await res.json();
+      
+      if (!res.ok || !jsonResponse.ok) {
+        const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+        const errorMessage = formatUserErrorMessage(null, jsonResponse, res.status);
+        throw new Error(errorMessage);
       }
 
-      const text = await res.text();
-      const cleaned = text.trim().replace(/^```json?/i, "").replace(/```$/, "").trim();
-      const json = JSON.parse(cleaned) as ImageCaptionResponse;
-
-      setResult(json);
+      // Handle standardized response format: { ok: true, data: ImageCaptionResponse }
+      const response: ImageCaptionResponse = jsonResponse.data || jsonResponse;
+      setResult(response);
     } catch (error) {
       console.error("Error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong generating captions. Please try again."
-      );
+      const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
+      const errorMessage = formatUserErrorMessage(error);
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

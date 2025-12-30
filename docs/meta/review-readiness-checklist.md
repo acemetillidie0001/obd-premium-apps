@@ -141,6 +141,41 @@ Example log format:
 
 ## Testing Checklist
 
+### Database & Infrastructure Verification
+
+1. [ ] **Prisma Studio loads tables:**
+   - Run: `pnpm db:studio`
+   - Verify tables are visible (User, SocialQueueItem, SocialAccountConnection, etc.)
+   - If "No tables found": 
+     - Check `DATABASE_URL` exists in `.env` file (required for Prisma CLI/Studio)
+     - Run: `pnpm db:status` to check migration status
+     - Run: `pnpm db:deploy` to apply pending migrations
+     - See `DB_BOOTSTRAP_GUIDE.md` for detailed recovery steps
+
+2. [ ] **DATABASE_URL is consistently available:**
+   - Verify `DATABASE_URL` is present in `.env` (for Prisma CLI/Studio)
+   - Verify `DATABASE_URL` is present in `.env.local` or Vercel env vars (for Next.js runtime)
+   - App startup logs should show: `[DB Startup] DATABASE_URL present: YES`
+   - If NO: Database operations will fail - set `DATABASE_URL` and restart
+
+3. [ ] **App loads premium state correctly:**
+   - Login as premium user
+   - Verify Social Auto-Poster setup page does NOT show "Upgrade to Premium" CTA
+   - If DB is unavailable: Should show "Subscription Status Unavailable" (neutral state, NOT upgrade CTA)
+   - Premium API endpoints should return 503 (Service Unavailable) on DB errors, not 403 (Forbidden)
+
+4. [ ] **Startup logs show database status:**
+   - Check terminal/Vercel logs for: `[DB Startup] DATABASE_URL present: YES`
+   - Check for: `[DB Startup] ✓ Database connection successful`
+   - Check for: `[DB Startup] ✓ Database tables found (migrations appear applied)`
+   - If warnings appear: Review `DB_BOOTSTRAP_GUIDE.md` for recovery steps
+
+5. [ ] **Data deletion page loads without DB errors:**
+   - Navigate to: `/data-deletion`
+   - Page should load (even if DB is unavailable)
+   - No 500 errors in console
+   - Page is static and does not require DB connection
+
 ### Local Testing
 1. [ ] Start local dev server: `pnpm dev`
 2. [ ] Navigate to setup page
@@ -160,6 +195,16 @@ Example log format:
 6. [ ] Verify activity log shows entries
 7. [ ] Test compliance links
 8. [ ] Verify feature flag banner (if disabled)
+9. [ ] **Verify publishing remains gated when `META_PUBLISHING_ENABLED=false`:**
+   - Test post should show feature flag error
+   - Scheduled posts should not publish
+   - Banner should be visible
+
+10. [ ] **Verify Meta review mode protection when DB is unavailable:**
+    - Set `META_REVIEW_MODE=true` in environment
+    - If DB is unavailable, Connect/Disconnect UI should still load
+    - Should show banner: "Limited Review Mode - Database temporarily unavailable"
+    - Publishing must remain gated by `META_PUBLISHING_ENABLED` (not affected by review mode)
 
 ---
 

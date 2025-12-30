@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
+import { requirePremiumAccess } from "@/lib/api/premiumGuard";
+import { checkRateLimit } from "@/lib/api/rateLimit";
+import { validationErrorResponse } from "@/lib/api/validationError";
+import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
+import { apiLogger } from "@/lib/api/logger";
+import { z } from "zod";
+
+export const runtime = "nodejs";
 
 interface BusinessDescriptionRequest {
   businessName: string;
@@ -37,6 +46,25 @@ interface BusinessDescriptionResponse {
   }>;
   metaDescription: string | null;
 }
+
+// Zod schema for request validation
+const businessDescriptionRequestSchema = z.object({
+  businessName: z.string().min(1, "Business name is required").max(200),
+  businessType: z.string().min(1, "Business type is required").max(200),
+  services: z.string().min(1, "Services are required").max(1000),
+  city: z.string().min(1, "City is required").max(100),
+  state: z.string().min(1, "State is required").max(100),
+  targetAudience: z.string().max(500).optional(),
+  uniqueSellingPoints: z.string().max(1000).optional(),
+  keywords: z.string().max(500).optional(),
+  brandVoice: z.string().max(1000).optional(),
+  personalityStyle: z.enum(["Soft", "Bold", "High-Energy", "Luxury"]).optional(),
+  writingStyleTemplate: z.enum(["Default", "Story-Driven", "SEO-Friendly", "Short & Punchy", "Luxury Premium"]).optional(),
+  includeFAQSuggestions: z.boolean().optional(),
+  includeMetaDescription: z.boolean().optional(),
+  descriptionLength: z.enum(["Short", "Medium", "Long"]).optional(),
+  language: z.string().max(50).optional(),
+});
 
 async function generateBusinessDescription({
   businessName,
@@ -78,9 +106,10 @@ async function generateBusinessDescription({
 
 
   const openai = getOpenAIClient();
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
+  const completion = await withOpenAITimeout(async (signal) => {
+    return openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
       {
         role: "system",
         content: `You are the **OBD AI Business Description Writer**, a specialist copywriter for the **Ocala Business Directory (OBD)**.
@@ -315,9 +344,11 @@ Rules:
 - If unsure about a detail, omit it instead of inventing specifics.
 `,
       },
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.6,
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.6,
+      response_format: { type: "json_object" },
+    }, { signal });
   });
 
   const rawResponse =
@@ -342,51 +373,48 @@ Rules:
     const parsed: BusinessDescriptionResponse = JSON.parse(jsonString);
     return parsed;
   } catch (parseError) {
-    console.error("Failed to parse AI response as JSON:", parseError);
-    console.error("Raw response:", rawResponse);
+    apiLogger.error("business-description-writer.parse-error", {
+      error: parseError instanceof Error ? parseError.message : String(parseError),
+    });
     throw new Error("Invalid JSON response from AI");
   }
 }
 
 export async function POST(request: NextRequest) {
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
+
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
   try {
-    const body: BusinessDescriptionRequest = await request.json();
-
-    const {
-      businessName,
-      businessType,
-      services,
-      city,
-      state,
-      targetAudience,
-      uniqueSellingPoints,
-      keywords,
-      brandVoice,
-      personalityStyle,
-      writingStyleTemplate,
-      includeFAQSuggestions,
-      includeMetaDescription,
-      descriptionLength,
-      language,
-    } = body as BusinessDescriptionRequest;
-
-    const businessNameTrimmed = businessName?.trim();
-    const businessTypeTrimmed = businessType?.trim();
-    const servicesTrimmed = services?.trim() || "";
-    const cityTrimmed = city?.trim() || "Ocala";
-    const stateTrimmed = state?.trim() || "Florida";
-    const targetAudienceTrimmed = targetAudience?.trim();
-    const uniqueSellingPointsTrimmed = uniqueSellingPoints?.trim();
-    const keywordsTrimmed = keywords?.trim();
-    const brandVoiceTrimmed = brandVoice?.trim();
-    const languageTrimmed = language?.trim() || "English";
-
-    if (!businessNameTrimmed || !businessTypeTrimmed) {
+    const json = await request.json().catch(() => null);
+    if (!json) {
       return NextResponse.json(
-        { error: "Business name and business type are required." },
+        { ok: false, error: "Invalid JSON body", code: "VALIDATION_ERROR" },
         { status: 400 }
       );
     }
+
+    // Validate request body
+    const parsed = businessDescriptionRequestSchema.safeParse(json);
+    if (!parsed.success) {
+      return validationErrorResponse(parsed.error);
+    }
+
+    const body = parsed.data;
+    const businessNameTrimmed = body.businessName.trim();
+    const businessTypeTrimmed = body.businessType.trim();
+    const servicesTrimmed = body.services.trim();
+    const cityTrimmed = body.city.trim();
+    const stateTrimmed = body.state.trim();
+    const targetAudienceTrimmed = body.targetAudience?.trim();
+    const uniqueSellingPointsTrimmed = body.uniqueSellingPoints?.trim();
+    const keywordsTrimmed = body.keywords?.trim();
+    const brandVoiceTrimmed = body.brandVoice?.trim();
+    const languageTrimmed = body.language?.trim() || "English";
 
     const aiResponse = await generateBusinessDescription({
       businessName: businessNameTrimmed,
@@ -398,24 +426,17 @@ export async function POST(request: NextRequest) {
       uniqueSellingPoints: uniqueSellingPointsTrimmed,
       keywords: keywordsTrimmed,
       brandVoice: brandVoiceTrimmed,
-      personalityStyle,
-      writingStyleTemplate: writingStyleTemplate || "Default",
-      includeFAQSuggestions: includeFAQSuggestions ?? false,
-      includeMetaDescription: includeMetaDescription ?? false,
-      descriptionLength: descriptionLength || "Medium",
+      personalityStyle: body.personalityStyle,
+      writingStyleTemplate: body.writingStyleTemplate || "Default",
+      includeFAQSuggestions: body.includeFAQSuggestions ?? false,
+      includeMetaDescription: body.includeMetaDescription ?? false,
+      descriptionLength: body.descriptionLength || "Medium",
       language: languageTrimmed,
     });
 
-    return NextResponse.json(aiResponse);
+    return apiSuccessResponse(aiResponse);
   } catch (error) {
-    console.error("Error generating business description:", error);
-    return NextResponse.json(
-      {
-        error:
-          "Something went wrong while generating a description. Please try again later.",
-      },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 

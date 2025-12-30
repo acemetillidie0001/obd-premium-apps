@@ -2,16 +2,17 @@
 
 import { getPanelClasses } from "@/lib/obd-framework/theme";
 
-interface OBDPanelProps {
+export type OBDPanelProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
   isDark: boolean;
-  className?: string;
-  id?: string;
-}
+};
 
-export default function OBDPanel({ children, isDark, className = "", id }: OBDPanelProps) {
+export default function OBDPanel({ children, isDark, className, ...props }: OBDPanelProps) {
+  const baseClasses = getPanelClasses(isDark);
+  const mergedClassName = className ? `${baseClasses} ${className}` : baseClasses;
+  
   return (
-    <div id={id} className={`${getPanelClasses(isDark)} ${className}`}>
+    <div {...props} className={mergedClassName}>
       {children}
     </div>
   );

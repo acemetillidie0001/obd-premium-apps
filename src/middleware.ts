@@ -11,6 +11,10 @@
  * - After login, / and /apps load successfully
  * 
  * HARDENED: Matcher excludes static assets and auth routes. Fail-open on errors.
+ * 
+ * TODO: Next.js 16+ deprecates "middleware" convention in favor of "proxy".
+ * This middleware handles auth/redirect logic (not just proxying), so migration
+ * should be evaluated carefully to ensure auth behavior is preserved.
  */
 
 import { NextResponse } from "next/server";

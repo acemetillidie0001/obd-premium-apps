@@ -37,6 +37,8 @@ export default function WebsiteImport({
   const [selectedPages, setSelectedPages] = useState<Set<number>>(new Set());
   const [importing, setImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState(false);
+  const [isAutofilled, setIsAutofilled] = useState(false);
+  const [hasUserTyped, setHasUserTyped] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   // Basic URL validation
@@ -55,6 +57,15 @@ export default function WebsiteImport({
     const newUrl = e.target.value;
     setUrl(newUrl);
     
+    // Mark that user has typed (so we don't overwrite their input)
+    if (!hasUserTyped && newUrl.trim()) {
+      setHasUserTyped(true);
+      // Clear autofilled state if user modifies the autofilled value
+      if (isAutofilled) {
+        setIsAutofilled(false);
+      }
+    }
+    
     // Clear previous errors
     setError(null);
     
@@ -69,6 +80,40 @@ export default function WebsiteImport({
       setUrlValidationError(null);
     }
   };
+
+  // Fetch business website URL on mount if available
+  useEffect(() => {
+    const fetchBusinessWebsite = async () => {
+      // Only fetch if URL is empty and user hasn't typed yet
+      if (url.trim() || hasUserTyped || !businessId.trim()) {
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/ai-help-desk/business-profile?businessId=${encodeURIComponent(businessId.trim())}`
+        );
+        const json = await res.json();
+
+        if (res.ok && json.ok && json.data?.websiteUrl) {
+          // Double-check URL is still empty (user hasn't typed while fetch was in progress)
+          setUrl((currentUrl) => {
+            if (!currentUrl.trim() && !hasUserTyped) {
+              setIsAutofilled(true);
+              return json.data.websiteUrl;
+            }
+            return currentUrl;
+          });
+        }
+      } catch (err) {
+        // Silently fail - this is a convenience feature
+        console.debug("Could not fetch business website URL:", err);
+      }
+    };
+
+    fetchBusinessWebsite();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]); // Only run when businessId changes (intentionally not including url/hasUserTyped to avoid re-fetching)
 
   // Autofocus the URL input when component mounts and is ready
   useEffect(() => {
@@ -290,6 +335,16 @@ export default function WebsiteImport({
           {urlValidationError ? (
             <p id="url-error" className={`text-sm mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
               {urlValidationError}
+            </p>
+          ) : isAutofilled && !hasUserTyped ? (
+            <p id="url-helper" className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+              <span className={isDark ? "text-[#29c4a9]" : "text-[#29c4a9]"}>
+                Prefilled from your business profile — you can change it.
+              </span>
+              {" "}
+              <span className={themeClasses.mutedText}>
+                We'll crawl up to 10 pages from the same domain.
+              </span>
             </p>
           ) : (
             <p id="url-helper" className={`text-sm mt-1 ${themeClasses.mutedText}`}>

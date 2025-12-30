@@ -5,7 +5,7 @@
  * Automatically filters out secrets, tokens, and PII.
  */
 
-type LogLevel = "info" | "warn" | "error";
+type LogLevel = "debug" | "info" | "warn" | "error";
 
 interface LogEntry {
   event: string;
@@ -95,6 +95,14 @@ function log(level: LogLevel, event: string, metadata?: Record<string, unknown>)
   const logData = sanitized && Object.keys(sanitized).length > 0 ? sanitized : undefined;
 
   switch (level) {
+    case "debug":
+      // Only log debug in development
+      if (process.env.NODE_ENV === "development" && logData) {
+        console.debug(logMessage, logData);
+      } else if (process.env.NODE_ENV === "development") {
+        console.debug(logMessage);
+      }
+      break;
     case "info":
       if (logData) {
         console.log(logMessage, logData);
@@ -123,6 +131,13 @@ function log(level: LogLevel, event: string, metadata?: Record<string, unknown>)
  * Structured logger for API routes
  */
 export const apiLogger = {
+  /**
+   * Log debug events (detailed diagnostics, only in development)
+   */
+  debug: (event: string, metadata?: Record<string, unknown>) => {
+    log("debug", event, metadata);
+  },
+
   /**
    * Log informational events (request start, successful operations)
    */

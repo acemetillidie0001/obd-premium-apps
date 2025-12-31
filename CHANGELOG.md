@@ -7,23 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## AI Help Desk — V3 — 2025-01-XX
 
-**Status:** Production Ready
+**Status:** ✅ Production Ready (STABLE / LIVE)
 
-### Enhancements
+### Core Features
 
-- **Widget Live Preview:** Real-time preview of widget appearance with interactive bubble and mini widget window
-- **Widget Theme Presets:** Three styling options (Minimal, Bold, Clean) for widget customization
-- **Brand Color Auto-Sync:** Toggle to automatically sync widget color with OBD brand color
-- **Assistant Avatar Enhancements:** Complete avatar management with tooltip, quick-fill, and initials fallback
-- **Website Import Polish:** Drag-and-drop URLs, recent URLs storage, autofill from business profile
-- **UX Copy Updates:** Friendlier messaging for business connection warnings and CTAs
+- **Knowledge Manager:** Complete CRUD for FAQs, Services, Policies, and Notes with tags, filtering, and search
+- **Insights Dashboard:** Question analytics, knowledge gap identification, and "Turn into FAQ" functionality
+- **Website Import:** Automated content extraction from websites (max 10 pages, same-domain) with preview and selection
+- **Website Chat Widget:** Fully embeddable AI chat widget with iframe and script embed options
+
+### Widget Enhancements
+
+- **Embed Code:** Both iframe (recommended) and script embed options with one-click copy
+- **Domain Allowlist:** Warn-only domain management (never blocks widget functionality)
+- **Analytics Tracking:** Non-blocking event tracking (`widget_open`, `message_sent`)
+- **Live Preview:** Real-time preview of widget appearance with interactive bubble and mini widget window
+- **Theme Presets:** Three styling options (Minimal, Bold, Clean) for widget customization
+- **Brand Color Auto-Sync:** Toggle to automatically sync widget color with OBD brand color (localStorage-based)
+- **Assistant Avatar:** Complete avatar management with tooltip, quick-fill, and initials fallback
+
+### Website Import Polish
+
+- **Drag-and-Drop URLs:** Drop URLs directly into input field
+- **Recent URLs:** Last 5 successfully used URLs stored and displayed as chips
+- **Autofill:** Automatically fills from business profile website URL (when available)
+- **Visual Feedback:** Drag-over highlight, error messages, helper text
+
+### Security & Stability
+
+- **SSRF Protection:** DNS rebinding protection, IP range blocking (IPv4/IPv6), metadata endpoint blocking
+- **Non-Blocking Design:** Widget loads and functions even if database/API unavailable
+- **Tenant Safety:** Strict business isolation, workspace mapping validation
+- **Rate Limiting:** In-memory rate limiting for widget endpoints
 
 ### Technical
 
-- Fixed TypeScript error in business profile API route
-- Improved preview window mobile responsiveness
-- Enhanced accessibility with proper ARIA labels and keyboard navigation
-- All changes backwards compatible (no breaking changes)
+- **Standardized API Responses:** All routes return consistent `ApiSuccessResponse` or `ApiErrorResponse`
+- **Error Handling:** Graceful degradation throughout, errors never block core functionality
+- **Accessibility:** Proper ARIA labels, keyboard navigation, screen reader support
+- **Database Schema:** Added `AiHelpDeskWidgetEvent` table and `allowedDomains` field (backwards compatible)
+- **Dynamic Routes:** Proper use of `force-dynamic` where prerender would be unsafe
+
+### Notes
+
+- All changes are backwards compatible (no breaking changes)
+- Empty domain allowlist means widget works everywhere (with optional warning)
+- Analytics failures never affect widget functionality
+- Production-ready with comprehensive audit completed
 
 ## Local Keyword Research Tool — V3.1 — 2025-12-29
 

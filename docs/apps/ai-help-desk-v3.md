@@ -330,6 +330,101 @@ The client normalizes responses from various AnythingLLM response shapes to a co
 - Validation via Zod schemas
 - Error responses never leak stack traces or internal details
 
+## Knowledge Manager
+
+### Overview
+
+The Knowledge Manager allows businesses to create, edit, and manage their help desk knowledge directly within OBD.
+
+### Entry Types
+
+- **FAQ:** Frequently asked questions
+- **Service:** Service descriptions
+- **Policy:** Business policies
+- **Note:** General notes
+
+### Features
+
+- **CRUD Operations:** Create, read, update, delete entries
+- **Tags:** Add tags to entries for organization
+- **Active/Inactive Toggle:** Control visibility
+- **Filtering:** Filter by type, search by title/content
+- **Empty States:** Helpful messaging when no entries exist
+
+### API Endpoints
+
+**GET** `/api/ai-help-desk/knowledge/list?businessId={id}&type={type}&search={query}&includeInactive={bool}`
+- Lists knowledge entries with filtering
+- Requires premium access
+
+**POST** `/api/ai-help-desk/knowledge/upsert`
+- Creates or updates an entry
+- Requires premium access
+- Body: `{ businessId, id?, title, content, type, tags?, active? }`
+
+**POST** `/api/ai-help-desk/knowledge/delete`
+- Deletes an entry
+- Requires premium access
+- Validates ownership before deletion
+
+## Insights Dashboard
+
+### Overview
+
+The Insights Dashboard provides analytics on questions asked and identifies knowledge gaps.
+
+### Features
+
+- **Question Logging:** All chat questions are logged to `AiHelpDeskQuestionLog`
+- **Source Tracking:** Logs `hasSources`, `sourcesCount`, `responseQuality`
+- **Top Questions:** Identifies frequently asked questions (top 20)
+- **Knowledge Gaps:** Highlights questions with no sources or low quality
+- **"Turn into FAQ":** Converts logged questions into FAQ entries
+- **Period Filtering:** 7/30/60/90 day periods
+
+### API Endpoints
+
+**GET** `/api/ai-help-desk/insights/summary?businessId={id}&period={days}`
+- Returns analytics summary
+- Requires premium access
+- Response: `{ totalQuestions, topQuestions[], knowledgeGaps[] }`
+
+## Website Import
+
+### Overview
+
+The Website Import feature allows businesses to import content from their websites into the knowledge base.
+
+### Features
+
+- **URL Input:** Enter website URL for crawling
+- **Safety Limits:** Max 10 pages, same-domain only
+- **Preferred Paths:** Prioritizes `/about`, `/services`, `/faq`, `/contact`, `/policies`
+- **Content Preview:** Shows extracted title and text snippets
+- **Manual Selection:** Choose which pages/sections to import
+- **Heuristic Categorization:** Suggests FAQ, SERVICE, POLICY, or NOTE types
+- **UX Enhancements:** Drag-and-drop URLs, recent URLs, autofill
+
+### API Endpoints
+
+**POST** `/api/ai-help-desk/import/preview`
+- Crawls URL and extracts content
+- Requires premium access
+- Body: `{ businessId, url }`
+- Response: `{ pages: [{ title, snippet, suggestedType, url }] }`
+
+**POST** `/api/ai-help-desk/import/commit`
+- Saves selected content as knowledge entries
+- Requires premium access
+- Body: `{ businessId, selections: [{ url, title, content, type }] }`
+
+### Safety
+
+- **SSRF Protection:** URL validation with DNS rebinding protection
+- **Same-Domain Restriction:** Only crawls pages from same domain
+- **Page Limit:** Maximum 10 pages per import
+- **Timeout Protection:** 10 seconds per page
+
 ## V4 Ideas (Future Enhancements)
 
 ### Content Ingestion UI

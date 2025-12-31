@@ -45,6 +45,14 @@ export const runtime = "nodejs";
 // Admin email allowlist for production access
 const ADMIN_EMAILS = ["scottbaxtermarketing@gmail.com"];
 
+// Standard error response type for API errors
+type ApiErrorResponse = {
+  ok: false;
+  error: string;
+  code: string;
+  details?: any;
+};
+
 type Check = {
   id: string;
   name: string;
@@ -99,7 +107,9 @@ type LegacyDbDoctorReport = {
   };
 };
 
-export async function GET(request: NextRequest): Promise<NextResponse<DbDoctorReport | LegacyDbDoctorReport>> {
+type DbDoctorResponse = DbDoctorReport | LegacyDbDoctorReport | ApiErrorResponse;
+
+export async function GET(request: NextRequest): Promise<NextResponse<DbDoctorResponse>> {
   console.log("CRM DB Doctor route hit");
   
   // Production access control: require admin session

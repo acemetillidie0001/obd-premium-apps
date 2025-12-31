@@ -268,6 +268,25 @@ You should:
 
 ---
 
+## 8.5. OBD CRM Integration
+
+**Status: Not applicable yet**
+
+The Event Campaign Builder currently does not capture or store person-level attendee/recipient information (name, email, phone). The app generates marketing content templates (social posts, email templates, SMS templates, etc.) but does not have functionality to:
+
+- Add or manage attendee lists
+- Send invites to recipients
+- Store recipient contact information
+- Track RSVPs or ticket sales
+
+As such, CRM integration with OBD CRM is **not applicable at this time**. If person-level attendee/recipient functionality is added in the future, CRM integration can be implemented at that point to:
+
+- Upsert contacts when attendees/recipients are added
+- Add activity notes when invites are sent
+- Tag contacts with event campaign information
+
+---
+
 ## 9. Changelog (high-level)
 
 _Add entries here when significant changes are made._

@@ -5,6 +5,112 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## OBD CRM — V3.1 (Hub + Premium UX + Notes/Activities + Follow-Ups + Queue View)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### 1) Reliability / Build Health
+
+- lint PASS, build PASS
+- Fixed null handling TypeScript error in `src/lib/apps/obd-crm/crmService.ts`
+- Added Suspense boundaries for `useSearchParams` in:
+  - `src/app/apps/obd-crm/page.tsx`
+  - `src/app/apps/ai-help-desk/page.tsx`
+  - `src/app/apps/offers-builder/page.tsx`
+  - `src/app/apps/social-auto-poster/composer/page.tsx`
+- Fixed ESLint config issue by adding `typescript-eslint` as dev dependency
+- Fixed ESLint errors (any types, unescaped entities) in social auto-poster setup/publishers and auth
+
+### 2) CRM Core
+
+- Contacts list + detail drawer UX improvements (sticky header, density toggle, quick actions)
+- Notes implemented as activity type "note" (newest-first, skeleton/empty states, inline errors)
+- Activities timeline (typed, datetime support, newest-first, skeleton/empty states, inline errors)
+- "Last Touch" column and live updates after adding note/activity
+
+### 3) Follow-Ups
+
+- Next Follow-Up field + optional note
+- Filters: All / Overdue / Due Today / Upcoming (7 days)
+- Badges: Today / Overdue
+- Snooze: +1 day / +1 week
+- Quick set: Tomorrow / Next week / Next month (client-side)
+- Follow-up counters strip (clickable)
+- Queue View toggle (Table ↔ Queue), grouped sections and sorting, queue snooze support
+
+### 4) UX / Polish
+
+- Empty + no-results states and microcopy improvements
+- Drawer animations, ESC close, click-outside close, scroll restore
+- Skeleton loaders (table + drawer + sections)
+- Status pills + tag chips with overflow tooltip
+- Mobile Quick Add FAB
+- Icon consistency + tooltips, subtle drawer gradient accent
+
+### 5) Integrations
+
+- CRM → Review Request Automation (prefill)
+- CRM → AI Help Desk (prefill + context indicator)
+- CRM → Social Auto-Poster (prefill)
+- CRM → Offers Builder (prefill)
+
+## OBD CRM — V3 — 2025-12-30
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Core Features
+
+- **Contacts Management:** Create, read, update, and delete contacts with name, email, phone, company, address
+- **Status Tracking:** Lead, Active, Past, DoNotContact status management
+- **Tagging System:** Many-to-many tags for flexible contact organization
+- **Notes & Activity Timeline:** Add timestamped notes to track customer relationships
+- **Search & Filtering:** Search by name/email/phone, filter by status or tags with debounced search
+- **CSV Export:** Export filtered contacts with all fields (name, email, phone, status, tags, source, company, address, dates)
+- **Last Note Preview:** Quick view of most recent note in contacts list table
+- **Contact Detail View:** Full contact information with edit mode, copy phone/email actions, and activity timeline
+
+### UX Enhancements
+
+- **Loading States:** Skeleton rows during data loading to prevent layout shift
+- **Empty States:** Context-aware empty state messages ("No contacts yet" vs "No results — try clearing filters")
+- **Tags Display:** Shows up to 2 tags inline with "+N" indicator for additional tags
+- **Status Badges:** Consistent OBD V3 styling for contact status indicators
+- **Keyboard Shortcuts:** Cmd/Ctrl+Enter to submit notes in contact detail view
+- **Copy Actions:** One-click copy for phone and email with visual feedback
+
+### Integration Hooks
+
+- **Service Module:** `src/lib/apps/obd-crm/crmService.ts` with reusable functions for cross-app integration
+- **Upsert Endpoint:** `POST /api/obd-crm/contacts/upsert` for external app integration (Scheduler, Help Desk, Review Automation)
+- **Source Tracking:** Supports manual, scheduler, reviews, helpdesk, import sources
+- **Automatic Tag Creation:** Tags can be created by name during upsert operations
+
+### Security & Data Integrity
+
+- **Premium Gating:** All API routes require premium access
+- **Business Scoping:** All operations scoped to authenticated user's business (businessId = userId in V3)
+- **Rate Limiting:** Rate limits applied to create/update/delete operations
+- **Validation:** Input validation with Zod schemas, email format validation, required field checks
+- **Cascade Rules:** Proper referential integrity with cascade deletes (contacts → activities/tags)
+
+### Technical
+
+- **Database Schema:** New models (CrmContact, CrmTag, CrmContactTag, CrmContactActivity) with proper indexes
+- **API Standards:** Consistent error handling and response formats across all routes
+- **TypeScript:** Full type safety with shared types in `src/lib/apps/obd-crm/types.ts`
+- **Performance:** Debounced search (250ms), efficient queries with proper indexes, last note preview included in list queries
+
+### Dev Tools
+
+- **Seed Demo Data:** Dev-only route `/api/obd-crm/dev/seed-demo-data` for quick test data generation (disabled in production)
+
+### Notes
+
+- All operations are business-scoped (no cross-business access possible)
+- Source tracking enables future integrations with Scheduler, Review Automation, and Help Desk
+- V3 structure supports future enhancements (pipelines, automations, email sync) while maintaining clear guardrails
+- Production-ready with comprehensive testing checklist
+
 ## AI Help Desk — V3 — 2025-01-XX
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

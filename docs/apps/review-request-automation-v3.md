@@ -654,6 +654,94 @@ When `from=rd` is present in the URL:
 - Highlight animation uses Tailwind ring utilities with timeout cleanup
 - Session storage for banner dismissal state
 
+## OBD CRM Integration
+
+Review Request Automation automatically syncs customer contacts and activity to OBD CRM (best-effort, non-blocking).
+
+### Integration Behavior
+
+**Best-Effort & Non-Blocking:**
+- CRM integration failures do not block review request sending or tracking
+- All CRM operations are wrapped in try/catch with error logging (dev-only)
+- Review request workflow continues even if CRM sync fails
+
+### Events That Trigger CRM Writes
+
+#### 1. Review Request Sent
+
+**Trigger:** When a review request email is successfully sent (via `/api/review-request-automation/send-email`)
+
+**CRM Actions:**
+- Upserts contact with:
+  - Source: `"reviews"`
+  - Tag: `"Review Request"`
+  - Name, email, phone from customer data
+- Adds activity note:
+  - Format: `"Review request sent via email on YYYY-MM-DD | Campaign: {campaign name}"`
+  - Includes campaign name if available
+
+**Skip Conditions:**
+- Contact is NOT created if:
+  - Name is missing, OR
+  - Both email and phone are missing
+
+#### 2. Review Received/Confirmed
+
+**Trigger:** When a customer confirms they left a review (via `/api/review-request-automation/reviewed`)
+
+**CRM Actions:**
+- Upserts contact with:
+  - Source: `"reviews"`
+  - Tag: `"Review Received"`
+  - Name, email, phone from customer data
+- Adds activity note:
+  - Format: `"Review received (confirmed by customer)"`
+  - Note: Rating and review text are not available at confirmation time
+
+**Skip Conditions:**
+- Contact is NOT created if:
+  - Name is missing, OR
+  - Both email and phone are missing
+
+### Tags Used
+
+- **`"Review Request"`**: Applied when a review request is sent
+- **`"Review Received"`**: Applied when a customer confirms they left a review
+
+### Note Formats
+
+**Review Request Sent:**
+```
+Review request sent via email on 2025-12-30 | Campaign: Acme Plumbing Services
+```
+
+**Review Received:**
+```
+Review received (confirmed by customer)
+```
+
+### Business Scoping
+
+- All CRM operations use the same `userId` as the review request automation app
+- Contacts are scoped to the authenticated user's business
+- No cross-business data leakage possible
+
+### Error Handling
+
+- CRM integration errors are logged only in development (`NODE_ENV !== "production"`)
+- Errors do not affect the review request workflow
+- Failed CRM syncs are silently skipped (best-effort pattern)
+
+### Technical Details
+
+**Service Module Used:**
+- `upsertContactFromExternalSource()` - Creates or updates contact
+- `addActivityNote()` - Adds activity timeline entry
+
+**Integration Points:**
+- `POST /api/review-request-automation/send-email` - After email sent successfully
+- `GET /api/review-request-automation/reviewed` - After review confirmation
+
 ## API
 
 ### POST `/api/review-request-automation`

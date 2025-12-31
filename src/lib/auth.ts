@@ -271,7 +271,7 @@ export const authConfig = {
             });
           } catch (err: unknown) {
             const error = err instanceof Error ? err : new Error(String(err));
-            const errorCode = (err as any)?.code ?? null;
+            const errorCode = (err as { code?: string | number } | undefined)?.code ?? null;
             console.error("[NextAuth Email] Failed to send verification email:", {
               area: "auth_email_send",
               message: error.message,
@@ -354,6 +354,7 @@ export const authConfig = {
       }
       
       // Refresh user data on session update
+      // Identity source: User model (NextAuth user table) - see prisma/schema.prisma
       if (trigger === "update") {
         try {
           const dbUser = await prisma.user.findUnique({

@@ -76,6 +76,7 @@ export async function hasPremiumAccessSafe(): Promise<PremiumCheckResult> {
     }
     
     // Try to verify premium status from DB (in case session is stale)
+    // Identity source: User model (NextAuth user table) - see prisma/schema.prisma
     try {
       const dbUser = await prisma.user.findUnique({
         where: { id: user.id },

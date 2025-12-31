@@ -615,3 +615,90 @@ model AiHelpDeskWidgetEvent {
   @@index([eventType])
   @@index([createdAt])
 }
+
+enum CrmContactStatus {
+  Lead
+  Active
+  Past
+  DoNotContact
+}
+
+enum CrmContactSource {
+  manual
+  scheduler
+  reviews
+  helpdesk
+  import
+}
+
+model CrmContact {
+  id              String           @id @default(cuid())
+  businessId      String
+  name            String
+  email           String?
+  phone           String?
+  company         String?
+  address         String?
+  status          CrmContactStatus @default(Lead)
+  source          CrmContactSource @default(manual)
+  nextFollowUpAt  DateTime?
+  nextFollowUpNote String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tags       CrmContactTag[]
+  activities CrmContactActivity[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, updatedAt])
+  @@index([businessId, name])
+  @@index([businessId, nextFollowUpAt])
+}
+
+model CrmTag {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  color      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  contacts CrmContactTag[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+model CrmContactTag {
+  id        String   @id @default(cuid())
+  contactId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     CrmTag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+}
+
+model CrmContactActivity {
+  id         String    @id @default(cuid())
+  contactId  String
+  businessId String
+  type       String    @default("note") // "note" or activity types: "CALL", "EMAIL", "TEXT", "MEETING", "TASK", "OTHER"
+  content    String?  @db.Text // For notes
+  summary    String?  @db.Text // For activities
+  occurredAt DateTime? // For activities (when the activity happened)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([businessId, occurredAt])
+}

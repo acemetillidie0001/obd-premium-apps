@@ -10,6 +10,7 @@
  */
 
 import { validatePrismaConnection, logConnectionDiagnostics } from "./dbValidation";
+import { prisma } from "./prisma";
 
 let startupCheckComplete = false;
 let startupCheckPromise: Promise<void> | null = null;
@@ -90,6 +91,59 @@ export async function runStartupChecks(): Promise<void> {
   })();
 
   return startupCheckPromise;
+}
+
+/**
+ * Dev-only Prisma model availability assertion
+ * 
+ * Verifies that required Prisma models are available after client initialization.
+ * Throws an error in development if any required models are missing.
+ * Does not run in production.
+ * 
+ * Required models:
+ * - prisma.user
+ * - prisma.crmContact
+ * - prisma.crmTag
+ * 
+ * @throws Error if any required model is missing (dev only)
+ */
+export function assertPrismaModelsAvailable(): void {
+  // Only run in development
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  const missingModels: string[] = [];
+  const requiredModels = [
+    { name: "user", path: "prisma.user" },
+    { name: "crmContact", path: "prisma.crmContact" },
+    { name: "crmTag", path: "prisma.crmTag" },
+  ];
+
+  // Check each required model
+  for (const model of requiredModels) {
+    const modelInstance = (prisma as any)[model.name];
+    if (!modelInstance || typeof modelInstance.findMany !== "function") {
+      missingModels.push(model.path);
+    }
+  }
+
+  // If any models are missing, throw a clear error
+  if (missingModels.length > 0) {
+    const missingList = missingModels.join(", ");
+    const errorMessage = `[Prisma Model Assertion] Missing required Prisma models: ${missingList}
+
+This usually means:
+1. Prisma client was not generated - run: npx prisma generate
+2. Database migrations were not applied - run: npx prisma migrate deploy
+3. Prisma schema is out of sync - check prisma/schema.prisma
+
+Required models: prisma.user, prisma.crmContact, prisma.crmTag
+Missing models: ${missingList}`;
+
+    console.error(errorMessage);
+    throw new Error(`Prisma models missing: ${missingList}. Run 'npx prisma generate' and ensure migrations are applied.`);
+  }
 }
 
 // Auto-run checks when module is imported (in Node.js runtime only)

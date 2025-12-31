@@ -223,7 +223,7 @@ export async function listBusinessLocations({
     }
 
     const locationsData = await locationsResponse.json();
-    const locations = (locationsData.locations || []).map((loc: any) => ({
+    const locations = ((locationsData.locations || []) as Array<{ name?: string; title?: string; storefrontAddress?: { addressLines?: string[] } }>).map((loc) => ({
       id: loc.name?.split("/").pop() || loc.name || "",
       name: loc.title || loc.storefrontAddress?.addressLines?.[0] || "Unnamed Location",
       address: loc.storefrontAddress?.addressLines?.join(", "),
@@ -296,7 +296,11 @@ export async function publishToGoogleBusiness({
     }
 
     // Build post payload
-    const postPayload: any = {
+    const postPayload: {
+      summary: string;
+      callToAction: { actionType: string; url: string };
+      media?: { mediaFormat: string; sourceUrl: string };
+    } = {
       summary: summaryText.substring(0, 1500), // GBP limit is 1500 chars
       callToAction: {
         actionType: "LEARN_MORE",

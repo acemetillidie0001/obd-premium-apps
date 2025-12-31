@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
@@ -8,6 +9,8 @@ import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
+import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import type {
   SearchResponse,
   ChatResponse,
@@ -63,9 +66,10 @@ type ConnectionStatus = "green" | "yellow" | "red" | "checking";
 
 const defaultBusinessId = "";
 
-export default function AIHelpDeskPage() {
+function AIHelpDeskPageContent() {
   const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
 
   // Setup state
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
@@ -138,6 +142,64 @@ export default function AIHelpDeskPage() {
     // Set dev mode flag (client-side only, safe to check on mount)
     setIsDevMode(process.env.NODE_ENV === "development");
   }, []);
+
+  // CRM integration state
+  const [crmContextLoaded, setCrmContextLoaded] = useState(false);
+  const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
+
+  // Handle CRM integration prefill
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined") {
+      const context = searchParams.get("context");
+      const fromCRM = searchParams.get("from") === "crm";
+      const contactId = searchParams.get("contactId");
+      const returnUrl = searchParams.get("returnUrl");
+      
+      // Store CRM return URL if valid
+      if (fromCRM && returnUrl && isValidReturnUrl(returnUrl)) {
+        setCrmReturnUrl(returnUrl);
+      } else {
+        setCrmReturnUrl(null);
+      }
+      
+      if (context === "crm") {
+        // Try to read prompt from sessionStorage first (privacy-friendly)
+        let prompt: string | null = null;
+        try {
+          const storedPrompt = sessionStorage.getItem("obd_ai_helpdesk_prefill_prompt");
+          const storedContactId = sessionStorage.getItem("obd_ai_helpdesk_prefill_contactId");
+          
+          // Verify contactId matches if both are present
+          if (storedPrompt && (!storedContactId || storedContactId === contactId)) {
+            prompt = storedPrompt;
+            // Remove from sessionStorage after reading (one-time use)
+            sessionStorage.removeItem("obd_ai_helpdesk_prefill_prompt");
+            sessionStorage.removeItem("obd_ai_helpdesk_prefill_contactId");
+          }
+        } catch (error) {
+          // Silently fail if sessionStorage is unavailable
+          console.warn("Failed to read prompt from sessionStorage:", error);
+        }
+        
+        // Fall back to query param if sessionStorage didn't have it (backward compatibility)
+        if (!prompt) {
+          prompt = searchParams.get("prompt");
+        }
+        
+        if (prompt) {
+          // Prefill chat input with prompt from CRM
+          setChatInput(prompt);
+          setCrmContextLoaded(true);
+          // Switch to chat mode if not already
+          if (viewMode !== "chat") {
+            setViewMode("chat");
+          }
+          // Switch to help-desk tab
+          setTabMode("help-desk");
+        }
+      }
+    }
+  }, [searchParams, viewMode]);
 
   // Check if current user is admin
   const checkAdminStatus = async () => {
@@ -515,6 +577,13 @@ export default function AIHelpDeskPage() {
       title="AI Help Desk"
       tagline="Search your help desk knowledge and get AI-powered answers to questions."
     >
+      <CrmIntegrationIndicator
+        isDark={isDark}
+        showContextPill={false}
+        showBackLink={!!crmReturnUrl}
+        returnUrl={crmReturnUrl}
+      />
+
       {/* Connection Status Badge */}
       {canShowMainUI && currentMapping && connectionStatus !== "checking" && (
         <div className="mt-3 flex items-center">
@@ -866,6 +935,8 @@ export default function AIHelpDeskPage() {
               chatEndRef={chatEndRef}
               onChatSubmit={handleChatSubmit}
               onNewConversation={handleNewConversation}
+              crmContextLoaded={crmContextLoaded}
+              onDismissCrmContext={() => setCrmContextLoaded(false)}
             />
               </div>
             </div>
@@ -901,8 +972,10 @@ export default function AIHelpDeskPage() {
               messagesContainerRef={messagesContainerRef}
               chatEndRef={chatEndRef}
               onChatSubmit={handleChatSubmit}
-            onNewConversation={handleNewConversation}
-          />
+              onNewConversation={handleNewConversation}
+              crmContextLoaded={crmContextLoaded}
+              onDismissCrmContext={() => setCrmContextLoaded(false)}
+            />
         )}
             </div>
           </div>
@@ -1531,6 +1604,8 @@ interface ChatPanelProps {
   chatEndRef: React.RefObject<HTMLDivElement | null>;
   onChatSubmit: (e: React.FormEvent) => void;
   onNewConversation: () => void;
+  crmContextLoaded?: boolean;
+  onDismissCrmContext?: () => void;
 }
 
 function ChatPanel({
@@ -1546,6 +1621,8 @@ function ChatPanel({
   chatEndRef,
   onChatSubmit,
   onNewConversation,
+  crmContextLoaded = false,
+  onDismissCrmContext,
 }: ChatPanelProps) {
   return (
     <OBDPanel isDark={isDark} className="flex flex-col" style={{ minHeight: "500px", maxHeight: "800px" }}>
@@ -1705,6 +1782,16 @@ function ChatPanel({
         </div>
       )}
 
+      {/* CRM Context Indicator */}
+      {crmContextLoaded && (
+        <CrmIntegrationIndicator
+          isDark={isDark}
+          showContextPill={true}
+          showBackLink={false}
+          onDismissContext={onDismissCrmContext}
+        />
+      )}
+
       {/* Chat Input Form */}
       <form onSubmit={onChatSubmit} className="space-y-2">
         <div className="flex gap-2">
@@ -1734,6 +1821,14 @@ function ChatPanel({
         </div>
       </form>
     </OBDPanel>
+  );
+}
+
+export default function AIHelpDeskPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AIHelpDeskPageContent />
+    </Suspense>
   );
 }
 

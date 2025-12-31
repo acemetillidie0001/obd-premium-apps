@@ -244,11 +244,13 @@ export const OBD_APPS: ObdAppDefinition[] = [
     icon: "calendar-clock",
   },
   {
-    id: "light-crm",
+    id: "obd-crm",
     name: "OBD CRM",
-    description: "Track leads, notes, and follow-ups in one simple dashboard.",
+    description: "Track customers, notes, and relationships in one place.",
+    href: "/apps/obd-crm",
     category: "productivity",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Open CRM",
     icon: "contact",
   },
   {

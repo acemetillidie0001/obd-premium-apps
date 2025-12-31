@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
+import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
+import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import type {
   GeneratePostsRequest,
@@ -24,10 +29,36 @@ const PLATFORMS: Array<{ value: SocialPlatform; label: string; maxChars: number 
   { value: "googleBusiness", label: "Google Business", maxChars: 1500 },
 ];
 
-export default function SocialAutoPosterComposerPage() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+function SocialAutoPosterComposerPageContent() {
+  const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
+
+  // CRM integration state
+  const [crmContextLoaded, setCrmContextLoaded] = useState(false);
+  const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
+  const crmPrefillApplied = useRef(false);
+
+  // Helper: Generate starter text based on intent
+  const generateStarterText = (intent: string, contactName: string, lastNote?: string, lastActivity?: string): string => {
+    const context = lastNote || lastActivity || "";
+    const contextSnippet = context.length > 100 ? context.substring(0, 100) + "..." : context;
+
+    switch (intent) {
+      case "Follow-up":
+        return context
+          ? `Quick follow-up with ${contactName} — here's what we discussed: ${contextSnippet}`
+          : `Quick follow-up with ${contactName} — here's what we discussed...`;
+      case "Thank-you":
+        return `Huge thanks to ${contactName} for supporting us!`;
+      case "Testimonial ask":
+        return `We love serving our customers — would you leave us a quick review, ${contactName}?`;
+      case "Promo mention":
+        return `Special offer this week — message us to claim it, ${contactName}!`;
+      default:
+        return `Post about ${contactName}`;
+    }
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +88,103 @@ export default function SocialAutoPosterComposerPage() {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Handle CRM integration prefill
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined" && !crmPrefillApplied.current) {
+      const context = searchParams.get("context");
+      const fromCRM = searchParams.get("from") === "crm";
+      const contactId = searchParams.get("contactId");
+      const returnUrl = searchParams.get("returnUrl");
+
+      // Store CRM return URL if valid
+      if (fromCRM && returnUrl && isValidReturnUrl(returnUrl)) {
+        setCrmReturnUrl(returnUrl);
+      } else {
+        setCrmReturnUrl(null);
+      }
+
+      if (context === "crm" && contactId) {
+        // Try to read prefill data from sessionStorage
+        try {
+          const prefillStr = sessionStorage.getItem("obd_social_prefill");
+          if (prefillStr) {
+            const prefill = JSON.parse(prefillStr);
+            if (prefill.source === "crm" && prefill.contactId === contactId) {
+              // Fetch contact summary if needed
+              const fetchContactSummary = async () => {
+                try {
+                  let lastNote: string | undefined;
+                  let lastActivity: string | undefined;
+
+                  // Only fetch if we need context
+                  if (prefill.useLastNote || prefill.useLastActivity) {
+                    const res = await fetch(`/api/obd-crm/contacts/${contactId}/summary`);
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.ok && data.data) {
+                        const summary = data.data;
+                        lastNote = prefill.useLastNote ? summary.lastNote || undefined : undefined;
+                        lastActivity = prefill.useLastActivity ? summary.lastActivity || undefined : undefined;
+                      }
+                    }
+                  }
+                  
+                  // Generate starter text
+                  const starterText = generateStarterText(
+                    prefill.intent,
+                    prefill.contactName,
+                    lastNote,
+                    lastActivity
+                  );
+
+                  // Prefill form
+                  setFormData((prev) => {
+                    const updates: Partial<GeneratePostsRequest> = {
+                      topic: starterText,
+                    };
+
+                    // Set platform preset if specified
+                    if (prefill.platformPreset && prefill.platformPreset !== "All") {
+                      const platformMap: Record<string, SocialPlatform> = {
+                        Facebook: "facebook",
+                        Instagram: "instagram",
+                        "Google Business": "googleBusiness",
+                      };
+                      const platform = platformMap[prefill.platformPreset];
+                      if (platform) {
+                        updates.platforms = [platform];
+                      }
+                    }
+
+                    return { ...prev, ...updates };
+                  });
+
+                  setCrmContextLoaded(true);
+                  crmPrefillApplied.current = true;
+
+                  // Clear sessionStorage after use
+                  sessionStorage.removeItem("obd_social_prefill");
+                } catch (error) {
+                  console.warn("Failed to fetch contact summary:", error);
+                  // Fallback: use just the name
+                  const starterText = generateStarterText(prefill.intent, prefill.contactName);
+                  setFormData((prev) => ({ ...prev, topic: starterText }));
+                  setCrmContextLoaded(true);
+                  crmPrefillApplied.current = true;
+                  sessionStorage.removeItem("obd_social_prefill");
+                }
+              };
+
+              fetchContactSummary();
+            }
+          }
+        } catch (error) {
+          console.warn("Failed to read prefill data from sessionStorage:", error);
+        }
+      }
+    }
+  }, [searchParams]);
 
   // Apply defaults from settings once when they load
   useEffect(() => {
@@ -220,10 +348,19 @@ export default function SocialAutoPosterComposerPage() {
   return (
     <OBDPageContainer
       isDark={isDark}
-      onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
+      onThemeToggle={() => setTheme(theme === "light" ? "dark" : "light")}
       title="OBD Social Auto-Poster"
       tagline="Generate platform-optimized social media posts"
     >
+      {/* CRM Return Link */}
+      <CrmIntegrationIndicator
+        isDark={isDark}
+        showContextPill={crmContextLoaded}
+        showBackLink={!!crmReturnUrl}
+        returnUrl={crmReturnUrl}
+        onDismissContext={() => setCrmContextLoaded(false)}
+      />
+
       <SocialAutoPosterNav isDark={isDark} />
 
       <div className="mt-7 space-y-6">
@@ -642,6 +779,14 @@ export default function SocialAutoPosterComposerPage() {
         )}
       </div>
     </OBDPageContainer>
+  );
+}
+
+export default function SocialAutoPosterComposerPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SocialAutoPosterComposerPageContent />
+    </Suspense>
   );
 }
 

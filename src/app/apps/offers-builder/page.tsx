@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
+import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
+import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import {
   SUBMIT_BUTTON_CLASSES,
   getErrorPanelClasses,
@@ -154,10 +159,10 @@ function ResultCard({
   );
 }
 
-export default function OffersBuilderPage() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+function OffersBuilderPageContent() {
+  const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState<OffersBuilderRequest>(defaultFormValues);
   const [servicesInput, setServicesInput] = useState("");
@@ -170,6 +175,30 @@ export default function OffersBuilderPage() {
   // Wizard state (6 steps: business basics → offer details → style → platforms → review)
   const [wizardStep, setWizardStep] = useState(1);
   const totalWizardSteps = 6;
+
+  // CRM integration state
+  const [crmContextLoaded, setCrmContextLoaded] = useState(false);
+  const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
+  const crmPrefillApplied = useRef(false);
+
+  // Helper: Generate promoDescription seed based on CRM prefill
+  const generatePromoDescriptionSeed = (
+    offerGoal: string,
+    contactName: string,
+    offerType: string,
+    offerHint?: string,
+    lastNote?: string
+  ): string => {
+    let seed = `${offerGoal} offer for ${contactName}: ${offerType}`;
+    if (offerHint) {
+      seed += ` — ${offerHint}`;
+    }
+    if (lastNote) {
+      const noteSnippet = lastNote.length > 100 ? lastNote.substring(0, 100) + "..." : lastNote;
+      seed += ` (Context: ${noteSnippet})`;
+    }
+    return seed;
+  };
 
   function updateFormValue<K extends keyof OffersBuilderRequest>(
     key: K,
@@ -941,10 +970,18 @@ export default function OffersBuilderPage() {
   return (
     <OBDPageContainer
       isDark={isDark}
-      onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
+      onThemeToggle={() => setTheme(theme === "light" ? "dark" : "light")}
       title="Offers & Promotions Builder"
       tagline="Create high-converting promotional offers with headlines, body copy, social posts, and Google Business Profile updates—all in one step."
     >
+      <CrmIntegrationIndicator
+        isDark={isDark}
+        showContextPill={crmContextLoaded}
+        showBackLink={!!crmReturnUrl}
+        returnUrl={crmReturnUrl}
+        onDismissContext={() => setCrmContextLoaded(false)}
+      />
+
       {/* Wizard Mode Toggle */}
       <OBDPanel isDark={isDark} className="mt-7">
         <div className="flex items-center justify-between">
@@ -2207,5 +2244,13 @@ export default function OffersBuilderPage() {
         </div>
       )}
     </OBDPageContainer>
+  );
+}
+
+export default function OffersBuilderPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <OffersBuilderPageContent />
+    </Suspense>
   );
 }

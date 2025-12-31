@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import ResultCard from "@/components/obd/ResultCard";
+import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses, getPanelClasses } from "@/lib/obd-framework/theme";
 import {
   SUBMIT_BUTTON_CLASSES,
@@ -25,6 +26,8 @@ import {
   CustomerStatus,
 } from "@/lib/apps/review-request-automation/types";
 import { parseCSV, generateCSVTemplate, exportCustomersToCSV, CSVParseResult } from "@/lib/apps/review-request-automation/csv-utils";
+import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
+import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
 
 // Generate UUID for client-side
 function generateUUID(): string {
@@ -36,8 +39,7 @@ function generateUUID(): string {
 }
 
 function ReviewRequestAutomationPageContent() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+  const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
 
   // Campaign state
@@ -255,13 +257,28 @@ function ReviewRequestAutomationPageContent() {
     }
   }, [showAddCustomerModal]);
 
-  // Deep linking: Handle query parameters (tab, focus, from=rd)
+  // CRM return link state
+  const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
+  const [crmContextLoaded, setCrmContextLoaded] = useState(false);
+
+  // Deep linking: Handle query parameters (tab, focus, from=rd, CRM integration)
   useEffect(() => {
     if (!searchParams) return;
 
     const tab = searchParams.get("tab");
     const focus = searchParams.get("focus");
     const fromRD = searchParams.get("from") === "rd";
+    const fromCRM = searchParams.get("from") === "crm";
+    const returnUrl = searchParams.get("returnUrl");
+
+    // Store CRM return URL if valid
+    if (fromCRM && returnUrl && isValidReturnUrl(returnUrl)) {
+      setCrmReturnUrl(returnUrl);
+      setCrmContextLoaded(true);
+    } else {
+      setCrmReturnUrl(null);
+      setCrmContextLoaded(false);
+    }
 
     // Switch tab if provided and valid
     if (tab) {
@@ -280,6 +297,28 @@ function ReviewRequestAutomationPageContent() {
     // Show banner if from RD and not dismissed
     if (fromRD && !bannerDismissedRef.current) {
       setShowFromRDBanner(true);
+    }
+
+    // Check for CRM integration prefill params
+    const contactId = searchParams.get("contactId");
+    const name = searchParams.get("name");
+    const email = searchParams.get("email");
+    const phone = searchParams.get("phone");
+    
+    if (contactId && name) {
+      // Prefill customer modal with CRM contact data
+      setNewCustomer({
+        customerName: name || "",
+        email: email || "",
+        phone: phone || "",
+        tags: [],
+        lastVisitDate: "",
+        serviceType: "",
+        jobId: "",
+      });
+      // Open the customer modal and switch to customers tab
+      setShowAddCustomerModal(true);
+      setActiveTab("customers");
     }
   }, [searchParams]); // Only run when searchParams changes
 
@@ -689,10 +728,18 @@ function ReviewRequestAutomationPageContent() {
   return (
     <OBDPageContainer
       isDark={isDark}
-      onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
+      onThemeToggle={() => setTheme(theme === "light" ? "dark" : "light")}
       title="Review Request Automation"
       tagline="Send automatic review requests by email or SMS after each visit."
     >
+      <CrmIntegrationIndicator
+        isDark={isDark}
+        showContextPill={crmContextLoaded}
+        showBackLink={!!crmReturnUrl}
+        returnUrl={crmReturnUrl}
+        onDismissContext={() => setCrmContextLoaded(false)}
+      />
+
       {/* LEVEL 3: From RD Banner */}
       {showFromRDBanner && (
         <div className={`mb-4 p-3 rounded-lg border flex items-center justify-between ${

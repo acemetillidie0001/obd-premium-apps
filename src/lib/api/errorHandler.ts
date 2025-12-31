@@ -24,6 +24,10 @@ export type ApiErrorCode =
   | "BUSINESS_REQUIRED"
   | "MAPPING_REQUIRED"
   | "TENANT_SAFETY_BLOCKED"
+  | "DATABASE_ERROR"
+  | "DATABASE_CONNECTION_ERROR"
+  | "DATABASE_MODEL_ERROR"
+  | "INTERNAL_ERROR"
   | "UNKNOWN_ERROR";
 
 export interface ApiErrorResponse {
@@ -156,6 +160,8 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
   // Generic Error instances
   if (error instanceof Error) {
     const errCode = (error as { code?: string }).code;
+    const errorMessage = error.message.toLowerCase();
+    
     if (errCode === "ECONNABORTED" || errCode === "ETIMEDOUT") {
       return apiErrorResponse(
         "Upstream timeout",
@@ -172,6 +178,84 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
         "UPSTREAM_NOT_FOUND",
         404,
         errDetails
+      );
+    }
+
+    // Handle Prisma/Database errors (check before generic error handling)
+    // Prisma errors often have specific patterns in their messages
+    const isPrismaError =
+      errorMessage.includes("prisma") ||
+      errorMessage.includes("cannot read properties") ||
+      (errorMessage.includes("undefined") &&
+        (errorMessage.includes("findmany") ||
+          errorMessage.includes("count") ||
+          errorMessage.includes("create") ||
+          errorMessage.includes("update") ||
+          errorMessage.includes("delete"))) ||
+      errorMessage.includes("database") ||
+      errorMessage.includes("relation") ||
+      (errorMessage.includes("connection") &&
+        (errorMessage.includes("refused") ||
+          errorMessage.includes("timeout") ||
+          errorMessage.includes("failed"))) ||
+      errorMessage.includes("p1001") || // Prisma connection error code
+      errorMessage.includes("p2002") || // Prisma unique constraint error code
+      errorMessage.includes("p2025"); // Prisma record not found error code
+
+    if (isPrismaError) {
+      // Detect specific Prisma error types
+      let devMessage = "";
+      let errorCode: ApiErrorCode = "DATABASE_ERROR";
+
+      if (
+        errorMessage.includes("cannot read properties") ||
+        (errorMessage.includes("undefined") &&
+          (errorMessage.includes("findmany") ||
+            errorMessage.includes("count") ||
+            errorMessage.includes("create") ||
+            errorMessage.includes("update") ||
+            errorMessage.includes("delete"))) ||
+        errorMessage.includes("is not a function")
+      ) {
+        // Model missing (e.g., prisma.crmContact is undefined)
+        errorCode = "DATABASE_MODEL_ERROR";
+        devMessage =
+          "Prisma client or model not available. Run 'npx prisma generate' and restart the dev server.";
+      } else if (
+        errorMessage.includes("connection") ||
+        errorMessage.includes("connect econnrefused") ||
+        errorMessage.includes("connection timeout") ||
+        errorMessage.includes("can't reach database") ||
+        errorMessage.includes("p1001")
+      ) {
+        // Connection failure
+        errorCode = "DATABASE_CONNECTION_ERROR";
+        devMessage =
+          "Database connection failed. Check DATABASE_URL and ensure the database is running.";
+      } else if (
+        errorMessage.includes("relation") ||
+        errorMessage.includes("does not exist") ||
+        errorMessage.includes("p2025")
+      ) {
+        // Table/relation missing or record not found
+        errorCode = "DATABASE_ERROR";
+        devMessage =
+          "Database table missing or record not found. Run 'npx prisma migrate deploy' to apply migrations.";
+      } else {
+        // Generic database error
+        errorCode = "DATABASE_ERROR";
+        devMessage = "Database error occurred.";
+      }
+
+      return apiErrorResponse(
+        isDev ? devMessage : "Database error",
+        errorCode,
+        500,
+        isDev
+          ? {
+              message: error.message,
+            }
+          : undefined
       );
     }
   }

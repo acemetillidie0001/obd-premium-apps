@@ -46,6 +46,7 @@ export async function GET() {
   // Test database connectivity
   try {
     // Minimal Prisma query: count users (or any table)
+    // Identity source: User model (NextAuth user table) - see prisma/schema.prisma
     await prisma.user.count();
     result.db.ok = true;
   } catch (error: unknown) {

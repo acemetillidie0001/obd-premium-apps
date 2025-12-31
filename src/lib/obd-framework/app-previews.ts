@@ -55,8 +55,8 @@ export const appPreviews: Record<string, string> = {
   "scheduler-booking":
     "Let customers book appointments online with synced calendars and reminders. Reduce no-shows, streamline scheduling, and provide a better customer experience with automated booking and confirmations.",
   
-  "light-crm":
-    "Track leads, notes, and follow-ups in one simple dashboard. Manage customer relationships without the complexity of enterprise CRM systems—perfect for local businesses that need organization without overhead.",
+  "obd-crm":
+    "Track customers, notes, and relationships in one place. Keep track of your contacts, add notes, organize with tags, and export your data—perfect for local businesses managing customer relationships.",
   
   "logo-generator":
     "Explore logo concepts and refinements designed for local Ocala brands. Generate professional logo options that reflect your brand identity, with variations and refinements based on your feedback.",

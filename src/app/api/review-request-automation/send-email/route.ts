@@ -6,6 +6,7 @@ import { sendReviewRequestEmail } from "@/lib/email/resend";
 import { createQueueItemToken } from "@/lib/apps/review-request-automation/token";
 import { generateMessageTemplates } from "@/lib/apps/review-request-automation/engine";
 import type { Campaign } from "@/lib/apps/review-request-automation/types";
+import { upsertContactFromExternalSource, addActivityNote } from "@/lib/apps/obd-crm/crmService";
 
 const MAX_BATCH_SIZE = 25;
 
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
             id: true,
             name: true,
             email: true,
+            phone: true,
           },
         },
         campaign: {
@@ -214,6 +216,48 @@ export async function POST(request: NextRequest) {
             sentAt: new Date(),
           },
         });
+
+        // Best-effort CRM integration (doesn't block main flow)
+        try {
+          // Skip CRM if name missing OR (email and phone both missing)
+          const customerName = queueItem.customer.name?.trim();
+          const customerEmail = queueItem.customer.email?.trim() || null;
+          const customerPhone = queueItem.customer.phone?.trim() || null;
+
+          if (!customerName || (!customerEmail && !customerPhone)) {
+            // Skip CRM integration - insufficient data
+            if (process.env.NODE_ENV !== "production") {
+              console.log(`[CRM Integration] Skipping contact upsert for queue item ${queueItem.id}: missing name or identifiers`);
+            }
+          } else {
+            const contact = await upsertContactFromExternalSource({
+              businessId: userId,
+              source: "reviews",
+              name: customerName,
+              email: customerEmail,
+              phone: customerPhone,
+              tagNames: ["Review Request"],
+            });
+
+            // Build activity note with channel and campaign name
+            const sentDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
+            let note = `Review request sent via email on ${sentDate}`;
+            if (queueItem.campaign.businessName) {
+              note += ` | Campaign: ${queueItem.campaign.businessName}`;
+            }
+
+            await addActivityNote({
+              businessId: userId,
+              contactId: contact.id,
+              note,
+            });
+          }
+        } catch (crmError) {
+          // Log error but don't fail the email send
+          if (process.env.NODE_ENV !== "production") {
+            console.error(`[CRM Integration] Failed to sync contact for review request ${queueItem.id}:`, crmError);
+          }
+        }
 
         results.push({
           queueItemId: queueItem.id,

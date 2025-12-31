@@ -669,7 +669,7 @@ export default function SocialAutoPosterSetupPage() {
       setTestPostResults(results);
       
       // Show success banner only if at least one platform succeeded
-      const hasSuccess = Object.values(results).some((r: any) => r?.ok === true);
+      const hasSuccess = Object.values(results).some((r: unknown) => (r as { ok?: boolean })?.ok === true);
       if (hasSuccess) {
         setSuccess(true);
         setTimeout(() => setSuccess(false), 5000);
@@ -1016,11 +1016,11 @@ export default function SocialAutoPosterSetupPage() {
                             : "bg-white border border-slate-200"
                         }`}>
                           <div className={`text-xs font-medium mb-1 ${themeClasses.labelText}`}>
-                            What you'll see in Facebook:
+                            What you&apos;ll see in Facebook:
                           </div>
                           <div className={`text-xs ${themeClasses.mutedText}`}>
-                            When you click "Connect Facebook", you'll be redirected to Facebook's official consent screen. 
-                            Facebook will show you exactly what permissions we're requesting. You can review and approve or decline.
+                            When you click &quot;Connect Facebook&quot;, you&apos;ll be redirected to Facebook&apos;s official consent screen. 
+                            Facebook will show you exactly what permissions we&apos;re requesting. You can review and approve or decline.
                           </div>
                         </div>
                       </div>
@@ -1146,11 +1146,11 @@ export default function SocialAutoPosterSetupPage() {
                             <p>You can revoke access to this app directly in Facebook:</p>
                             <ol className="list-decimal list-inside space-y-1 ml-2">
                               <li>Go to <strong>Facebook Settings</strong> → <strong>Apps and Websites</strong></li>
-                              <li>Find "OBD Social Auto-Poster" (or your app name)</li>
+                              <li>Find &quot;OBD Social Auto-Poster&quot; (or your app name)</li>
                               <li>Click <strong>Remove</strong> or <strong>Revoke Access</strong></li>
                               <li>Confirm the removal</li>
                             </ol>
-                            <p className="mt-2">After revoking, you'll need to reconnect in this app to continue posting.</p>
+                            <p className="mt-2">After revoking, you&apos;ll need to reconnect in this app to continue posting.</p>
                           </div>
                         </details>
                       </div>

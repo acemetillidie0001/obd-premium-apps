@@ -28,8 +28,23 @@ function isTableMissingError(error: unknown): boolean {
     return (
       message.includes("p2021") ||
       message.includes("does not exist") ||
-      message.includes("relation") && message.includes("does not exist") ||
-      message.includes("table") && message.includes("missing")
+      (message.includes("relation") && message.includes("does not exist")) ||
+      (message.includes("table") && message.includes("missing"))
+    );
+  }
+  return false;
+}
+
+/**
+ * Checks if an error is related to missing Prisma models (client not regenerated)
+ */
+function isPrismaModelMissingError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("crmcontact") && (message.includes("undefined") || message.includes("is not a function")) ||
+      message.includes("prisma client") && message.includes("not generated") ||
+      message.includes("cannot read property") && message.includes("crm")
     );
   }
   return false;
@@ -59,6 +74,17 @@ export function handleCrmDatabaseError(error: unknown): NextResponse<ApiErrorRes
         ok: false,
         error: "CRM database tables are missing. Run: pnpm run migrate:deploy",
         code: "DATABASE_ERROR" as ApiErrorCode,
+      },
+      { status: 500 }
+    );
+  }
+
+  if (isPrismaModelMissingError(error)) {
+    return NextResponse.json<ApiErrorResponse>(
+      {
+        ok: false,
+        error: "Prisma client is outdated. The build process should regenerate it automatically. If this persists, check Vercel build logs for 'prisma generate' output.",
+        code: "PRISMA_CLIENT_OUTDATED" as ApiErrorCode,
       },
       { status: 500 }
     );

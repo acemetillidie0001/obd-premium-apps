@@ -100,16 +100,18 @@ export async function GET(request: NextRequest) {
     return selfTestErrorResponse(selfTest);
   }
 
-  // Legacy dev-only safety check (kept for additional validation)
-  if (process.env.NODE_ENV !== "production") {
-    if (!prisma) {
-      console.error("[OBD CRM] Prisma client missing in contacts route");
-      return apiErrorResponse("Database client not initialized", "INTERNAL_ERROR", 500);
-    }
-    if (!prisma.crmContact) {
-      console.error("[OBD CRM] prisma.crmContact is undefined - Prisma client may not be generated correctly");
-      return apiErrorResponse("Database models not available", "INTERNAL_ERROR", 500);
-    }
+  // Production-safe check: Ensure Prisma models exist (critical for production)
+  if (!prisma) {
+    console.error("[OBD CRM] Prisma client missing in contacts route");
+    return apiErrorResponse("Database client not initialized", "INTERNAL_ERROR", 500);
+  }
+  if (!prisma.crmContact) {
+    console.error("[OBD CRM] prisma.crmContact is undefined - Prisma client may not be generated correctly");
+    return apiErrorResponse(
+      "Database models not available. The Prisma client needs to be regenerated. This should happen automatically during deployment.",
+      "PRISMA_CLIENT_OUTDATED",
+      500
+    );
   }
 
   try {

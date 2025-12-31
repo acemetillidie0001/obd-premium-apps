@@ -24,6 +24,7 @@ const widgetSettingsSchema = z.object({
   greeting: z.string().max(200).optional(),
   position: z.enum(["bottom-right", "bottom-left"]).optional(),
   assistantAvatarUrl: z.string().url("Invalid avatar URL").optional().nullable(),
+  allowedDomains: z.array(z.string()).optional(),
 });
 
 // GET: Retrieve widget settings
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, enabled, brandColor, greeting, position, assistantAvatarUrl } = validationResult.data;
+    const { businessId, enabled, brandColor, greeting, position, assistantAvatarUrl, allowedDomains } = validationResult.data;
 
     // Tenant safety: Ensure businessId is provided
     if (!businessId || !businessId.trim()) {
@@ -120,6 +121,7 @@ export async function POST(request: NextRequest) {
         ...(greeting !== undefined && { greeting }),
         ...(position !== undefined && { position }),
         ...(assistantAvatarUrl !== undefined && { assistantAvatarUrl: assistantAvatarUrl || null }),
+        ...(allowedDomains !== undefined && { allowedDomains: allowedDomains || [] } as any),
         updatedAt: new Date(),
       },
       create: {
@@ -129,6 +131,7 @@ export async function POST(request: NextRequest) {
         greeting: greeting ?? "Hi! How can I help you today?",
         position: position ?? "bottom-right",
         assistantAvatarUrl: assistantAvatarUrl || null,
+        allowedDomains: (allowedDomains || []) as any,
       },
     });
 

@@ -7,29 +7,29 @@ datasource db {
 }
 
 model User {
-  id                       String                    @id @default(cuid())
-  name                     String?
-  email                    String                    @unique
-  emailVerified            DateTime?
-  image                    String?
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  role                     String                    @default("user")
-  isPremium                Boolean                   @default(false)
-  accounts                 Account[]
-  brandProfile             BrandProfile?
-  reviewRequestCampaigns   ReviewRequestCampaign[]
-  reviewRequestCustomers   ReviewRequestCustomer[]
-  reviewRequestDatasets    ReviewRequestDataset[]
-  reviewRequestQueueItems  ReviewRequestQueueItem[]
-  sessions                 Session[]
-  socialAutoposterSettings SocialAutoposterSettings?
-  socialDeliveryAttempts   SocialDeliveryAttempt[]
-  socialQueueItems         SocialQueueItem[]
-  usageCounters            UsageCounter[]
-  socialAccountConnections SocialAccountConnection[]
+  id                        String                     @id @default(cuid())
+  name                      String?
+  email                     String                     @unique
+  emailVerified             DateTime?
+  image                     String?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  role                      String                     @default("user")
+  isPremium                 Boolean                    @default(false)
+  accounts                  Account[]
+  brandProfile              BrandProfile?
+  reviewRequestCampaigns    ReviewRequestCampaign[]
+  reviewRequestCustomers    ReviewRequestCustomer[]
+  reviewRequestDatasets     ReviewRequestDataset[]
+  reviewRequestQueueItems   ReviewRequestQueueItem[]
+  sessions                  Session[]
+  socialAutoposterSettings  SocialAutoposterSettings?
+  socialDeliveryAttempts    SocialDeliveryAttempt[]
+  socialQueueItems          SocialQueueItem[]
+  usageCounters             UsageCounter[]
+  socialAccountConnections  SocialAccountConnection[]
   socialPostingDestinations SocialPostingDestination[]
-  socialPublishAttempts    SocialPublishAttempt[]
+  socialPublishAttempts     SocialPublishAttempt[]
 
   @@index([email])
 }
@@ -399,37 +399,37 @@ enum ImageStorage {
 }
 
 model ImageRequest {
-  requestId         String       @id
-  status            ImageStatus   @default(queued)
+  requestId String      @id
+  status    ImageStatus @default(queued)
 
-  platform          ImagePlatform
-  category          ImageCategory
-  aspect            String
-  width             Int
-  height            Int
+  platform ImagePlatform
+  category ImageCategory
+  aspect   String
+  width    Int
+  height   Int
 
-  provider          ImageProvider?
-  storage           ImageStorage?
+  provider ImageProvider?
+  storage  ImageStorage?
 
-  imageUrl          String?
-  altText           String?
+  imageUrl String?
+  altText  String?
 
-  errorCode         String?
-  errorMessageSafe  String?
-  fallbackReason    String?
+  errorCode        String?
+  errorMessageSafe String?
+  fallbackReason   String?
 
-  decisionJson      Json?
-  promptHash        String?
-  inputHash         String?
+  decisionJson Json?
+  promptHash   String?
+  inputHash    String?
 
   // Optional retention
-  expiresAt         DateTime?
+  expiresAt DateTime?
 
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  events            ImageEvent[]
-  socialQueueItems  SocialQueueItem[]
+  events           ImageEvent[]
+  socialQueueItems SocialQueueItem[]
 
   @@index([status])
   @@index([platform, category])
@@ -437,16 +437,17 @@ model ImageRequest {
 }
 
 model ImageEvent {
-  id               String      @id @default(cuid())
-  requestId         String
-  type              String      // e.g. "provider_call", "storage_write", "fallback", "consumer_request"
-  ok                Boolean     @default(true)
-  messageSafe       String?
-  data              Json?
+  id          String  @id @default(cuid())
+  requestId   String
+  type        String // e.g. "provider_call", "storage_write", "fallback", "consumer_request"
+  ok          Boolean @default(true)
+  messageSafe String?
+  data        Json?
 
-  createdAt         DateTime    @default(now())
+  createdAt DateTime @default(now())
 
-  request           ImageRequest @relation(fields: [requestId], references: [requestId], onDelete: Cascade)
+  request ImageRequest @relation(fields: [requestId], references: [requestId], onDelete: Cascade)
+
   @@index([requestId])
   @@index([createdAt])
 }
@@ -459,18 +460,18 @@ enum SocialConnectionPlatform {
 }
 
 model SocialAccountConnection {
-  id                String                  @id @default(cuid())
+  id                String                   @id @default(cuid())
   userId            String
   platform          SocialConnectionPlatform
-  providerAccountId String                   // page id, ig business id, etc
+  providerAccountId String // page id, ig business id, etc
   displayName       String
-  accessToken       String                   // store securely; do NOT log; encrypt-at-rest if you have a helper
+  accessToken       String // store securely; do NOT log; encrypt-at-rest if you have a helper
   tokenExpiresAt    DateTime?
   refreshToken      String?
-  metaJson          Json?                   // safe metadata only
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metaJson          Json? // safe metadata only
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, platform, providerAccountId])
   @@index([userId])
@@ -478,14 +479,14 @@ model SocialAccountConnection {
 }
 
 model SocialPostingDestination {
-  id                  String                  @id @default(cuid())
+  id                  String                   @id @default(cuid())
   userId              String
   platform            SocialConnectionPlatform
-  selectedAccountId   String                   // selected page id or ig business id
+  selectedAccountId   String // selected page id or ig business id
   selectedDisplayName String
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, platform])
   @@index([userId])
@@ -493,16 +494,16 @@ model SocialPostingDestination {
 }
 
 model SocialPublishAttempt {
-  id                String                  @id @default(cuid())
+  id                String                   @id @default(cuid())
   userId            String
   platform          SocialConnectionPlatform
-  kind              String                  @default("test") // "test" or future types
-  status            String                  // "success" | "failed"
+  kind              String                   @default("test") // "test" or future types
+  status            String // "success" | "failed"
   providerPostId    String?
   providerPermalink String?
-  errorMessage      String?                 // Safe, user-readable error
-  createdAt         DateTime                @default(now())
-  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  errorMessage      String? // Safe, user-readable error
+  createdAt         DateTime                 @default(now())
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, createdAt])
@@ -528,15 +529,15 @@ enum AiHelpDeskEntryType {
 }
 
 model AiHelpDeskEntry {
-  id        String                @id @default(cuid())
+  id         String              @id @default(cuid())
   businessId String
-  type      AiHelpDeskEntryType
-  title     String
-  content   String                @db.Text
-  tags      String[]              @default([])
-  isActive  Boolean               @default(true)
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  type       AiHelpDeskEntryType
+  title      String
+  content    String              @db.Text
+  tags       String[]            @default([])
+  isActive   Boolean             @default(true)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
 
   @@index([businessId])
   @@index([businessId, type])
@@ -544,13 +545,13 @@ model AiHelpDeskEntry {
 }
 
 model AiHelpDeskSyncState {
-  id              String   @id @default(cuid())
-  businessId      String   @unique
-  lastSyncedAt    DateTime?
-  lastSyncStatus  String?
-  lastSyncError   String?   @db.Text
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  businessId     String    @unique
+  lastSyncedAt   DateTime?
+  lastSyncStatus String?
+  lastSyncError  String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([businessId])
 }
@@ -562,14 +563,14 @@ enum AiHelpDeskResponseQuality {
 }
 
 model AiHelpDeskQuestionLog {
-  id              String                      @id @default(cuid())
+  id              String                     @id @default(cuid())
   businessId      String
-  question        String                      @db.Text
-  hasSources      Boolean                     @default(false)
-  sourcesCount    Int                         @default(0)
+  question        String                     @db.Text
+  hasSources      Boolean                    @default(false)
+  sourcesCount    Int                        @default(0)
   responseQuality AiHelpDeskResponseQuality?
-  matchedEntryIds String[]                    @default([])
-  createdAt       DateTime                    @default(now())
+  matchedEntryIds String[]                   @default([])
+  createdAt       DateTime                   @default(now())
 
   @@index([businessId])
   @@index([businessId, createdAt])
@@ -578,26 +579,39 @@ model AiHelpDeskQuestionLog {
 }
 
 model AiHelpDeskWidgetKey {
-  id        String   @id @default(cuid())
-  businessId String  @unique
-  publicKey String
-  createdAt DateTime @default(now())
-  rotatedAt DateTime?
+  id         String    @id @default(cuid())
+  businessId String    @unique
+  publicKey  String
+  createdAt  DateTime  @default(now())
+  rotatedAt  DateTime?
 
   @@index([businessId])
   @@index([publicKey])
 }
 
 model AiHelpDeskWidgetSettings {
-  id                String   @id @default(cuid())
-  businessId        String   @unique
-  enabled           Boolean  @default(false)
-  brandColor        String?  @default("#29c4a9")
-  greeting          String?  @default("Hi! How can I help you today?")
-  position          String?  @default("bottom-right") // bottom-right, bottom-left
+  id                 String   @id @default(cuid())
+  businessId         String   @unique
+  enabled            Boolean  @default(false)
+  brandColor         String?  @default("#29c4a9")
+  greeting           String?  @default("Hi! How can I help you today?")
+  position           String?  @default("bottom-right") // bottom-right, bottom-left
   assistantAvatarUrl String? // Optional avatar URL for chat assistant
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  allowedDomains     String[] @default([]) // Array of allowed domains for widget embedding
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([businessId])
+}
+
+model AiHelpDeskWidgetEvent {
+  id         String   @id @default(cuid())
+  businessId String
+  eventType  String // "widget_open", "message_sent"
+  metadata   String? // JSON string for additional event data
+  createdAt  DateTime @default(now())
+
+  @@index([businessId])
+  @@index([eventType])
+  @@index([createdAt])
 }

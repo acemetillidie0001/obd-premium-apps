@@ -98,6 +98,7 @@ interface WidgetSettingsData {
   greeting: string;
   position: "bottom-right" | "bottom-left";
   assistantAvatarUrl?: string | null;
+  allowedDomains?: string[];
   publicKey: string;
 }
 
@@ -138,6 +139,9 @@ export default function WidgetSettings({
   const [brandColorOverridden, setBrandColorOverridden] = useState(false);
   const [themePreset, setThemePreset] = useState<ThemePreset>(null);
   const [obdBrandColor, setObdBrandColor] = useState<string | null>(null);
+  const [allowedDomains, setAllowedDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState<string>("");
+  const [copiedEmbedCode, setCopiedEmbedCode] = useState(false);
   
   // OBD Icon URL
   const OBD_ICON_URL = "https://ocalabusinessdirectory.com/wp-content/uploads/2025/10/Copy-of-Black-White-Elegant-Typography-Glitch-Logo-Teal-250-x-80-px.png";
@@ -171,6 +175,7 @@ export default function WidgetSettings({
       setGreeting(data.greeting || "Hi! How can I help you today?");
       setPosition(data.position || "bottom-right");
       setAssistantAvatarUrl(data.assistantAvatarUrl || "");
+      setAllowedDomains(data.allowedDomains || []);
     } catch (err) {
       console.error("Load settings error:", err);
       setError(err instanceof Error ? err.message : "Failed to load settings");
@@ -300,6 +305,7 @@ export default function WidgetSettings({
           greeting,
           position,
           assistantAvatarUrl: assistantAvatarUrl.trim() || null,
+          allowedDomains,
         }),
       });
 
@@ -360,8 +366,8 @@ export default function WidgetSettings({
     }
   };
 
-  // Generate embed code
-  const getEmbedCode = () => {
+  // Generate embed code (script version)
+  const getScriptEmbedCode = () => {
     if (!settings?.publicKey || !businessId.trim()) {
       return "";
     }
@@ -370,7 +376,68 @@ export default function WidgetSettings({
     return `<script src="${baseUrl}/widget/ai-help-desk.js?businessId=${encodeURIComponent(businessId.trim())}&key=${encodeURIComponent(settings.publicKey)}"></script>`;
   };
 
-  const embedCode = getEmbedCode();
+  // Generate iframe embed code
+  const getIframeEmbedCode = () => {
+    if (!settings?.publicKey || !businessId.trim()) {
+      return "";
+    }
+
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const widgetUrl = `${baseUrl}/widget/ai-help-desk?businessId=${encodeURIComponent(businessId.trim())}&key=${encodeURIComponent(settings.publicKey)}`;
+    return `<iframe src="${widgetUrl}" style="width:420px;height:600px;border:0;border-radius:16px;" loading="lazy"></iframe>`;
+  };
+
+  const scriptEmbedCode = getScriptEmbedCode();
+  const iframeEmbedCode = getIframeEmbedCode();
+
+  // Domain management handlers
+  const handleAddDomain = () => {
+    const domain = newDomain.trim().toLowerCase();
+    if (!domain) return;
+    
+    // Basic domain validation
+    const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/i;
+    if (!domainRegex.test(domain) && domain !== "localhost") {
+      setError("Invalid domain format. Use example.com or www.example.com");
+      return;
+    }
+    
+    if (allowedDomains.includes(domain)) {
+      setError("Domain already in allowlist");
+      return;
+    }
+    
+    setAllowedDomains([...allowedDomains, domain]);
+    setNewDomain("");
+    setError(null);
+  };
+
+  const handleRemoveDomain = (domain: string) => {
+    setAllowedDomains(allowedDomains.filter(d => d !== domain));
+  };
+
+  // Copy embed code to clipboard
+  const handleCopyEmbedCode = async (code: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        // Fallback: select and copy
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopiedEmbedCode(true);
+      setTimeout(() => setCopiedEmbedCode(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
 
   const previewAvatar = getPreviewAvatar();
   const themeStyles = getThemePresetStyles(themePreset);
@@ -881,44 +948,158 @@ export default function WidgetSettings({
         </div>
       </OBDPanel>
 
+      {/* Domain Allowlist Panel */}
+      {settings && (
+        <OBDPanel isDark={isDark}>
+          <div className="space-y-4">
+            <div>
+              <OBDHeading level={2} isDark={isDark} className="mb-2">
+                Allowed Domains
+              </OBDHeading>
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                Optional: Add domains where the widget can be embedded. If empty, the widget works on any domain (warning-only).
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newDomain}
+                  onChange={(e) => setNewDomain(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddDomain();
+                    }
+                  }}
+                  placeholder="example.com"
+                  className={getInputClasses(isDark, "flex-1")}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddDomain}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                    isDark
+                      ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Add
+                </button>
+              </div>
+
+              {allowedDomains.length > 0 && (
+                <div className="space-y-2">
+                  {allowedDomains.map((domain) => (
+                    <div
+                      key={domain}
+                      className={`flex items-center justify-between p-2 rounded-lg border ${
+                        isDark
+                          ? "border-slate-700 bg-slate-800"
+                          : "border-slate-300 bg-slate-50"
+                      }`}
+                    >
+                      <span className={`text-sm ${themeClasses.labelText}`}>{domain}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDomain(domain)}
+                        className={`px-2 py-1 text-xs font-medium rounded border transition-colors ${
+                          isDark
+                            ? "border-red-700 bg-red-900/30 text-red-300 hover:bg-red-900/40"
+                            : "border-red-600 bg-red-100 text-red-800 hover:bg-red-200"
+                        }`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {allowedDomains.length === 0 && (
+                <p className={`text-xs ${themeClasses.mutedText} italic`}>
+                  No domains added. Widget will work on any domain with a warning.
+                </p>
+              )}
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Embed Code Panel */}
       {settings && (
         <OBDPanel isDark={isDark}>
           <div className="space-y-4">
             <div>
               <OBDHeading level={2} isDark={isDark} className="mb-2">
-                Embed Code
+                Install Widget
               </OBDHeading>
               <p className={`text-sm ${themeClasses.mutedText}`}>
-                Copy and paste this code into your website to add the chat widget
+                Copy and paste one of these code snippets into your website
               </p>
             </div>
 
-            {embedCode ? (
+            {scriptEmbedCode && iframeEmbedCode ? (
               <>
-                <div className="relative">
-                  <textarea
-                    value={embedCode}
-                    readOnly
-                    className={getInputClasses(isDark, "w-full font-mono text-sm")}
-                    rows={3}
-                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(embedCode);
-                      setSuccess(true);
-                      setTimeout(() => setSuccess(false), 2000);
-                    }}
-                    className={`absolute top-2 right-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                      isDark
-                        ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    Copy
-                  </button>
+                {/* Iframe Embed Option */}
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                    Option 1: Iframe Embed (Recommended)
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={iframeEmbedCode}
+                      readOnly
+                      className={getInputClasses(isDark, "w-full font-mono text-sm")}
+                      rows={3}
+                      onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCopyEmbedCode(iframeEmbedCode)}
+                      className={`absolute top-2 right-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                        isDark
+                          ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {copiedEmbedCode ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Safest option. Works in any HTML page.
+                  </p>
+                </div>
+
+                {/* Script Embed Option */}
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                    Option 2: Script Embed
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={scriptEmbedCode}
+                      readOnly
+                      className={getInputClasses(isDark, "w-full font-mono text-sm")}
+                      rows={3}
+                      onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCopyEmbedCode(scriptEmbedCode)}
+                      className={`absolute top-2 right-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                        isDark
+                          ? "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {copiedEmbedCode ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Injects widget automatically. Requires JavaScript enabled.
+                  </p>
                 </div>
 
                 {/* Rotate Key */}

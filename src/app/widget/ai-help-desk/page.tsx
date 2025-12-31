@@ -22,6 +22,7 @@ export default function WidgetChatPage() {
   const [businessName, setBusinessName] = useState<string>("");
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [themePreset, setThemePreset] = useState<"minimal" | "bold" | "clean" | null>(null);
+  const [domainWarning, setDomainWarning] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Get theme preset styles
@@ -109,7 +110,86 @@ export default function WidgetChatPage() {
         // Silently fail
       }
     }
+
+    // Fire widget_open analytics event (non-blocking)
+    if (bid) {
+      fireAnalyticsEvent(bid, "widget_open", {}).catch(() => {
+        // Silently fail - analytics is non-blocking
+      });
+    }
+
+    // Check domain validation (non-blocking, warn-only)
+    if (bid) {
+      checkDomainValidation(bid).catch(() => {
+        // Silently fail - domain check is non-blocking
+      });
+    }
   }, []);
+
+  // Fire analytics event (non-blocking)
+  const fireAnalyticsEvent = async (
+    businessId: string,
+    eventType: "widget_open" | "message_sent",
+    metadata?: Record<string, any>
+  ) => {
+    try {
+      await fetch("/api/ai-help-desk/widget/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId,
+          eventType,
+          metadata,
+        }),
+      });
+      // Ignore response - analytics is non-blocking
+    } catch {
+      // Silently fail - analytics is non-blocking
+    }
+  };
+
+  // Check domain validation (non-blocking, warn-only)
+  const checkDomainValidation = async (businessId: string) => {
+    try {
+      // Get current domain from referrer or window.location
+      let currentDomain = "";
+      if (typeof window !== "undefined") {
+        try {
+          // Try to get domain from referrer (if widget is in iframe)
+          const referrer = document.referrer;
+          if (referrer) {
+            const referrerUrl = new URL(referrer);
+            currentDomain = referrerUrl.hostname;
+          } else {
+            // Fallback to window.location (for direct access)
+            currentDomain = window.location.hostname;
+          }
+        } catch {
+          // If parsing fails, skip domain check
+          return;
+        }
+      }
+
+      if (!currentDomain) return;
+
+      const res = await fetch("/api/ai-help-desk/widget/validate-domain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId,
+          domain: currentDomain,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.ok && json.data && !json.data.allowed && json.data.warning) {
+        // Show warning but don't block widget
+        setDomainWarning(json.data.warning);
+      }
+    } catch {
+      // Silently fail - domain check is non-blocking
+    }
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -165,6 +245,15 @@ export default function WidgetChatPage() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // Fire message_sent analytics event (non-blocking)
+      if (businessId) {
+        fireAnalyticsEvent(businessId, "message_sent", {
+          messageLength: userMessage.content.length,
+        }).catch(() => {
+          // Silently fail - analytics is non-blocking
+        });
+      }
     } catch (err) {
       console.error("Chat error:", err);
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -235,6 +324,15 @@ export default function WidgetChatPage() {
           ×
         </button>
       </div>
+
+      {/* Domain Warning (non-blocking) */}
+      {domainWarning && (
+        <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200">
+          <p className="text-xs text-yellow-800">
+            ⚠ {domainWarning}
+          </p>
+        </div>
+      )}
 
       {/* Messages */}
       <div 

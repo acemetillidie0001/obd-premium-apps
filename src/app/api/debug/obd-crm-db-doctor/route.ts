@@ -37,9 +37,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+
+// Admin email allowlist for production access
+const ADMIN_EMAILS = ["scottbaxtermarketing@gmail.com"];
 
 type Check = {
   id: string;
@@ -96,13 +100,53 @@ type LegacyDbDoctorReport = {
 };
 
 export async function GET(request: NextRequest): Promise<NextResponse<DbDoctorReport | LegacyDbDoctorReport>> {
-  // Production guard
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { error: "Not found" } as any,
-      { status: 404 }
-    );
+  console.log("CRM DB Doctor route hit");
+  
+  // Production access control: require admin session
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction) {
+    try {
+      const session = await auth();
+      
+      // Check if user is authenticated
+      if (!session?.user?.email) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Forbidden",
+            code: "FORBIDDEN",
+          },
+          { status: 403 }
+        );
+      }
+      
+      // Check if user email is in allowlist
+      const userEmail = session.user.email.toLowerCase();
+      const isAdmin = ADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === userEmail);
+      
+      if (!isAdmin) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Forbidden",
+            code: "FORBIDDEN",
+          },
+          { status: 403 }
+        );
+      }
+    } catch (error) {
+      // If session check fails, deny access
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Forbidden",
+          code: "FORBIDDEN",
+        },
+        { status: 403 }
+      );
+    }
   }
+  // In development, allow without session check (developer convenience)
 
   const { searchParams } = new URL(request.url);
   const testEndpoints = searchParams.get("testEndpoints") === "1";

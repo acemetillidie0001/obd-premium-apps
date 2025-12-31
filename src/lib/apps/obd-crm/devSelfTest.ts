@@ -30,8 +30,14 @@ type SelfTestResult = {
  * @returns SelfTestResult with ok: true if all checks pass, or error details if any fail
  */
 export async function verifyCrmDatabaseSetup(): Promise<SelfTestResult> {
-  // Only run in development
-  if (process.env.NODE_ENV === "production") {
+  // Only run in development (skip in production or Vercel)
+  // Vercel sets VERCEL_ENV, and NODE_ENV may not always be "production"
+  const isProduction = 
+    process.env.NODE_ENV === "production" || 
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VERCEL === "1";
+  
+  if (isProduction) {
     return { ok: true };
   }
 

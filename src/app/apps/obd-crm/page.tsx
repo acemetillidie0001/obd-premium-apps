@@ -1969,10 +1969,11 @@ function OBDCRMPageContent() {
       tagline="Keep track of customers, notes, and relationships in one place."
       theme={theme}
       onThemeChange={setTheme}
+      fullWidth={true}
     >
       {/* Controls */}
       <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+        <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-4 items-start md:items-center">
           {/* Search */}
           <div className="flex-1 min-w-0">
             <input

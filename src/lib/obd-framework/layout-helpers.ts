@@ -5,9 +5,19 @@
  */
 
 /**
- * Standard container width class (matches Review Responder gold standard)
+ * Standard container width class (full-width with responsive padding)
  */
-export const CONTAINER_WIDTH = "mx-auto max-w-6xl px-4 py-10";
+export const CONTAINER_WIDTH = "w-full px-4 sm:px-6 lg:px-8 py-10";
+
+/**
+ * Full-width container class (for apps that need full viewport width)
+ */
+export const CONTAINER_WIDTH_FULL = "w-full max-w-none px-4 sm:px-6 lg:px-8 py-10";
+
+/**
+ * Constrained container width class (max-w-6xl with centered alignment)
+ */
+export const CONTAINER_WIDTH_CONSTRAINED = "mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-10";
 
 /**
  * Standard sidebar width class
@@ -53,4 +63,10 @@ export function getErrorPanelClasses(isDark: boolean): string {
  */
 export const SUBMIT_BUTTON_CLASSES =
   "w-full px-6 py-3 bg-[#29c4a9] text-white font-medium rounded-full hover:bg-[#22ad93] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
+
+/**
+ * Standard table wrapper classes for horizontal scrolling
+ * Use: <div className={TABLE_WRAPPER}><div className="min-w-max"><table>...</table></div></div>
+ */
+export const TABLE_WRAPPER = "overflow-x-auto";
 

@@ -104,7 +104,7 @@ export default function RootLayout({
               </div>
             </div>
           </header>
-          <main className="flex-1">
+          <main className="flex-1 w-full min-w-0">
             {children}
           </main>
           <footer className="w-full bg-[#050816] text-slate-400 border-t border-[#29c4a9]/40 py-4">

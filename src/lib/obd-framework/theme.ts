@@ -43,7 +43,7 @@ export function getThemeClasses(isDark: boolean): ThemeClasses {
  * Get panel styling classes (for form panels and output panels)
  */
 export function getPanelClasses(isDark: boolean): string {
-  return `rounded-3xl border px-6 py-6 md:px-8 md:py-7 transition-shadow ${
+  return `w-full rounded-3xl border px-6 py-6 md:px-8 md:py-7 transition-shadow ${
     isDark
       ? "bg-slate-900/80 border-slate-700 shadow-lg"
       : "bg-white border-slate-200 shadow-md shadow-slate-300/60 hover:shadow-lg hover:shadow-slate-400/70"

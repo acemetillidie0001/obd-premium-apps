@@ -3,7 +3,7 @@
 import Link from "next/link";
 import OBDAppSidebar from "./OBDAppSidebar";
 import ThemeToggle from "./ThemeToggle";
-import { getPageBackground, getBreadcrumbClasses, CONTAINER_WIDTH } from "@/lib/obd-framework/layout-helpers";
+import { getPageBackground, getBreadcrumbClasses, CONTAINER_WIDTH, CONTAINER_WIDTH_FULL, CONTAINER_WIDTH_CONSTRAINED } from "@/lib/obd-framework/layout-helpers";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
 
 interface OBDPageContainerProps {
@@ -15,6 +15,10 @@ interface OBDPageContainerProps {
   // Optional controlled theme props (for persisted theme)
   theme?: "light" | "dark";
   onThemeChange?: (next: "light" | "dark") => void;
+  // Optional full-width mode (default: false, maintains backward compatibility)
+  fullWidth?: boolean;
+  // Optional constrained mode (default: false, uses max-w-6xl mx-auto when true)
+  constrained?: boolean;
 }
 
 export default function OBDPageContainer({
@@ -25,6 +29,8 @@ export default function OBDPageContainer({
   tagline,
   theme: controlledTheme,
   onThemeChange,
+  fullWidth = false,
+  constrained = false,
 }: OBDPageContainerProps) {
   // Use controlled theme if provided, otherwise use isDark prop (backward compatible)
   const effectiveIsDark = controlledTheme ? controlledTheme === "dark" : isDark;
@@ -39,15 +45,22 @@ export default function OBDPageContainer({
     }
   };
 
+  // Determine container width class: constrained takes precedence, then fullWidth, else default full-width
+  const containerClass = constrained 
+    ? CONTAINER_WIDTH_CONSTRAINED 
+    : fullWidth 
+    ? CONTAINER_WIDTH_FULL 
+    : CONTAINER_WIDTH;
+
   return (
     <main className={`${getPageBackground(effectiveIsDark)} transition-colors`}>
-      <div className={CONTAINER_WIDTH}>
-        <div className="flex flex-col lg:flex-row gap-8">
+      <div className={containerClass}>
+        <div className="flex flex-col lg:flex-row gap-8 min-w-0">
           {/* Sidebar */}
           <OBDAppSidebar isDark={effectiveIsDark} />
 
           {/* Main Content */}
-          <section className="flex-1">
+          <section className="flex-1 min-w-0 overflow-x-hidden">
             {/* Breadcrumb */}
             <div className="mb-4">
               <Link

@@ -322,10 +322,25 @@ The client normalizes responses from various AnythingLLM response shapes to a co
 - Workspace slug is looked up server-side (never exposed to browser)
 - Fallback workspace is user-specific (not global)
 - No cross-business queries possible
+- Widget keys are business-specific
 
 ### API Security
 
-- Premium access required (via `requirePremiumAccess`)
+- Premium access required (via `requirePremiumAccess`) for admin routes
+- Rate limiting applied to widget endpoints
+- Input validation via Zod schemas
+- Error messages don't expose sensitive information
+- SSRF protection for URL inputs (DNS rebinding, IP range blocking)
+
+### SSRF Protection
+
+**Applied To:** Website Import URL validation
+
+**Protections:**
+- DNS rebinding protection (resolves hostnames, validates all IPs)
+- IP range blocking (private, loopback, link-local)
+- Metadata endpoint blocking (`metadata.google.internal`, `metadata`)
+- Edge case handling (`0.0.0.0`, `::`, IPv6 ULA/link-local)
 - Rate limiting (via `checkRateLimit`)
 - Validation via Zod schemas
 - Error responses never leak stack traces or internal details

@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     const isAdmin = ADMIN_EMAILS.some((adminEmail) => adminEmail.toLowerCase() === userEmail);
     
     if (!isAdmin) {
-      return apiErrorResponse("Forbidden: Admin access required", "FORBIDDEN", 403);
+      return apiErrorResponse("Forbidden: Admin access required", "UNAUTHORIZED", 403);
     }
   } catch (error) {
     return apiErrorResponse("Authentication failed", "UNAUTHORIZED", 401);

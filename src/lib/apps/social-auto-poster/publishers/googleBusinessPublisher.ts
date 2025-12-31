@@ -223,7 +223,15 @@ export async function listBusinessLocations({
     }
 
     const locationsData = await locationsResponse.json();
-    const locations = ((locationsData.locations || []) as Array<{ name?: string; title?: string; storefrontAddress?: { addressLines?: string[] } }>).map((loc) => ({
+    const locations = ((locationsData.locations || []) as Array<{ 
+      name?: string; 
+      title?: string; 
+      storefrontAddress?: { addressLines?: string[] }; 
+      primaryPhone?: string;
+      websiteUri?: string;
+      languageCode?: string;
+      category?: string;
+    }>).map((loc) => ({
       id: loc.name?.split("/").pop() || loc.name || "",
       name: loc.title || loc.storefrontAddress?.addressLines?.[0] || "Unnamed Location",
       address: loc.storefrontAddress?.addressLines?.join(", "),

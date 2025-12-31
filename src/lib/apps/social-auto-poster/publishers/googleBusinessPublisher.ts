@@ -223,11 +223,40 @@ export async function listBusinessLocations({
     }
 
     const locationsData = await locationsResponse.json();
+    
+    // Helper to safely extract phone number from various possible fields
+    const extractPhoneNumber = (loc: {
+      name?: string;
+      title?: string;
+      storefrontAddress?: { addressLines?: string[] };
+    }): string | undefined => {
+      // Use narrow local cast to access possible phone fields without widening the entire type
+      type AnyLocation = typeof loc & {
+        primaryPhone?: string;
+        primaryPhoneNumber?: string;
+        phoneNumber?: string;
+        phoneNumbers?: {
+          primaryPhone?: string;
+          primary?: string;
+          [key: string]: unknown;
+        };
+      };
+      const anyLoc = loc as AnyLocation;
+      
+      return (
+        anyLoc.primaryPhone ??
+        anyLoc.primaryPhoneNumber ??
+        anyLoc.phoneNumber ??
+        anyLoc.phoneNumbers?.primaryPhone ??
+        anyLoc.phoneNumbers?.primary ??
+        undefined
+      );
+    };
+    
     const locations = ((locationsData.locations || []) as Array<{ 
       name?: string; 
       title?: string; 
-      storefrontAddress?: { addressLines?: string[] }; 
-      primaryPhone?: string;
+      storefrontAddress?: { addressLines?: string[] };
       websiteUri?: string;
       languageCode?: string;
       category?: string;
@@ -235,7 +264,7 @@ export async function listBusinessLocations({
       id: loc.name?.split("/").pop() || loc.name || "",
       name: loc.title || loc.storefrontAddress?.addressLines?.[0] || "Unnamed Location",
       address: loc.storefrontAddress?.addressLines?.join(", "),
-      phoneNumber: loc.primaryPhone,
+      phoneNumber: extractPhoneNumber(loc),
       websiteUri: loc.websiteUri,
       metadata: {
         locationName: loc.name,

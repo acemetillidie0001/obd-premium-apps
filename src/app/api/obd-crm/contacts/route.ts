@@ -14,6 +14,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { verifyCrmDatabaseSetup, selfTestErrorResponse } from "@/lib/apps/obd-crm/devSelfTest";
+import { handleCrmDatabaseError } from "@/lib/apps/obd-crm/dbErrorHandler";
 import { z } from "zod";
 import type {
   CrmContact,
@@ -219,6 +220,11 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(response);
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }

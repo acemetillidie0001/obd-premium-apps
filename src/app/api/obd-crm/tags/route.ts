@@ -14,6 +14,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { verifyCrmDatabaseSetup, selfTestErrorResponse } from "@/lib/apps/obd-crm/devSelfTest";
+import { handleCrmDatabaseError } from "@/lib/apps/obd-crm/dbErrorHandler";
 import { z } from "zod";
 import type {
   CrmTag,
@@ -78,6 +79,11 @@ export async function GET(request: NextRequest) {
       count: formattedTags.length,
     });
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }
@@ -151,6 +157,11 @@ export async function POST(request: NextRequest) {
 
     return apiSuccessResponse(formattedTag, 201);
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }
@@ -210,6 +221,11 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccessResponse({ success: true });
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }

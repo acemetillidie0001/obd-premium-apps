@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { getDatabaseUrl } from "./dbUrl";
+import { requireDatabaseUrl } from "./db/requireDatabaseUrl";
 import "./dbStartupCheck"; // Run startup checks when Prisma is imported
 
 /**
@@ -18,6 +19,9 @@ import "./dbStartupCheck"; // Run startup checks when Prisma is imported
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
+
+// Require DATABASE_URL to be set (fail fast with friendly error if missing)
+requireDatabaseUrl();
 
 // Get normalized database URL from DATABASE_URL (runtime connection)
 // Ensures sslmode=require and connection_limit=1 for serverless environments

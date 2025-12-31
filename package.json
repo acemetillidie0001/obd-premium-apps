@@ -22,6 +22,7 @@
     "test": "vitest run",
     "postinstall": "prisma generate || echo 'Warning: prisma generate failed (DATABASE_URL may be missing). This is OK for local dev without DB connection.'",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma migrate deploy && prisma generate",
+    "migrate:resolve": "tsx scripts/resolve-failed-migration.ts",
     "verify:db": "tsx scripts/verify-db.ts",
     "check:deploy": "tsx scripts/check-deployment-status.ts",
     "db:generate": "prisma generate",

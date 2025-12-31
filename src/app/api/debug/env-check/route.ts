@@ -1,51 +1,31 @@
-import { NextResponse } from "next/server";
+/**
+ * Environment Check Debug Endpoint
+ * 
+ * Local-only endpoint to verify environment variables are loaded correctly.
+ * Does NOT expose secrets - only reports presence/absence of critical vars.
+ */
 
-export async function GET() {
-  const checks = {
-    NEXTAUTH_SECRET: {
-      set: !!process.env.NEXTAUTH_SECRET,
-      length: process.env.NEXTAUTH_SECRET?.length || 0,
-      valid: (process.env.NEXTAUTH_SECRET?.length || 0) >= 32,
-    },
-    AUTH_SECRET: {
-      set: !!process.env.AUTH_SECRET,
-      length: process.env.AUTH_SECRET?.length || 0,
-      valid: (process.env.AUTH_SECRET?.length || 0) >= 32,
-    },
-    NEXTAUTH_URL: {
-      set: !!process.env.NEXTAUTH_URL,
-      value: process.env.NEXTAUTH_URL,
-    },
-    AUTH_URL: {
-      set: !!process.env.AUTH_URL,
-      value: process.env.AUTH_URL,
-    },
-    DATABASE_URL: {
-      set: !!process.env.DATABASE_URL,
-      startsWithPostgres: process.env.DATABASE_URL?.startsWith("postgresql://") || false,
-      length: process.env.DATABASE_URL?.length || 0,
-    },
-    RESEND_API_KEY: {
-      set: !!process.env.RESEND_API_KEY,
-      startsWithRe: process.env.RESEND_API_KEY?.startsWith("re_") || false,
-    },
-    EMAIL_FROM: {
-      set: !!process.env.EMAIL_FROM,
-      value: process.env.EMAIL_FROM,
-    },
-  };
+import { NextRequest, NextResponse } from "next/server";
 
-  const allValid = 
-    checks.NEXTAUTH_SECRET.valid &&
-    checks.AUTH_SECRET.valid &&
-    checks.DATABASE_URL.startsWithPostgres &&
-    checks.RESEND_API_KEY.startsWithRe &&
-    checks.EMAIL_FROM.set;
+export const runtime = "nodejs";
+
+/**
+ * GET /api/debug/env-check
+ * Returns environment variable status (no secrets exposed)
+ */
+export async function GET(request: NextRequest) {
+  // Only allow in development
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { ok: false, error: "This endpoint is only available in development" },
+      { status: 403 }
+    );
+  }
 
   return NextResponse.json({
-    status: allValid ? "✅ All variables valid" : "❌ Some variables invalid",
-    checks,
-    timestamp: new Date().toISOString(),
+    ok: true,
+    hasDatabaseUrl: !!process.env.DATABASE_URL,
+    nodeEnv: process.env.NODE_ENV || "undefined",
+    // Do NOT include the actual DATABASE_URL value (security)
   });
 }
-

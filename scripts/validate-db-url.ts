@@ -5,6 +5,14 @@
  * Diagnoses P1013 errors by validating the DATABASE_URL format
  */
 
+import { config } from "dotenv";
+import { resolve } from "path";
+
+// Load .env.local if it exists
+config({ path: resolve(process.cwd(), ".env.local") });
+// Also try .env as fallback
+config({ path: resolve(process.cwd(), ".env") });
+
 const dbUrl = process.env.DATABASE_URL;
 
 console.log("=".repeat(60));

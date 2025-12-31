@@ -14,6 +14,7 @@ import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
+import { handleCrmDatabaseError } from "@/lib/apps/obd-crm/dbErrorHandler";
 import { z } from "zod";
 import type {
   CrmContact,
@@ -172,6 +173,11 @@ export async function GET(
       activities: formattedActivities,
     });
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }
@@ -298,6 +304,11 @@ export async function PATCH(
     const formattedContact = formatContact(contact);
     return apiSuccessResponse(formattedContact);
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }
@@ -354,6 +365,11 @@ export async function DELETE(
 
     return apiSuccessResponse({ success: true });
   } catch (error) {
+    // Check for database-specific errors first
+    const dbError = handleCrmDatabaseError(error);
+    if (dbError) {
+      return dbError;
+    }
     return handleApiError(error);
   }
 }

@@ -1,5 +1,42 @@
 # OBD CRM V3.1
 
+## Local Development Setup
+
+### Database Configuration
+
+OBD CRM requires a PostgreSQL database connection. To set up local development:
+
+1. **Create `.env.local` in the repo root:**
+   ```bash
+   DATABASE_URL=postgresql://user:password@host:port/database
+   ```
+
+2. **Restart the dev server:**
+   ```bash
+   # Stop the current server (Ctrl+C)
+   pnpm dev
+   ```
+   ⚠️ **Important:** Next.js only loads `.env.local` when the server starts. You must restart after adding/changing `DATABASE_URL`.
+
+3. **Apply database migrations:**
+   ```bash
+   pnpm run migrate:deploy
+   ```
+   This creates the required CRM tables (CrmContact, CrmTag, CrmContactActivity, CrmContactTag).
+
+4. **Verify setup:**
+   - Open the CRM page: `http://localhost:3000/apps/obd-crm`
+   - Check the debug endpoint: `http://localhost:3000/api/debug/env-check`
+   - If you see errors, check the browser console and API responses for specific guidance
+
+### Troubleshooting
+
+- **"DATABASE_URL is not set" error:** Add `DATABASE_URL` to `.env.local` and restart the dev server.
+- **"CRM database tables are missing" error:** Run `pnpm run migrate:deploy` to apply migrations.
+- **Connection errors:** Verify your database server is running and the connection string is correct.
+
+---
+
 ## What It Is
 
 OBD CRM is the customer relationship management hub within the Ocala Business Directory (OBD) Business Suite. It provides local businesses with a unified system to manage customer contacts, track interactions through notes and activities, set follow-up reminders, and seamlessly integrate with other OBD premium applications. Built specifically for small to medium-sized local businesses, OBD CRM focuses on simplicity, speed, and context preservation across the entire OBD ecosystem.

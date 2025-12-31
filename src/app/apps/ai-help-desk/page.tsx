@@ -146,6 +146,7 @@ function AIHelpDeskPageContent() {
   // CRM integration state
   const [crmContextLoaded, setCrmContextLoaded] = useState(false);
   const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
+  const [showCrmBanner, setShowCrmBanner] = useState(true);
 
   // Handle CRM integration prefill
   useEffect(() => {
@@ -155,8 +156,8 @@ function AIHelpDeskPageContent() {
       const contactId = searchParams.get("contactId");
       const returnUrl = searchParams.get("returnUrl");
       
-      // Store CRM return URL if valid
-      if (fromCRM && returnUrl && isValidReturnUrl(returnUrl)) {
+      // Store CRM return URL if valid (check both fromCRM and context=crm)
+      if ((fromCRM || context === "crm") && returnUrl && isValidReturnUrl(returnUrl)) {
         setCrmReturnUrl(returnUrl);
       } else {
         setCrmReturnUrl(null);
@@ -189,14 +190,15 @@ function AIHelpDeskPageContent() {
         if (prompt) {
           // Prefill chat input with prompt from CRM
           setChatInput(prompt);
-          setCrmContextLoaded(true);
-          // Switch to chat mode if not already
-          if (viewMode !== "chat") {
-            setViewMode("chat");
-          }
-          // Switch to help-desk tab
-          setTabMode("help-desk");
         }
+        // Set CRM context loaded flag even if no prompt (for banner display)
+        setCrmContextLoaded(true);
+        // Switch to chat mode if not already
+        if (viewMode !== "chat") {
+          setViewMode("chat");
+        }
+        // Switch to help-desk tab
+        setTabMode("help-desk");
       }
     }
   }, [searchParams, viewMode]);
@@ -937,6 +939,9 @@ function AIHelpDeskPageContent() {
               onNewConversation={handleNewConversation}
               crmContextLoaded={crmContextLoaded}
               onDismissCrmContext={() => setCrmContextLoaded(false)}
+              crmReturnUrl={crmReturnUrl}
+              showCrmBanner={showCrmBanner}
+              onDismissCrmBanner={() => setShowCrmBanner(false)}
             />
               </div>
             </div>
@@ -975,6 +980,9 @@ function AIHelpDeskPageContent() {
               onNewConversation={handleNewConversation}
               crmContextLoaded={crmContextLoaded}
               onDismissCrmContext={() => setCrmContextLoaded(false)}
+              crmReturnUrl={crmReturnUrl}
+              showCrmBanner={showCrmBanner}
+              onDismissCrmBanner={() => setShowCrmBanner(false)}
             />
         )}
             </div>
@@ -1606,6 +1614,9 @@ interface ChatPanelProps {
   onNewConversation: () => void;
   crmContextLoaded?: boolean;
   onDismissCrmContext?: () => void;
+  crmReturnUrl?: string | null;
+  showCrmBanner?: boolean;
+  onDismissCrmBanner?: () => void;
 }
 
 function ChatPanel({
@@ -1623,7 +1634,19 @@ function ChatPanel({
   onNewConversation,
   crmContextLoaded = false,
   onDismissCrmContext,
+  crmReturnUrl = null,
+  showCrmBanner = true,
+  onDismissCrmBanner,
 }: ChatPanelProps) {
+  // Helper function to prepend instruction to chat input
+  const prependInstruction = (instruction: string) => {
+    const trimmed = chatInput.trim();
+    if (trimmed.startsWith(instruction.trim())) {
+      // Already has this instruction, don't duplicate
+      return;
+    }
+    setChatInput(instruction + (trimmed ? " " + trimmed : ""));
+  };
   return (
     <OBDPanel isDark={isDark} className="flex flex-col" style={{ minHeight: "500px", maxHeight: "800px" }}>
       <div className="flex items-center justify-between mb-4">
@@ -1782,14 +1805,81 @@ function ChatPanel({
         </div>
       )}
 
-      {/* CRM Context Indicator */}
-      {crmContextLoaded && (
-        <CrmIntegrationIndicator
-          isDark={isDark}
-          showContextPill={true}
-          showBackLink={false}
-          onDismissContext={onDismissCrmContext}
-        />
+      {/* CRM Follow-Up Generator Banner */}
+      {crmContextLoaded && showCrmBanner && (
+        <div className="mb-4 space-y-2">
+          {/* Banner/Pill */}
+          <div
+            className={`px-3 py-2 rounded-lg text-xs flex items-center gap-2 ${
+              isDark
+                ? "bg-blue-900/30 text-blue-300 border border-blue-700/50"
+                : "bg-blue-50 text-blue-700 border border-blue-200"
+            }`}
+          >
+            <span className="font-medium">CRM follow-up generator</span>
+            <span className={`text-xs ${isDark ? "text-blue-400/80" : "text-blue-600/80"}`}>
+              Context loaded from CRM
+            </span>
+            {crmReturnUrl && isValidReturnUrl(crmReturnUrl) && (
+              <Link
+                href={crmReturnUrl}
+                className={`ml-auto text-xs font-medium hover:underline ${
+                  isDark ? "text-blue-300 hover:text-blue-200" : "text-blue-600 hover:text-blue-700"
+                }`}
+              >
+                Back to CRM contact
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (onDismissCrmBanner) {
+                  onDismissCrmBanner();
+                }
+              }}
+              className="ml-auto hover:opacity-70"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Helper Chips */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => prependInstruction("Write an SMS follow-up message.")}
+              disabled={chatLoading}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                chatLoading
+                  ? isDark
+                    ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : isDark
+                  ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+              }`}
+            >
+              Generate SMS
+            </button>
+            <button
+              type="button"
+              onClick={() => prependInstruction("Write an email follow-up message.")}
+              disabled={chatLoading}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                chatLoading
+                  ? isDark
+                    ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : isDark
+                  ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+              }`}
+            >
+              Generate Email
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Chat Input Form */}

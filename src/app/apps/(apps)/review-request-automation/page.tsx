@@ -38,6 +38,46 @@ function generateUUID(): string {
   });
 }
 
+// Review Request Templates (V1 - constants, no DB)
+export interface ReviewRequestTemplate {
+  id: string;
+  name: string;
+  subject: string; // for email
+  body: string; // email body text (with placeholders like {firstName} or {name} if supported)
+  toneStyle: ToneStyle; // maps to campaign toneStyle
+}
+
+export const REVIEW_REQUEST_TEMPLATES: ReviewRequestTemplate[] = [
+  {
+    id: "default",
+    name: "Default request",
+    subject: "We'd love your feedback!",
+    body: "Hi {name}, we hope you had a great experience with us! Your feedback helps us improve and helps other customers find us. Could you take a moment to leave us a review?",
+    toneStyle: "Friendly",
+  },
+  {
+    id: "short-friendly",
+    name: "Short & Friendly",
+    subject: "Quick favor?",
+    body: "Hi {name}! We'd really appreciate it if you could leave us a quick review. Thanks so much!",
+    toneStyle: "Friendly",
+  },
+  {
+    id: "professional",
+    name: "Professional",
+    subject: "Request for Review",
+    body: "Dear {name}, Thank you for choosing our services. We value your feedback and would appreciate if you could share your experience by leaving a review. Your input helps us maintain our high standards.",
+    toneStyle: "Professional",
+  },
+  {
+    id: "service-follow-up",
+    name: "Service Follow-Up",
+    subject: "How was your recent visit?",
+    body: "Hi {name}, We hope you're satisfied with the service you received. Your review would mean a lot to us and help other customers make informed decisions. Thank you!",
+    toneStyle: "Friendly",
+  },
+];
+
 function ReviewRequestAutomationPageContent() {
   const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
@@ -260,6 +300,15 @@ function ReviewRequestAutomationPageContent() {
   // CRM return link state
   const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
   const [crmContextLoaded, setCrmContextLoaded] = useState(false);
+  
+  // Template selector state
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("default");
+  
+  // CRM draft confirmation state
+  const [showCrmDraftConfirm, setShowCrmDraftConfirm] = useState(false);
+  const [crmDraftContactIds, setCrmDraftContactIds] = useState<string[]>([]);
+  const [crmDraftTemplateId, setCrmDraftTemplateId] = useState<string>("default");
+  const [crmDraftChannel, setCrmDraftChannel] = useState<"email" | "sms">("email");
 
   // Deep linking: Handle query parameters (tab, focus, from=rd, CRM integration)
   useEffect(() => {
@@ -269,9 +318,33 @@ function ReviewRequestAutomationPageContent() {
     const focus = searchParams.get("focus");
     const fromRD = searchParams.get("from") === "rd";
     const fromCRM = searchParams.get("from") === "crm";
+    const context = searchParams.get("context");
     const returnUrl = searchParams.get("returnUrl");
 
-    // Store CRM return URL if valid
+    // Handle CRM draft confirmation mode (context=crm + contactIds)
+    const contactIdsParam = searchParams.get("contactIds");
+    const templateParam = searchParams.get("template");
+    const channelParam = searchParams.get("channel");
+    
+    if (context === "crm" && contactIdsParam) {
+      // Parse contact IDs (comma-separated)
+      const contactIds = contactIdsParam.split(",").filter(id => id.trim().length > 0);
+      if (contactIds.length > 0) {
+        setCrmDraftContactIds(contactIds);
+        setCrmDraftTemplateId(templateParam || "default");
+        setCrmDraftChannel((channelParam === "sms" ? "sms" : "email") as "email" | "sms");
+        setShowCrmDraftConfirm(true);
+        // Store return URL if valid
+        if (returnUrl && isValidReturnUrl(returnUrl)) {
+          setCrmReturnUrl(returnUrl);
+        }
+        setCrmContextLoaded(true);
+        // DO NOT proceed automatically - wait for user to click "Proceed"
+        return; // Exit early to prevent other prefill logic
+      }
+    }
+
+    // Store CRM return URL if valid (for other CRM integrations)
     if (fromCRM && returnUrl && isValidReturnUrl(returnUrl)) {
       setCrmReturnUrl(returnUrl);
       setCrmContextLoaded(true);
@@ -299,14 +372,14 @@ function ReviewRequestAutomationPageContent() {
       setShowFromRDBanner(true);
     }
 
-    // Check for CRM integration prefill params
+    // Check for CRM integration prefill params (single contact - legacy)
     const contactId = searchParams.get("contactId");
     const name = searchParams.get("name");
     const email = searchParams.get("email");
     const phone = searchParams.get("phone");
     
-    if (contactId && name) {
-      // Prefill customer modal with CRM contact data
+    if (contactId && name && context !== "crm") {
+      // Prefill customer modal with CRM contact data (only if not in draft confirmation mode)
       setNewCustomer({
         customerName: name || "",
         email: email || "",
@@ -349,6 +422,67 @@ function ReviewRequestAutomationPageContent() {
 
     return () => clearTimeout(timeoutId);
   }, [searchParams, activeTab]); // Re-run when tab switches or searchParams changes
+
+  // Handle CRM draft confirmation - Proceed
+  const handleCrmDraftProceed = async () => {
+    // Close confirmation panel
+    setShowCrmDraftConfirm(false);
+    
+    // Prefill template
+    setSelectedTemplateId(crmDraftTemplateId);
+    const selectedTemplate = REVIEW_REQUEST_TEMPLATES.find(t => t.id === crmDraftTemplateId);
+    if (selectedTemplate) {
+      setCampaign({ ...campaign, toneStyle: selectedTemplate.toneStyle });
+    }
+    
+    // Fetch contact details from CRM API and add as customers
+    try {
+      const fetchedCustomers: Customer[] = [];
+      for (const contactId of crmDraftContactIds) {
+        try {
+          const res = await fetch(`/api/obd-crm/contacts/${contactId}`);
+          if (res.ok) {
+            const contact = await res.json();
+            // Map CRM contact to Customer format
+            const customer: Customer = {
+              id: generateUUID(),
+              customerName: contact.name || "Unknown",
+              email: contact.email || undefined,
+              phone: contact.phone || undefined,
+              tags: contact.tags || [],
+              lastVisitDate: contact.lastTouchAt || undefined,
+              serviceType: contact.status || undefined,
+              optedOut: false,
+              createdAt: new Date().toISOString(),
+            };
+            fetchedCustomers.push(customer);
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch contact ${contactId}:`, err);
+          // Continue with other contacts even if one fails
+        }
+      }
+      
+      // Add fetched customers to the customers list
+      if (fetchedCustomers.length > 0) {
+        setCustomers(prev => [...prev, ...fetchedCustomers]);
+        // Switch to customers tab
+        setActiveTab("customers");
+      }
+    } catch (err) {
+      console.error("Error fetching CRM contacts:", err);
+      // Don't block - user can manually add customers
+    }
+  };
+
+  // Handle CRM draft confirmation - Cancel
+  const handleCrmDraftCancel = () => {
+    setShowCrmDraftConfirm(false);
+    setCrmDraftContactIds([]);
+    // Clear CRM context if user cancels
+    setCrmContextLoaded(false);
+    setCrmReturnUrl(null);
+  };
 
   const handleProcess = async () => {
     setError(null);
@@ -775,6 +909,73 @@ function ReviewRequestAutomationPageContent() {
         </div>
       )}
 
+      {/* CRM Draft Confirmation Panel */}
+      {showCrmDraftConfirm && (
+        <OBDPanel isDark={isDark} className="mt-4">
+          <div className="space-y-4">
+            <div>
+              <h3 className={`text-lg font-semibold mb-2 ${themeClasses.headingText}`}>
+                Review Request Draft
+              </h3>
+              <p className={`text-sm ${themeClasses.labelText}`}>
+                You&apos;re about to send review requests to {crmDraftContactIds.length} contact{crmDraftContactIds.length !== 1 ? "s" : ""}.
+              </p>
+            </div>
+            
+            <div className={`p-4 rounded-lg ${isDark ? "bg-slate-800 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
+              <div className="space-y-2">
+                <div>
+                  <span className={`text-sm font-medium ${themeClasses.labelText}`}>Template: </span>
+                  <span className={`text-sm ${themeClasses.mutedText}`}>
+                    {REVIEW_REQUEST_TEMPLATES.find(t => t.id === crmDraftTemplateId)?.name || "Default request"}
+                  </span>
+                </div>
+                <div>
+                  <span className={`text-sm font-medium ${themeClasses.labelText}`}>Preview: </span>
+                  <p className={`text-sm mt-1 ${themeClasses.mutedText} line-clamp-2`}>
+                    {(() => {
+                      const template = REVIEW_REQUEST_TEMPLATES.find(t => t.id === crmDraftTemplateId);
+                      if (template) {
+                        const preview = template.body.substring(0, 200);
+                        return preview + (template.body.length > 200 ? "..." : "");
+                      }
+                      return "No preview available";
+                    })()}
+                  </p>
+                </div>
+                <div>
+                  <span className={`text-sm font-medium ${themeClasses.labelText}`}>Channel: </span>
+                  <span className={`text-sm ${themeClasses.mutedText}`}>
+                    Email
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleCrmDraftProceed}
+                className={SUBMIT_BUTTON_CLASSES}
+              >
+                Proceed
+              </button>
+              <button
+                type="button"
+                onClick={handleCrmDraftCancel}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* DB Status Pill */}
       <div className="mt-4 flex items-center justify-end">
         <span
@@ -1147,6 +1348,33 @@ function ReviewRequestAutomationPageContent() {
                       <option value="Bold">Bold</option>
                       <option value="Luxury">Luxury</option>
                     </select>
+                  </div>
+                  <div>
+                    <label htmlFor="template" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Template
+                    </label>
+                    <select
+                      id="template"
+                      value={selectedTemplateId}
+                      onChange={(e) => {
+                        setSelectedTemplateId(e.target.value);
+                        const template = REVIEW_REQUEST_TEMPLATES.find(t => t.id === e.target.value);
+                        if (template) {
+                          // Update toneStyle to match template
+                          setCampaign({ ...campaign, toneStyle: template.toneStyle });
+                        }
+                      }}
+                      className={getInputClasses(isDark)}
+                    >
+                      {REVIEW_REQUEST_TEMPLATES.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                      Template preview will appear after generating templates
+                    </p>
                   </div>
                   <div>
                     <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>

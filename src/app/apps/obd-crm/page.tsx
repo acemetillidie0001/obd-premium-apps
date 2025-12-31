@@ -30,6 +30,49 @@ function Skeleton({ className, isDark }: { className?: string; isDark: boolean }
   );
 }
 
+// Segment type definition
+type Segment = {
+  id: string;
+  name: string;
+  createdAt: string;
+  filters: {
+    searchQuery: string;
+    statusFilter: string;
+    tagFilter: string;
+    followUpFilter: "all" | "dueToday" | "overdue" | "upcoming";
+    followUpView?: "table" | "queue";
+    density?: "comfortable" | "compact";
+  };
+};
+
+// localStorage helpers for segments
+const SEGMENTS_STORAGE_KEY = "obd_crm_segments_v1";
+
+function loadSegmentsFromStorage(): Segment[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = localStorage.getItem(SEGMENTS_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    return [];
+  } catch (error) {
+    console.error("Failed to load segments from localStorage:", error);
+    return [];
+  }
+}
+
+function saveSegmentsToStorage(segments: Segment[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SEGMENTS_STORAGE_KEY, JSON.stringify(segments));
+  } catch (error) {
+    console.error("Failed to save segments to localStorage:", error);
+  }
+}
+
 function OBDCRMPageContent() {
   const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
@@ -119,6 +162,15 @@ function OBDCRMPageContent() {
   const [helpDeskPrompt, setHelpDeskPrompt] = useState("");
   const [useLastNote, setUseLastNote] = useState(true);
   const [useActivityTimeline, setUseActivityTimeline] = useState(false);
+
+  // Generate follow-up message state
+  const [showGenerateFollowUpModal, setShowGenerateFollowUpModal] = useState(false);
+  const [generateFollowUpChannel, setGenerateFollowUpChannel] = useState<"SMS" | "Email">("Email");
+  const [generateFollowUpTone, setGenerateFollowUpTone] = useState<"Friendly" | "Professional" | "Direct">("Friendly");
+  const [generateFollowUpLength, setGenerateFollowUpLength] = useState<"Short" | "Medium">("Short");
+  const [generateFollowUpUseLastNote, setGenerateFollowUpUseLastNote] = useState(true);
+  const [generateFollowUpUseActivityTimeline, setGenerateFollowUpUseActivityTimeline] = useState(false);
+  const [generateFollowUpGoal, setGenerateFollowUpGoal] = useState("");
   const [showSocialPostModal, setShowSocialPostModal] = useState(false);
   const [socialPostIntent, setSocialPostIntent] = useState<"Follow-up" | "Thank-you" | "Testimonial ask" | "Promo mention">("Follow-up");
   const [socialPostUseLastNote, setSocialPostUseLastNote] = useState(true);
@@ -202,9 +254,510 @@ function OBDCRMPageContent() {
       localStorage.setItem("obd_crm_followup_view", followUpView);
     }
   }, [followUpView]);
+
+  // Segments state
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [showSaveSegmentModal, setShowSaveSegmentModal] = useState(false);
+  const [newSegmentName, setNewSegmentName] = useState("");
+  const [segmentSaveError, setSegmentSaveError] = useState<string | null>(null);
+  const [segmentToast, setSegmentToast] = useState<string | null>(null);
+  const [showManageSegmentsModal, setShowManageSegmentsModal] = useState(false);
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [editingSegmentName, setEditingSegmentName] = useState("");
+  const [editingSegmentError, setEditingSegmentError] = useState<string | null>(null);
+  const [deletingSegmentId, setDeletingSegmentId] = useState<string | null>(null);
+
+  // Load segments from localStorage on mount
+  useEffect(() => {
+    const loadedSegments = loadSegmentsFromStorage();
+    setSegments(loadedSegments);
+  }, []);
+
+  // Save segments to localStorage whenever segments state changes
+  useEffect(() => {
+    saveSegmentsToStorage(segments);
+  }, [segments]);
+
+  // Handle segment selection
+  const handleSegmentSelect = (segmentId: string | null) => {
+    setSelectedSegmentId(segmentId);
+    
+    if (segmentId === null) {
+      // "No segment" selected - just clear selection, don't reset filters
+      return;
+    }
+
+    const segment = segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+
+    // Apply segment filters to current UI state
+    setSearch(segment.filters.searchQuery);
+    setStatusFilter(segment.filters.statusFilter as CrmContactStatus | "");
+    setTagFilter(segment.filters.tagFilter);
+    setFollowUpFilter(segment.filters.followUpFilter);
+    
+    if (segment.filters.followUpView) {
+      setFollowUpView(segment.filters.followUpView);
+    }
+    
+    if (segment.filters.density) {
+      setTableDensity(segment.filters.density);
+    }
+  };
+
+  // Handle saving a new segment
+  const handleSaveSegment = () => {
+    const trimmedName = newSegmentName.trim();
+    if (!trimmedName) {
+      setSegmentSaveError("Segment name is required");
+      return;
+    }
+    if (trimmedName.length > 60) {
+      setSegmentSaveError("Segment name must be 60 characters or less");
+      return;
+    }
+
+    setSegmentSaveError(null);
+
+    // Generate ID
+    const id = typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+
+    // Create new segment with current UI state snapshot
+    const newSegment: Segment = {
+      id,
+      name: trimmedName,
+      createdAt: new Date().toISOString(),
+      filters: {
+        searchQuery: search,
+        statusFilter: statusFilter,
+        tagFilter: tagFilter,
+        followUpFilter: followUpFilter,
+        followUpView: followUpView,
+        density: tableDensity,
+      },
+    };
+
+    // Prepend to segments list (newest first)
+    setSegments((prev) => [newSegment, ...prev]);
+    setSelectedSegmentId(id);
+    
+    // Close modal and reset form
+    setShowSaveSegmentModal(false);
+    setNewSegmentName("");
+    setSegmentSaveError(null);
+    
+    // Show toast
+    setSegmentToast("Segment saved");
+    setTimeout(() => setSegmentToast(null), 2000);
+  };
+
+  // Handle renaming a segment
+  const handleStartRename = (segmentId: string) => {
+    const segment = segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+    setEditingSegmentId(segmentId);
+    setEditingSegmentName(segment.name);
+    setEditingSegmentError(null);
+  };
+
+  const handleCancelRename = () => {
+    setEditingSegmentId(null);
+    setEditingSegmentName("");
+    setEditingSegmentError(null);
+  };
+
+  const handleSaveRename = (segmentId: string) => {
+    const trimmedName = editingSegmentName.trim();
+    if (!trimmedName) {
+      setEditingSegmentError("Segment name is required");
+      return;
+    }
+    if (trimmedName.length > 60) {
+      setEditingSegmentError("Segment name must be 60 characters or less");
+      return;
+    }
+
+    setEditingSegmentError(null);
+    setSegments((prev) =>
+      prev.map((s) => (s.id === segmentId ? { ...s, name: trimmedName } : s))
+    );
+    setEditingSegmentId(null);
+    setEditingSegmentName("");
+    
+    // Show toast
+    setSegmentToast("Segment renamed");
+    setTimeout(() => setSegmentToast(null), 2000);
+  };
+
+  // Handle deleting a segment
+  const handleConfirmDelete = (segmentId: string) => {
+    const segment = segments.find((s) => s.id === segmentId);
+    if (!segment) return;
+
+    // Remove from segments
+    setSegments((prev) => prev.filter((s) => s.id !== segmentId));
+
+    // If deleted segment was selected, clear selection (but don't reset filters)
+    if (selectedSegmentId === segmentId) {
+      setSelectedSegmentId(null);
+    }
+
+    setDeletingSegmentId(null);
+    
+    // Show toast
+    setSegmentToast("Segment deleted");
+    setTimeout(() => setSegmentToast(null), 2000);
+  };
   
   // Copy confirmation state (contactId -> "email" | "phone" | null)
   const [copiedItem, setCopiedItem] = useState<{ contactId: string; type: "email" | "phone" } | null>(null);
+
+  // Bulk selection state (table view only)
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+
+  // Bulk selection helpers
+  const toggleOne = (contactId: string) => {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) {
+        next.delete(contactId);
+      } else {
+        next.add(contactId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllVisible = (visibleContactIds: string[]) => {
+    setSelectedContactIds(new Set(visibleContactIds));
+  };
+
+  const clearSelection = () => {
+    setSelectedContactIds(new Set());
+  };
+
+  // Bulk add tag state
+  const [showBulkAddTagModal, setShowBulkAddTagModal] = useState(false);
+  const [bulkTagName, setBulkTagName] = useState("");
+  const [isBulkAddingTag, setIsBulkAddingTag] = useState(false);
+  const [bulkTagError, setBulkTagError] = useState<string | null>(null);
+
+  // Bulk follow-up state
+  const [showBulkSetFollowUpModal, setShowBulkSetFollowUpModal] = useState(false);
+  const [bulkFollowUpAt, setBulkFollowUpAt] = useState("");
+  const [bulkFollowUpNote, setBulkFollowUpNote] = useState("");
+  const [isBulkSettingFollowUp, setIsBulkSettingFollowUp] = useState(false);
+  const [bulkFollowUpError, setBulkFollowUpError] = useState<string | null>(null);
+  const [showBulkClearFollowUpConfirm, setShowBulkClearFollowUpConfirm] = useState(false);
+  const [isBulkClearingFollowUp, setIsBulkClearingFollowUp] = useState(false);
+  
+  // Bulk send review request state
+  const [showBulkSendReviewRequestModal, setShowBulkSendReviewRequestModal] = useState(false);
+  const [bulkReviewRequestChannel, setBulkReviewRequestChannel] = useState<"email" | "sms">("email");
+  const [bulkReviewRequestTemplate, setBulkReviewRequestTemplate] = useState<string>("default");
+
+  // Handle bulk add tag
+  const handleBulkAddTag = async () => {
+    const trimmedName = bulkTagName.trim();
+    if (!trimmedName) {
+      setBulkTagError("Tag name is required");
+      return;
+    }
+    if (trimmedName.length > 40) {
+      setBulkTagError("Tag name must be 40 characters or less");
+      return;
+    }
+
+    setBulkTagError(null);
+    setIsBulkAddingTag(true);
+
+    try {
+      // Step 1: Find or create the tag
+      let tagId: string;
+      const existingTag = tags.find((t) => t.name.toLowerCase() === trimmedName.toLowerCase());
+      
+      if (existingTag) {
+        tagId = existingTag.id;
+      } else {
+        // Create new tag
+        const createResponse = await fetch("/api/obd-crm/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmedName }),
+        });
+        const createData = await createResponse.json();
+        
+        if (!createData.ok) {
+          throw new Error(createData.error || "Failed to create tag");
+        }
+        
+        tagId = createData.data.id;
+        // Refresh tags list
+        const tagsResponse = await fetch("/api/obd-crm/tags");
+        const tagsData = await tagsResponse.json();
+        if (tagsData.ok && tagsData.data?.tags) {
+          setTags(tagsData.data.tags);
+        }
+      }
+
+      // Step 2: Add tag to each selected contact (sequential for safety)
+      const selectedIdsArray = Array.from(selectedContactIds);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const contactId of selectedIdsArray) {
+        try {
+          // Get current contact to find existing tagIds
+          const contact = contacts.find((c) => c.id === contactId);
+          if (!contact) {
+            failCount++;
+            continue;
+          }
+
+          // Get current tagIds, add new one if not already present
+          const currentTagIds = contact.tags.map((t) => t.id);
+          const updatedTagIds = currentTagIds.includes(tagId)
+            ? currentTagIds // Already has this tag
+            : [...currentTagIds, tagId];
+
+          // Update contact with new tagIds
+          const updateResponse = await fetch(`/api/obd-crm/contacts/${contactId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tagIds: updatedTagIds }),
+          });
+          const updateData = await updateResponse.json();
+
+          if (updateData.ok && updateData.data) {
+            successCount++;
+            // Update local state
+            setContacts((prev) =>
+              prev.map((c) =>
+                c.id === contactId
+                  ? {
+                      ...c,
+                      tags: updateData.data.tags || c.tags,
+                    }
+                  : c
+              )
+            );
+            // Update contactDetail if it's the selected contact
+            if (contactDetail?.id === contactId) {
+              setContactDetail((prev) =>
+                prev ? { ...prev, tags: updateData.data.tags || prev.tags } : null
+              );
+            }
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to add tag to contact ${contactId}:`, error);
+        }
+      }
+
+      // Step 3: Show result and cleanup
+      if (failCount > 0) {
+        setSegmentToast(`Tag '${trimmedName}' added to ${successCount} contacts. Some contacts could not be updated.`);
+      } else {
+        setSegmentToast(`Tag '${trimmedName}' added to ${successCount} contacts`);
+      }
+      setTimeout(() => setSegmentToast(null), 3000);
+
+      // Close modal and clear selection
+      setShowBulkAddTagModal(false);
+      setBulkTagName("");
+      clearSelection();
+    } catch (error) {
+      setBulkTagError(error instanceof Error ? error.message : "Failed to add tag");
+    } finally {
+      setIsBulkAddingTag(false);
+    }
+  };
+
+  // Handle bulk set follow-up
+  const handleBulkSetFollowUp = async () => {
+    if (!bulkFollowUpAt) {
+      setBulkFollowUpError("Follow-up date and time is required");
+      return;
+    }
+
+    // Validate datetime
+    const followUpDate = new Date(bulkFollowUpAt);
+    if (isNaN(followUpDate.getTime())) {
+      setBulkFollowUpError("Invalid date and time");
+      return;
+    }
+
+    setBulkFollowUpError(null);
+    setIsBulkSettingFollowUp(true);
+
+    try {
+      const selectedIdsArray = Array.from(selectedContactIds);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const contactId of selectedIdsArray) {
+        try {
+          const updateResponse = await fetch(`/api/obd-crm/contacts/${contactId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nextFollowUpAt: followUpDate.toISOString(),
+              nextFollowUpNote: bulkFollowUpNote.trim() || null,
+            }),
+          });
+          const updateData = await updateResponse.json();
+
+          if (updateData.ok && updateData.data) {
+            successCount++;
+            // Update local state
+            setContacts((prev) =>
+              prev.map((c) =>
+                c.id === contactId
+                  ? {
+                      ...c,
+                      nextFollowUpAt: updateData.data.nextFollowUpAt || null,
+                      nextFollowUpNote: updateData.data.nextFollowUpNote || null,
+                    }
+                  : c
+              )
+            );
+            // Update contactDetail if it's the selected contact
+            if (contactDetail?.id === contactId) {
+              setContactDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      nextFollowUpAt: updateData.data.nextFollowUpAt || null,
+                      nextFollowUpNote: updateData.data.nextFollowUpNote || null,
+                    }
+                  : null
+              );
+            }
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to set follow-up for contact ${contactId}:`, error);
+        }
+      }
+
+      // Show result and cleanup
+      if (failCount > 0) {
+        setSegmentToast(`Follow-up set for ${successCount} contacts. Some contacts could not be updated.`);
+      } else {
+        setSegmentToast(`Follow-up set for ${successCount} contacts`);
+      }
+      setTimeout(() => setSegmentToast(null), 3000);
+
+      // Close modal and clear selection
+      setShowBulkSetFollowUpModal(false);
+      setBulkFollowUpAt("");
+      setBulkFollowUpNote("");
+      clearSelection();
+    } catch (error) {
+      setBulkFollowUpError(error instanceof Error ? error.message : "Failed to set follow-up");
+    } finally {
+      setIsBulkSettingFollowUp(false);
+    }
+  };
+
+  // Handle bulk send review request - navigate to Review Request Automation
+  const handleBulkSendReviewRequest = () => {
+    // Build query params
+    const params = new URLSearchParams();
+    params.set("context", "crm");
+    params.set("contactIds", Array.from(selectedContactIds).join(","));
+    params.set("template", bulkReviewRequestTemplate);
+    params.set("channel", bulkReviewRequestChannel);
+    
+    // Navigate to Review Request Automation
+    router.push(`/apps/review-request-automation?${params.toString()}`);
+    
+    // Clear selection and close modal
+    clearSelection();
+    setShowBulkSendReviewRequestModal(false);
+  };
+
+  // Handle bulk clear follow-up
+  const handleBulkClearFollowUp = async () => {
+    setIsBulkClearingFollowUp(true);
+
+    try {
+      const selectedIdsArray = Array.from(selectedContactIds);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const contactId of selectedIdsArray) {
+        try {
+          const updateResponse = await fetch(`/api/obd-crm/contacts/${contactId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nextFollowUpAt: null,
+              nextFollowUpNote: null,
+            }),
+          });
+          const updateData = await updateResponse.json();
+
+          if (updateData.ok && updateData.data) {
+            successCount++;
+            // Update local state
+            setContacts((prev) =>
+              prev.map((c) =>
+                c.id === contactId
+                  ? {
+                      ...c,
+                      nextFollowUpAt: null,
+                      nextFollowUpNote: null,
+                    }
+                  : c
+              )
+            );
+            // Update contactDetail if it's the selected contact
+            if (contactDetail?.id === contactId) {
+              setContactDetail((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      nextFollowUpAt: null,
+                      nextFollowUpNote: null,
+                    }
+                  : null
+              );
+            }
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to clear follow-up for contact ${contactId}:`, error);
+        }
+      }
+
+      // Show result and cleanup
+      if (failCount > 0) {
+        setSegmentToast(`Follow-up cleared for ${successCount} contacts. Some contacts could not be updated.`);
+      } else {
+        setSegmentToast(`Follow-up cleared for ${successCount} contacts`);
+      }
+      setTimeout(() => setSegmentToast(null), 3000);
+
+      // Close confirmation and clear selection
+      setShowBulkClearFollowUpConfirm(false);
+      clearSelection();
+    } catch (error) {
+      setSegmentToast("Failed to clear follow-up for some contacts");
+      setTimeout(() => setSegmentToast(null), 3000);
+    } finally {
+      setIsBulkClearingFollowUp(false);
+    }
+  };
 
   // Create contact modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -991,6 +1544,102 @@ function OBDCRMPageContent() {
     }
   };
 
+  // Handle marking follow-up as done
+  const handleMarkFollowUpDone = async (contactIdOverride?: string) => {
+    const targetContactId = contactIdOverride || selectedContactId;
+    if (!targetContactId) return;
+    
+    // Get contact from list if not using selected contact
+    const targetContact = contactIdOverride 
+      ? contacts.find(c => c.id === contactIdOverride)
+      : contactDetail;
+    
+    if (!targetContact?.nextFollowUpAt) return;
+
+    setIsSavingFollowUp(true);
+    setFollowUpError(null);
+    try {
+      // Step 1: Create activity indicating follow-up was completed
+      const now = new Date();
+      const activityPayload = {
+        type: "TASK" as const,
+        summary: `Completed follow-up${targetContact.nextFollowUpNote ? `: ${targetContact.nextFollowUpNote}` : ""}`,
+        occurredAt: now.toISOString(),
+      };
+
+      const activityResponse = await fetch(`/api/obd-crm/contacts/${targetContactId}/activities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(activityPayload),
+      });
+      const activityData = await activityResponse.json();
+
+      if (!activityData.ok) {
+        setFollowUpError(activityData.error || "Failed to create activity");
+        return;
+      }
+
+      // Step 2: Clear follow-up
+      const clearResponse = await fetch(`/api/obd-crm/contacts/${targetContactId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nextFollowUpAt: null,
+          nextFollowUpNote: null,
+        }),
+      });
+      const clearData = await clearResponse.json();
+
+      if (!clearData.ok) {
+        setFollowUpError(clearData.error || "Failed to clear follow-up");
+        return;
+      }
+
+      // Step 3: Update local state on success
+      const newLastTouchAt = activityData.data?.occurredAt || activityData.data?.createdAt || now.toISOString();
+      
+      // Update form inputs
+      setFollowUpAt("");
+      setFollowUpNote("");
+
+      // Update contact detail (only if this is the selected contact)
+      if (targetContactId === selectedContactId) {
+        setContactDetail((prev) => prev ? { 
+          ...prev, 
+          nextFollowUpAt: null,
+          nextFollowUpNote: null,
+          lastTouchAt: newLastTouchAt,
+        } : null);
+
+        // Update activities list (prepend new activity) - only if drawer is open
+        if (activityData.data) {
+          setActivities((prev) => [activityData.data, ...prev]);
+        }
+      }
+
+      // Update contacts list state
+      setContacts((prev) =>
+        prev.map((contact) =>
+          contact.id === targetContactId
+            ? {
+                ...contact,
+                nextFollowUpAt: null,
+                nextFollowUpNote: null,
+                lastTouchAt: newLastTouchAt,
+              }
+            : contact
+        )
+      );
+
+      // Show success message
+      showFollowUpToast("Follow-up marked done");
+    } catch (error) {
+      setFollowUpError(error instanceof Error ? error.message : "Failed to mark follow-up as done");
+    } finally {
+      setIsSavingFollowUp(false);
+    }
+  };
+
   // Cleanup toast timer on unmount
   useEffect(() => {
     return () => {
@@ -1417,43 +2066,6 @@ function OBDCRMPageContent() {
             </div>
           </div>
 
-          {/* View Toggle */}
-          <div className="flex items-center gap-2">
-            <span className={`text-sm ${themeClasses.mutedText}`}>View:</span>
-            <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
-              <button
-                type="button"
-                onClick={() => setFollowUpView("table")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  followUpView === "table"
-                    ? isDark
-                      ? "bg-blue-700 text-white"
-                      : "bg-blue-100 text-blue-700"
-                    : isDark
-                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setFollowUpView("queue")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  followUpView === "queue"
-                    ? isDark
-                      ? "bg-blue-700 text-white"
-                      : "bg-blue-100 text-blue-700"
-                    : isDark
-                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Queue
-              </button>
-            </div>
-          </div>
-
           {/* Density Toggle (only in table view) */}
           {followUpView === "table" && (
             <div className="flex items-center gap-2">
@@ -1492,6 +2104,60 @@ function OBDCRMPageContent() {
               </div>
             </div>
           )}
+
+          {/* Segments Dropdown */}
+          <div className="flex items-center gap-2 min-w-[150px]">
+            <div className="flex-1 min-w-0">
+              <select
+                value={selectedSegmentId || ""}
+                onChange={(e) => handleSegmentSelect(e.target.value || null)}
+                className={getInputClasses(isDark)}
+              >
+                <option value="">No segment</option>
+                {segments.map((segment) => (
+                  <option key={segment.id} value={segment.id}>
+                    {segment.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {segments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManageSegmentsModal(true);
+                  setEditingSegmentId(null);
+                  setDeletingSegmentId(null);
+                }}
+                className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+                title="Manage segments"
+                aria-label="Manage segments"
+              >
+                Manage
+              </button>
+            )}
+          </div>
+
+          {/* Save View Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowSaveSegmentModal(true);
+              setNewSegmentName("");
+              setSegmentSaveError(null);
+            }}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              isDark
+                ? "bg-blue-700 text-white hover:bg-blue-600"
+                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+            }`}
+          >
+            Save view
+          </button>
 
           {/* Actions */}
           <div className="flex gap-2">
@@ -2271,6 +2937,27 @@ function OBDCRMPageContent() {
                                     >
                                       +1w
                                     </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkFollowUpDone(contact.id);
+                                      }}
+                                      disabled={isSavingFollowUp}
+                                      className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-medium transition-colors ${
+                                        isSavingFollowUp
+                                          ? isDark
+                                            ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                            : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                          : isDark
+                                          ? "bg-green-700 text-white hover:bg-green-600"
+                                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                                      }`}
+                                      title="Mark Done"
+                                      aria-label="Mark follow-up as done"
+                                    >
+                                      ✓
+                                    </button>
                                   </>
                                 )}
                               </div>
@@ -2511,6 +3198,27 @@ function OBDCRMPageContent() {
                                       title="Snooze 1 week"
                                     >
                                       +1w
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkFollowUpDone(contact.id);
+                                      }}
+                                      disabled={isSavingFollowUp}
+                                      className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-medium transition-colors ${
+                                        isSavingFollowUp
+                                          ? isDark
+                                            ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                            : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                          : isDark
+                                          ? "bg-green-700 text-white hover:bg-green-600"
+                                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                                      }`}
+                                      title="Mark Done"
+                                      aria-label="Mark follow-up as done"
+                                    >
+                                      ✓
                                     </button>
                                   </>
                                 )}
@@ -2753,6 +3461,27 @@ function OBDCRMPageContent() {
                                     >
                                       +1w
                                     </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleMarkFollowUpDone(contact.id);
+                                      }}
+                                      disabled={isSavingFollowUp}
+                                      className={`w-6 h-6 flex items-center justify-center rounded text-[10px] font-medium transition-colors ${
+                                        isSavingFollowUp
+                                          ? isDark
+                                            ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                            : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                          : isDark
+                                          ? "bg-green-700 text-white hover:bg-green-600"
+                                          : "bg-green-100 text-green-700 hover:bg-green-200"
+                                      }`}
+                                      title="Mark Done"
+                                      aria-label="Mark follow-up as done"
+                                    >
+                                      ✓
+                                    </button>
                                   </>
                                 )}
                               </div>
@@ -2780,11 +3509,73 @@ function OBDCRMPageContent() {
               </div>
             );
           })()
-        ) : (
+        ) : (() => {
+          // Filter contacts by search, status, tag, and follow-up (computed once for header checkbox)
+          const filteredContactsForHeader = contacts.filter((contact) => {
+            // Search filter
+            if (search.trim()) {
+              const searchLower = search.toLowerCase();
+              const matchesSearch = 
+                contact.name.toLowerCase().includes(searchLower) ||
+                (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
+                (contact.phone && contact.phone.includes(search));
+              if (!matchesSearch) return false;
+            }
+            
+            // Status filter
+            if (statusFilter && contact.status !== statusFilter) return false;
+            
+            // Tag filter
+            if (tagFilter && !contact.tags.some(tag => tag.id === tagFilter)) return false;
+            
+            // Follow-up filter
+            if (followUpFilter !== "all") {
+              if (!contact.nextFollowUpAt) return false;
+              
+              const followUpDate = new Date(contact.nextFollowUpAt);
+              const now = new Date();
+              
+              if (followUpFilter === "dueToday") {
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const followUpDay = new Date(followUpDate.getFullYear(), followUpDate.getMonth(), followUpDate.getDate());
+                return followUpDay.getTime() === today.getTime();
+              }
+              
+              if (followUpFilter === "overdue") {
+                return followUpDate.getTime() < now.getTime();
+              }
+              
+              if (followUpFilter === "upcoming") {
+                const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                return followUpDate.getTime() >= now.getTime() && followUpDate.getTime() <= sevenDaysFromNow.getTime();
+              }
+            }
+            
+            return true;
+          });
+
+          return (
           <div className="overflow-x-auto overflow-y-auto relative" style={{ maxHeight: "calc(100vh - 400px)" }}>
             <table className="w-full">
               <thead className={`sticky top-0 z-10 ${isDark ? "bg-slate-900" : "bg-white"}`}>
                 <tr className={`border-b ${themeClasses.panelBorder}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
+                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
+                  }`} style={{ width: "40px" }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredContactsForHeader.length > 0 && filteredContactsForHeader.every((c) => selectedContactIds.has(c.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          selectAllVisible(filteredContactsForHeader.map((c) => c.id));
+                        } else {
+                          clearSelection();
+                        }
+                      }}
+                      className="cursor-pointer"
+                      aria-label="Select all visible contacts"
+                    />
+                  </th>
                   <th className={`text-left font-semibold ${themeClasses.labelText} ${
                     tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
                   }`}>
@@ -2979,7 +3770,7 @@ function OBDCRMPageContent() {
                   if (filteredContacts.length === 0) {
                     return (
                       <tr>
-                        <td colSpan={10} className={tableDensity === "compact" ? "py-8 px-3" : "py-12 px-4"}>
+                        <td colSpan={11} className={tableDensity === "compact" ? "py-8 px-3" : "py-12 px-4"}>
                           <div className={`text-center ${themeClasses.mutedText}`}>
                             <p className={`${tableDensity === "compact" ? "text-base" : "text-lg"} mb-2 ${themeClasses.headingText}`}>
                               No contacts match your filters.
@@ -3014,6 +3805,22 @@ function OBDCRMPageContent() {
                       isDark ? "bg-slate-800/50" : "bg-slate-50"
                     } transition-colors`}
                   >
+                    <td
+                      className={`${tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedContactIds.has(contact.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleOne(contact.id);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="cursor-pointer"
+                        aria-label={`Select ${contact.name}`}
+                      />
+                    </td>
                     <td className={`${themeClasses.headingText} ${
                       tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
                     }`}>
@@ -3251,8 +4058,140 @@ function OBDCRMPageContent() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        })()}
       </OBDPanel>
+
+      {/* Bulk Actions Bar */}
+      {followUpView === "table" && selectedContactIds.size > 0 && (() => {
+        // Compute filtered contacts for "Select all visible" button
+        const filteredContactsForBulk = contacts.filter((contact) => {
+          if (search.trim()) {
+            const searchLower = search.toLowerCase();
+            const matchesSearch = 
+              contact.name.toLowerCase().includes(searchLower) ||
+              (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
+              (contact.phone && contact.phone.includes(search));
+            if (!matchesSearch) return false;
+          }
+          if (statusFilter && contact.status !== statusFilter) return false;
+          if (tagFilter && !contact.tags.some(tag => tag.id === tagFilter)) return false;
+          if (followUpFilter !== "all") {
+            if (!contact.nextFollowUpAt) return false;
+            const followUpDate = new Date(contact.nextFollowUpAt);
+            const now = new Date();
+            if (followUpFilter === "dueToday") {
+              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const followUpDay = new Date(followUpDate.getFullYear(), followUpDate.getMonth(), followUpDate.getDate());
+              return followUpDay.getTime() === today.getTime();
+            }
+            if (followUpFilter === "overdue") {
+              return followUpDate.getTime() < now.getTime();
+            }
+            if (followUpFilter === "upcoming") {
+              const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+              return followUpDate.getTime() >= now.getTime() && followUpDate.getTime() <= sevenDaysFromNow.getTime();
+            }
+          }
+          return true;
+        });
+        const allVisibleSelected = filteredContactsForBulk.length > 0 && filteredContactsForBulk.every((c) => selectedContactIds.has(c.id));
+
+        return (
+          <OBDPanel isDark={isDark} className="mt-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className={`text-sm font-medium ${themeClasses.headingText}`}>
+                {selectedContactIds.size} selected
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {!allVisibleSelected && (
+                  <button
+                    type="button"
+                    onClick={() => selectAllVisible(filteredContactsForBulk.map((c) => c.id))}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      isDark
+                        ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                    }`}
+                  >
+                    Select all visible
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Clear
+                </button>
+                <div className="h-4 w-px bg-current/20 mx-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkAddTagModal(true);
+                    setBulkTagName("");
+                    setBulkTagError(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-blue-700 text-white hover:bg-blue-600"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  }`}
+                >
+                  Add Tag
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkSetFollowUpModal(true);
+                    setBulkFollowUpAt("");
+                    setBulkFollowUpNote("");
+                    setBulkFollowUpError(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-blue-700 text-white hover:bg-blue-600"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  }`}
+                >
+                  Set Follow-Up
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBulkClearFollowUpConfirm(true)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Clear Follow-Up
+                </button>
+                <div className="h-4 w-px bg-current/20 mx-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkSendReviewRequestModal(true);
+                    setBulkReviewRequestChannel("email");
+                    setBulkReviewRequestTemplate("default");
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    isDark
+                      ? "bg-green-700 text-white hover:bg-green-600"
+                      : "bg-green-100 text-green-700 hover:bg-green-200"
+                  }`}
+                >
+                  Send Review Request
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        );
+      })()}
 
       {/* Create Contact Modal */}
       {showCreateModal && (
@@ -4221,6 +5160,22 @@ function OBDCRMPageContent() {
                               >
                                 1 week
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkFollowUpDone()}
+                                disabled={isSavingFollowUp}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                                  isSavingFollowUp
+                                    ? isDark
+                                      ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                      : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                                    : isDark
+                                    ? "bg-green-700 text-white hover:bg-green-600"
+                                    : "bg-green-100 text-green-700 hover:bg-green-200"
+                                }`}
+                              >
+                                Mark Done
+                              </button>
                             </div>
                           )}
                           
@@ -4244,6 +5199,27 @@ function OBDCRMPageContent() {
                               {followUpError}
                             </div>
                           )}
+                        </div>
+
+                        {/* Generate Follow-Up Button */}
+                        <div className="mt-4 pt-4 border-t border-current/10">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowGenerateFollowUpModal(true);
+                              // Set default for "Use last note" based on whether last note exists
+                              setGenerateFollowUpUseLastNote(notes.length > 0);
+                              setGenerateFollowUpUseActivityTimeline(false);
+                              setGenerateFollowUpGoal("");
+                            }}
+                            className={`w-full px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                              isDark
+                                ? "bg-blue-700 text-white hover:bg-blue-600"
+                                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                            }`}
+                          >
+                            Generate Follow-Up
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -4443,6 +5419,190 @@ function OBDCRMPageContent() {
                     // Add returnUrl to come back to this contact
                     const returnUrl = `/apps/obd-crm?contactId=${encodeURIComponent(contactDetail.id)}`;
                     params.set("returnUrl", returnUrl);
+                    router.push(`/apps/ai-help-desk?${params.toString()}`);
+                  }}
+                  className={SUBMIT_BUTTON_CLASSES + " flex-1"}
+                >
+                  Open in AI Help Desk
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Generate Follow-Up Message Modal */}
+      {showGenerateFollowUpModal && contactDetail && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Generate follow-up message
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => setShowGenerateFollowUpModal(false)}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Channel Selector */}
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Channel
+                </label>
+                <select
+                  value={generateFollowUpChannel}
+                  onChange={(e) => setGenerateFollowUpChannel(e.target.value as "SMS" | "Email")}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="SMS">SMS</option>
+                  <option value="Email">Email</option>
+                </select>
+              </div>
+
+              {/* Tone Selector */}
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Tone
+                </label>
+                <select
+                  value={generateFollowUpTone}
+                  onChange={(e) => setGenerateFollowUpTone(e.target.value as "Friendly" | "Professional" | "Direct")}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="Friendly">Friendly</option>
+                  <option value="Professional">Professional</option>
+                  <option value="Direct">Direct</option>
+                </select>
+              </div>
+
+              {/* Length Selector */}
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Length
+                </label>
+                <select
+                  value={generateFollowUpLength}
+                  onChange={(e) => setGenerateFollowUpLength(e.target.value as "Short" | "Medium")}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="Short">Short</option>
+                  <option value="Medium">Medium</option>
+                </select>
+              </div>
+
+              {/* Context Checkboxes */}
+              <div className="space-y-2">
+                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                  <input
+                    type="checkbox"
+                    checked={generateFollowUpUseLastNote}
+                    onChange={(e) => setGenerateFollowUpUseLastNote(e.target.checked)}
+                    className="rounded"
+                    disabled={notes.length === 0}
+                  />
+                  <span className="text-sm">Use last note as context</span>
+                  {notes.length === 0 && (
+                    <span className={`text-xs ${themeClasses.mutedText}`}>(no notes)</span>
+                  )}
+                </label>
+                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                  <input
+                    type="checkbox"
+                    checked={generateFollowUpUseActivityTimeline}
+                    onChange={(e) => setGenerateFollowUpUseActivityTimeline(e.target.checked)}
+                    className="rounded"
+                    disabled={activities.length === 0}
+                  />
+                  <span className="text-sm">Use activity timeline</span>
+                  {activities.length === 0 && (
+                    <span className={`text-xs ${themeClasses.mutedText}`}>(no activities)</span>
+                  )}
+                </label>
+              </div>
+
+              {/* Goal Textarea */}
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  What do you want to accomplish? <span className="text-xs font-normal opacity-75">(optional)</span>
+                </label>
+                <textarea
+                  value={generateFollowUpGoal}
+                  onChange={(e) => setGenerateFollowUpGoal(e.target.value)}
+                  placeholder="e.g., Confirm appointment, Check in, Ask for referral"
+                  className={getInputClasses(isDark)}
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowGenerateFollowUpModal(false)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-white hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Build prompt string
+                    let promptParts: string[] = [];
+                    
+                    promptParts.push(`Generate a ${generateFollowUpLength.toLowerCase()} ${generateFollowUpChannel.toLowerCase()} follow-up message for ${contactDetail.name}`);
+                    promptParts.push(`Tone: ${generateFollowUpTone.toLowerCase()}`);
+                    
+                    if (generateFollowUpGoal.trim()) {
+                      promptParts.push(`Goal: ${generateFollowUpGoal.trim()}`);
+                    }
+
+                    // Add context if checkboxes are checked
+                    if (generateFollowUpUseLastNote && notes.length > 0) {
+                      const lastNote = notes[0]; // Notes are already sorted newest first
+                      promptParts.push(`Last note: ${lastNote.content}`);
+                    }
+
+                    if (generateFollowUpUseActivityTimeline && activities.length > 0) {
+                      // Create a short summary instead of dumping all activities
+                      const recentActivities = activities.slice(0, 3); // Last 3 activities
+                      const activitySummary = recentActivities
+                        .map((a) => `${a.type}: ${a.summary}`)
+                        .join("; ");
+                      promptParts.push(`Recent activities: ${activitySummary}`);
+                      if (activities.length > 3) {
+                        promptParts.push("(Use activity timeline context for full history)");
+                      }
+                    }
+
+                    const prompt = promptParts.join("\n");
+
+                    // Store prompt in sessionStorage
+                    if (typeof window !== "undefined") {
+                      try {
+                        sessionStorage.setItem("obd_ai_helpdesk_prefill_prompt", prompt);
+                        sessionStorage.setItem("obd_ai_helpdesk_prefill_contactId", contactDetail.id);
+                      } catch (error) {
+                        console.warn("Failed to store prompt in sessionStorage:", error);
+                      }
+                    }
+
+                    // Navigate to AI Help Desk with query params
+                    const params = new URLSearchParams();
+                    params.set("context", "crm");
+                    params.set("contactId", contactDetail.id);
+                    if (generateFollowUpUseLastNote) params.set("useLastNote", "1");
+                    if (generateFollowUpUseActivityTimeline) params.set("useActivityTimeline", "1");
+                    const returnUrl = `/apps/obd-crm?contactId=${encodeURIComponent(contactDetail.id)}`;
+                    params.set("returnUrl", returnUrl);
+                    
                     router.push(`/apps/ai-help-desk?${params.toString()}`);
                   }}
                   className={SUBMIT_BUTTON_CLASSES + " flex-1"}
@@ -5211,6 +6371,680 @@ function OBDCRMPageContent() {
           {showFabMenu ? "×" : "+"}
         </button>
       </div>
+
+      {/* Save Segment Modal */}
+      {showSaveSegmentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Save View as Segment
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveSegmentModal(false);
+                  setNewSegmentName("");
+                  setSegmentSaveError(null);
+                }}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+              >
+                ×
+              </button>
+            </div>
+
+            {segmentSaveError && (
+              <div className={getErrorPanelClasses(isDark) + " mb-4"}>
+                {segmentSaveError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Segment Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newSegmentName}
+                  onChange={(e) => {
+                    setNewSegmentName(e.target.value);
+                    setSegmentSaveError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveSegment();
+                    }
+                  }}
+                  placeholder="e.g., Overdue Follow-Ups"
+                  maxLength={60}
+                  className={getInputClasses(isDark)}
+                  autoFocus
+                />
+                <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  {newSegmentName.length}/60 characters
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSaveSegmentModal(false);
+                    setNewSegmentName("");
+                    setSegmentSaveError(null);
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSegment}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isDark
+                      ? "bg-blue-700 text-white hover:bg-blue-600"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  }`}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Manage Segments Modal */}
+      {showManageSegmentsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Manage Segments
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManageSegmentsModal(false);
+                  setEditingSegmentId(null);
+                  setDeletingSegmentId(null);
+                }}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {segments.length === 0 ? (
+              <div className={`text-center py-8 ${themeClasses.mutedText}`}>
+                No segments saved yet. Use "Save view" to create your first segment.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {segments.map((segment) => (
+                  <div
+                    key={segment.id}
+                    className={`p-4 rounded-lg border ${
+                      isDark
+                        ? "bg-slate-800/50 border-slate-700/50"
+                        : "bg-white border-slate-200"
+                    }`}
+                  >
+                    {editingSegmentId === segment.id ? (
+                      // Edit mode
+                      <div className="space-y-2">
+                        <div>
+                          <input
+                            type="text"
+                            value={editingSegmentName}
+                            onChange={(e) => {
+                              setEditingSegmentName(e.target.value);
+                              setEditingSegmentError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveRename(segment.id);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                handleCancelRename();
+                              }
+                            }}
+                            className={getInputClasses(isDark)}
+                            autoFocus
+                            maxLength={60}
+                          />
+                          {editingSegmentError && (
+                            <div className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                              {editingSegmentError}
+                            </div>
+                          )}
+                          <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                            {editingSegmentName.length}/60 characters
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveRename(segment.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-blue-700 text-white hover:bg-blue-600"
+                                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                            }`}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelRename}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : deletingSegmentId === segment.id ? (
+                      // Delete confirmation
+                      <div className="space-y-3">
+                        <div className={`text-sm ${themeClasses.headingText}`}>
+                          Delete segment &quot;{segment.name}&quot;?
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmDelete(segment.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-red-700 text-white hover:bg-red-600"
+                                : "bg-red-100 text-red-700 hover:bg-red-200"
+                            }`}
+                          >
+                            Confirm Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingSegmentId(null)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      // View mode
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-medium ${themeClasses.headingText}`}>
+                            {segment.name}
+                          </div>
+                          <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                            Created {new Date(segment.createdAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleStartRename(segment.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                            title="Rename segment"
+                            aria-label={`Rename segment ${segment.name}`}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingSegmentId(segment.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              isDark
+                                ? "bg-red-700/80 text-white hover:bg-red-600"
+                                : "bg-red-100 text-red-700 hover:bg-red-200"
+                            }`}
+                            title="Delete segment"
+                            aria-label={`Delete segment ${segment.name}`}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t border-current/10">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManageSegmentsModal(false);
+                  setEditingSegmentId(null);
+                  setDeletingSegmentId(null);
+                }}
+                className={`w-full px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+              >
+                Close
+              </button>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Bulk Set Follow-Up Modal */}
+      {showBulkSetFollowUpModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Set follow-up for {selectedContactIds.size} contacts
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkSetFollowUpModal(false);
+                  setBulkFollowUpAt("");
+                  setBulkFollowUpNote("");
+                  setBulkFollowUpError(null);
+                }}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close"
+                disabled={isBulkSettingFollowUp}
+              >
+                ×
+              </button>
+            </div>
+
+            {bulkFollowUpError && (
+              <div className={getErrorPanelClasses(isDark) + " mb-4"}>
+                {bulkFollowUpError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Date & Time <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={bulkFollowUpAt}
+                  onChange={(e) => {
+                    setBulkFollowUpAt(e.target.value);
+                    setBulkFollowUpError(null);
+                  }}
+                  className={getInputClasses(isDark)}
+                  disabled={isBulkSettingFollowUp}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Note <span className="text-xs font-normal opacity-75">(optional)</span>
+                </label>
+                <textarea
+                  value={bulkFollowUpNote}
+                  onChange={(e) => {
+                    if (e.target.value.length <= 240) {
+                      setBulkFollowUpNote(e.target.value);
+                    }
+                  }}
+                  placeholder="Follow-up reminder note..."
+                  maxLength={240}
+                  rows={3}
+                  className={getInputClasses(isDark)}
+                  disabled={isBulkSettingFollowUp}
+                />
+                <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  {bulkFollowUpNote.length}/240 characters
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkSetFollowUpModal(false);
+                    setBulkFollowUpAt("");
+                    setBulkFollowUpNote("");
+                    setBulkFollowUpError(null);
+                  }}
+                  disabled={isBulkSettingFollowUp}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkSettingFollowUp
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkSetFollowUp}
+                  disabled={isBulkSettingFollowUp || !bulkFollowUpAt}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkSettingFollowUp || !bulkFollowUpAt
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-blue-700 text-white hover:bg-blue-600"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  }`}
+                >
+                  {isBulkSettingFollowUp ? "Applying..." : "Apply"}
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Bulk Clear Follow-Up Confirmation */}
+      {showBulkClearFollowUpConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Clear Follow-Up
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => setShowBulkClearFollowUpConfirm(false)}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close"
+                disabled={isBulkClearingFollowUp}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className={`text-sm ${themeClasses.headingText}`}>
+                Clear follow-up for {selectedContactIds.size} contacts?
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkClearFollowUpConfirm(false)}
+                  disabled={isBulkClearingFollowUp}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkClearingFollowUp
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkClearFollowUp}
+                  disabled={isBulkClearingFollowUp}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkClearingFollowUp
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-red-700 text-white hover:bg-red-600"
+                      : "bg-red-100 text-red-700 hover:bg-red-200"
+                  }`}
+                >
+                  {isBulkClearingFollowUp ? "Clearing..." : "Clear Follow-Up"}
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Bulk Send Review Request Modal */}
+      {showBulkSendReviewRequestModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Send review request to {selectedContactIds.size} contact{selectedContactIds.size !== 1 ? "s" : ""}
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkSendReviewRequestModal(false);
+                  setBulkReviewRequestChannel("email");
+                  setBulkReviewRequestTemplate("default");
+                }}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Channel
+                </label>
+                <div className="space-y-2">
+                  <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                    <input
+                      type="radio"
+                      name="reviewRequestChannel"
+                      value="email"
+                      checked={bulkReviewRequestChannel === "email"}
+                      onChange={() => setBulkReviewRequestChannel("email")}
+                      className="rounded"
+                    />
+                    <span>Email</span>
+                  </label>
+                  <label className={`flex items-center gap-2 ${themeClasses.mutedText} opacity-60`}>
+                    <input
+                      type="radio"
+                      name="reviewRequestChannel"
+                      value="sms"
+                      checked={bulkReviewRequestChannel === "sms"}
+                      onChange={() => {}}
+                      disabled
+                      className="rounded"
+                    />
+                    <span>SMS</span>
+                    <span className="text-xs">(coming soon)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Template
+                </label>
+                <select
+                  value={bulkReviewRequestTemplate}
+                  onChange={(e) => setBulkReviewRequestTemplate(e.target.value)}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="default">Default request</option>
+                  <option value="short-friendly">Short & Friendly</option>
+                  <option value="professional">Professional</option>
+                  <option value="service-follow-up">Service Follow-Up</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkSendReviewRequestModal(false);
+                    setBulkReviewRequestChannel("email");
+                    setBulkReviewRequestTemplate("default");
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkSendReviewRequest}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isDark
+                      ? "bg-green-700 text-white hover:bg-green-600"
+                      : "bg-green-100 text-green-700 hover:bg-green-200"
+                  }`}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Bulk Add Tag Modal */}
+      {showBulkAddTagModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <OBDPanel isDark={isDark} className="max-w-md w-full">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Add tag to {selectedContactIds.size} contacts
+              </OBDHeading>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkAddTagModal(false);
+                  setBulkTagName("");
+                  setBulkTagError(null);
+                }}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close"
+                disabled={isBulkAddingTag}
+              >
+                ×
+              </button>
+            </div>
+
+            {bulkTagError && (
+              <div className={getErrorPanelClasses(isDark) + " mb-4"}>
+                {bulkTagError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Tag Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={bulkTagName}
+                  onChange={(e) => {
+                    setBulkTagName(e.target.value);
+                    setBulkTagError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !isBulkAddingTag && bulkTagName.trim()) {
+                      e.preventDefault();
+                      handleBulkAddTag();
+                    }
+                  }}
+                  placeholder="e.g., VIP, Follow-up needed"
+                  maxLength={40}
+                  className={getInputClasses(isDark)}
+                  disabled={isBulkAddingTag}
+                  autoFocus
+                />
+                <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  {bulkTagName.length}/40 characters
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkAddTagModal(false);
+                    setBulkTagName("");
+                    setBulkTagError(null);
+                  }}
+                  disabled={isBulkAddingTag}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkAddingTag
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkAddTag}
+                  disabled={isBulkAddingTag || !bulkTagName.trim()}
+                  className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    isBulkAddingTag || !bulkTagName.trim()
+                      ? isDark
+                        ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                      : isDark
+                      ? "bg-blue-700 text-white hover:bg-blue-600"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  }`}
+                >
+                  {isBulkAddingTag ? "Adding..." : "Add Tag"}
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
+      {/* Segment Toast */}
+      {segmentToast && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <OBDPanel isDark={isDark} className="px-4 py-2">
+            <div className={`text-sm ${themeClasses.headingText}`}>
+              {segmentToast}
+            </div>
+          </OBDPanel>
+        </div>
+      )}
 
     </OBDPageContainer>
   );

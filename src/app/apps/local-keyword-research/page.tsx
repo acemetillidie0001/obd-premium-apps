@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDFilterBar from "@/components/obd/OBDFilterBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -419,7 +420,7 @@ export default function LocalKeywordResearchPage() {
           </p>
 
           {/* Sorting and filtering controls */}
-          <div className="mb-4 flex flex-wrap items-center gap-3 p-3 rounded-lg border bg-slate-50/50 dark:bg-slate-800/30 border-slate-200 dark:border-slate-700">
+          <OBDFilterBar sticky={true} isDark={isDark} usePanel={false} className="mb-4">
             <div className="flex items-center gap-2">
               <label className={`text-xs font-medium ${themeClasses.labelText}`}>
                 Sort:
@@ -519,7 +520,7 @@ export default function LocalKeywordResearchPage() {
                 className={getInputClasses(isDark, "text-xs py-1 px-2 flex-1")}
               />
             </div>
-          </div>
+          </OBDFilterBar>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs md:text-sm">

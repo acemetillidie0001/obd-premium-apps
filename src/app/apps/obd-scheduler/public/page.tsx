@@ -8,8 +8,6 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import type { BookingService, CreateBookingRequestRequest } from "@/lib/apps/obd-scheduler/types";
 
-export const dynamic = 'force-dynamic';
-
 export default function OBDSchedulerPublicPage() {
   const searchParams = useSearchParams();
   const bookingKey = searchParams.get("key");

@@ -508,11 +508,9 @@ export default function ImageCaptionGeneratorPage() {
           subtitle="Each card is a variation you can copy and use."
           isDark={isDark}
           loading={isLoading}
-          emptyState={
-            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Fill out the form above and click "Write Captions" to generate your image captions.
-            </p>
-          }
+          loadingText="Generating captions..."
+          emptyTitle="No captions yet"
+          emptyDescription="Fill out the form above and click &quot;Write Captions&quot; to generate your image captions."
           className="mt-8"
         >
           {result && result.captions.length > 0 ? (

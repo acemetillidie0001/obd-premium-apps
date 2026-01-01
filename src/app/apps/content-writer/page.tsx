@@ -734,11 +734,9 @@ export default function ContentWriterPage() {
             ) : undefined
           }
           loading={loading}
-          emptyState={
-            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Fill out the form above and click "Start Writing" to generate your content.
-            </p>
-          }
+          loadingText="Generating content..."
+          emptyTitle="No content yet"
+          emptyDescription="Fill out the form above and click &quot;Start Writing&quot; to generate your content."
           className="mt-8"
         >
           {contentResponse ? (

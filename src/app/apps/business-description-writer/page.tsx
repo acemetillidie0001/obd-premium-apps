@@ -464,11 +464,9 @@ export default function BusinessDescriptionWriterPage() {
             ) : undefined
           }
           loading={loading}
-          emptyState={
-            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Fill out the form above and click "Create Description" to generate your business descriptions.
-            </p>
-          }
+          loadingText="Generating description..."
+          emptyTitle="No descriptions yet"
+          emptyDescription="Fill out the form above and click &quot;Create Description&quot; to generate your business descriptions."
           className="mt-8"
         >
           {result ? (

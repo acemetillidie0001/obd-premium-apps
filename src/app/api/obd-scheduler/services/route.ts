@@ -37,6 +37,9 @@ function formatService(service: any): BookingService {
     durationMinutes: service.durationMinutes,
     description: service.description,
     active: service.active,
+    paymentRequired: service.paymentRequired,
+    depositAmountCents: service.depositAmountCents,
+    currency: service.currency,
     createdAt: service.createdAt.toISOString(),
     updatedAt: service.updatedAt.toISOString(),
   };

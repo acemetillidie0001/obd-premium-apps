@@ -166,7 +166,7 @@ export default function PublicBookingPage() {
   // Handle date or service change for instant booking
   useEffect(() => {
     if (context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && selectedDate) {
-      fetchSlots(selectedDate, formData.serviceId);
+      fetchSlots(selectedDate, formData.serviceId ?? null);
     }
   }, [selectedDate, formData.serviceId, context?.bookingModeDefault, bookingKey]);
 

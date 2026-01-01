@@ -6,30 +6,15 @@
  * V4 Tier 1: Foundation for Calendly parity (settings, models, UI scaffolding).
  */
 
-export enum BookingStatus {
-  REQUESTED = "REQUESTED",
-  APPROVED = "APPROVED",
-  DECLINED = "DECLINED",
-  PROPOSED_TIME = "PROPOSED_TIME",
-  COMPLETED = "COMPLETED",
-  CANCELED = "CANCELED",
-}
+import { 
+  BookingMode,
+  PaymentRequired as PrismaPaymentRequired,
+  AvailabilityExceptionType,
+  BookingStatus
+} from "@prisma/client";
 
-export enum BookingMode {
-  REQUEST_ONLY = "REQUEST_ONLY",
-  INSTANT_ALLOWED = "INSTANT_ALLOWED",
-}
-
-export enum PaymentRequired {
-  NONE = "NONE",
-  DEPOSIT = "DEPOSIT",
-  FULL = "FULL",
-}
-
-export enum AvailabilityExceptionType {
-  CLOSED_ALL_DAY = "CLOSED_ALL_DAY",
-  CUSTOM_HOURS = "CUSTOM_HOURS",
-}
+export type PaymentRequired = PrismaPaymentRequired;
+export { BookingMode, AvailabilityExceptionType, BookingStatus };
 
 export interface BookingService {
   id: string;

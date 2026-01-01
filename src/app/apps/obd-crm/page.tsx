@@ -1995,12 +1995,12 @@ function OBDCRMPageContent() {
     >
       {/* Controls */}
       <OBDStickyToolbar isDark={isDark} className="mt-6">
-        <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden">
-          <div className="flex flex-col gap-3">
-            {/* Row 1: Filters and Search */}
-            <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 items-start md:items-center">
+        <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden py-2 md:py-2.5">
+          <div className="flex flex-col lg:flex-row lg:flex-nowrap gap-3 items-start lg:items-center lg:justify-between">
+            {/* Left: Filters and Search */}
+            <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 items-start md:items-center flex-1 min-w-0">
               {/* Search */}
-              <div className="w-full md:min-w-[220px] md:max-w-[320px] flex-shrink-0">
+              <div className="w-full md:min-w-[200px] md:max-w-[280px] flex-shrink-0">
                 <input
                   type="text"
                   placeholder="Search by name, email, or phone..."
@@ -2011,7 +2011,7 @@ function OBDCRMPageContent() {
               </div>
 
               {/* Status Filter */}
-              <div className="min-w-[150px] flex-shrink-0">
+              <div className="min-w-[140px] flex-shrink-0">
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as CrmContactStatus | "")}
@@ -2026,7 +2026,7 @@ function OBDCRMPageContent() {
               </div>
 
               {/* Tag Filter */}
-              <div className="min-w-[150px] flex-shrink-0">
+              <div className="min-w-[140px] flex-shrink-0">
                 <select
                   value={tagFilter}
                   onChange={(e) => setTagFilter(e.target.value)}
@@ -2042,7 +2042,7 @@ function OBDCRMPageContent() {
               </div>
 
               {/* Follow-Up Filter */}
-              <div className="min-w-[150px] flex-shrink-0">
+              <div className="min-w-[140px] flex-shrink-0">
                 <select
                   value={followUpFilter}
                   onChange={(e) => setFollowUpFilter(e.target.value as typeof followUpFilter)}
@@ -2055,9 +2055,8 @@ function OBDCRMPageContent() {
                 </select>
               </div>
 
-
               {/* Segments Dropdown */}
-              <div className="flex items-center gap-2 min-w-[150px] flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-[140px] flex-shrink-0">
                 <div className="flex-1 min-w-0">
                   <select
                     value={selectedSegmentId || ""}
@@ -2092,21 +2091,54 @@ function OBDCRMPageContent() {
                   </button>
                 )}
               </div>
-            </div>
 
-            {/* Row 2: View Controls and Action Buttons */}
-            <div className="flex flex-wrap gap-2 items-center justify-between border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(148, 163, 184, 0.25)" }}>
-              {/* Left: View Controls */}
-              <div className="flex flex-wrap gap-3 items-center">
-                {/* View Toggle */}
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm ${themeClasses.mutedText}`}>View:</span>
+              {/* View Toggle */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`text-sm ${themeClasses.mutedText}`}>View:</span>
+                <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpView("table")}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      followUpView === "table"
+                        ? isDark
+                          ? "bg-blue-700 text-white"
+                          : "bg-blue-100 text-blue-700"
+                        : isDark
+                        ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Table
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpView("queue")}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      followUpView === "queue"
+                        ? isDark
+                          ? "bg-blue-700 text-white"
+                          : "bg-blue-100 text-blue-700"
+                        : isDark
+                        ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Queue
+                  </button>
+                </div>
+              </div>
+
+              {/* Density Toggle (only in table view) */}
+              {followUpView === "table" && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-sm ${themeClasses.mutedText}`}>Density:</span>
                   <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
                     <button
                       type="button"
-                      onClick={() => setFollowUpView("table")}
+                      onClick={() => setTableDensity("comfortable")}
                       className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                        followUpView === "table"
+                        tableDensity === "comfortable"
                           ? isDark
                             ? "bg-blue-700 text-white"
                             : "bg-blue-100 text-blue-700"
@@ -2115,13 +2147,13 @@ function OBDCRMPageContent() {
                           : "bg-white text-slate-700 hover:bg-slate-50"
                       }`}
                     >
-                      Table
+                      Comfortable
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFollowUpView("queue")}
+                      onClick={() => setTableDensity("compact")}
                       className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                        followUpView === "queue"
+                        tableDensity === "compact"
                           ? isDark
                             ? "bg-blue-700 text-white"
                             : "bg-blue-100 text-blue-700"
@@ -2130,122 +2162,72 @@ function OBDCRMPageContent() {
                           : "bg-white text-slate-700 hover:bg-slate-50"
                       }`}
                     >
-                      Queue
+                      Compact
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
 
-                {/* Density Toggle (only in table view) */}
-                {followUpView === "table" && (
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm ${themeClasses.mutedText}`}>Density:</span>
-                    <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
-                      <button
-                        type="button"
-                        onClick={() => setTableDensity("comfortable")}
-                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                          tableDensity === "comfortable"
-                            ? isDark
-                              ? "bg-blue-700 text-white"
-                              : "bg-blue-100 text-blue-700"
-                            : isDark
-                            ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                            : "bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        Comfortable
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTableDensity("compact")}
-                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                          tableDensity === "compact"
-                            ? isDark
-                              ? "bg-blue-700 text-white"
-                              : "bg-blue-100 text-blue-700"
-                            : isDark
-                            ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                            : "bg-white text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        Compact
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Right: Action Buttons */}
-              <div className="flex flex-wrap gap-2 items-center">
-                {/* Data Actions Group */}
-                <div className="flex flex-wrap gap-2 items-center">
-                  <button
-                    type="button"
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                      isExporting
-                        ? "opacity-50 cursor-not-allowed"
-                        : ""
-                    } ${
-                      isDark
-                        ? "bg-slate-700 text-white hover:bg-slate-600"
-                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                    }`}
-                  >
-                    {isExporting ? "Exporting…" : "Export CSV"}
-                  </button>
-                  {/* Save View Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSaveSegmentModal(true);
-                      setNewSegmentName("");
-                      setSegmentSaveError(null);
-                    }}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                      isDark
-                        ? "bg-blue-700 text-white hover:bg-blue-600"
-                        : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                    }`}
-                  >
-                    Save view
-                  </button>
-                </div>
-                
-                {/* Visual Separator */}
-                <div className="h-6 w-px" style={{ backgroundColor: isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(148, 163, 184, 0.3)" }}></div>
-                
-                {/* Primary Actions Group */}
-                <div className="flex flex-wrap gap-2 items-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowImportModal(true);
-                      setImportStep(1);
-                      setCsvFile(null);
-                      setCsvData(null);
-                      setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
-                      setImportPreview([]);
-                      setImportResult(null);
-                    }}
-                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                      isDark
-                        ? "bg-green-700 text-white hover:bg-green-600"
-                        : "bg-green-100 text-green-700 hover:bg-green-200"
-                    }`}
-                  >
-                    Import CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateModal(true)}
-                    className={`${SUBMIT_BUTTON_CLASSES} w-auto font-semibold shadow-sm hover:shadow-md transition-shadow`}
-                  >
-                    Add Contact
-                  </button>
-                </div>
-              </div>
+            {/* Right: Action Buttons */}
+            <div className="flex flex-wrap gap-2 items-center lg:shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportModal(true);
+                  setImportStep(1);
+                  setCsvFile(null);
+                  setCsvData(null);
+                  setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
+                  setImportPreview([]);
+                  setImportResult(null);
+                }}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-green-700 text-white hover:bg-green-600"
+                    : "bg-green-100 text-green-700 hover:bg-green-200"
+                }`}
+              >
+                Import CSV
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={isExporting}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isExporting
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                } ${
+                  isDark
+                    ? "bg-slate-700 text-white hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+              >
+                {isExporting ? "Exporting…" : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveSegmentModal(true);
+                  setNewSegmentName("");
+                  setSegmentSaveError(null);
+                }}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-blue-700 text-white hover:bg-blue-600"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                Save view
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className={`${SUBMIT_BUTTON_CLASSES} w-auto font-semibold shadow-sm hover:shadow-md transition-shadow`}
+              >
+                Add Contact
+              </button>
             </div>
           </div>
         </OBDPanel>

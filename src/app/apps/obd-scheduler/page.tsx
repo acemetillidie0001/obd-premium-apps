@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDToast from "@/components/obd/OBDToast";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import type {
@@ -21,15 +22,34 @@ import type {
   UpdateBookingThemeRequest,
 } from "@/lib/apps/obd-scheduler/types";
 import { BookingStatus, BookingMode, AvailabilityExceptionType } from "@/lib/apps/obd-scheduler/types";
+import { assertNever } from "@/lib/dev/assertNever";
 
-type Tab = "requests" | "services" | "availability" | "branding" | "settings";
+type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings";
 
 export default function OBDSchedulerPage() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  // Initialize theme from localStorage (with SSR guard)
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("obd:scheduler:theme");
+      if (saved === "dark" || saved === "light") {
+        return saved;
+      }
+    }
+    return "light";
+  });
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
 
-  const [activeTab, setActiveTab] = useState<Tab>("requests");
+  // Initialize activeTab from localStorage (with SSR guard)
+  const [activeTab, setActiveTab] = useState<SchedulerTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("obd:scheduler:activeTab");
+      if (saved === "requests" || saved === "services" || saved === "availability" || saved === "branding" || saved === "settings") {
+        return saved as SchedulerTab;
+      }
+    }
+    return "requests";
+  });
 
   // Requests tab state
   const [requests, setRequests] = useState<BookingRequest[]>([]);
@@ -85,6 +105,33 @@ export default function OBDSchedulerPage() {
     introText: "",
   });
 
+  // Save operation loading states
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingAvailability, setSavingAvailability] = useState(false);
+  const [savingTheme, setSavingTheme] = useState(false);
+  const [savingService, setSavingService] = useState(false);
+
+  // Toast queue state
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: "success" | "error" }>>([]);
+
+  // Validation state
+  const [settingsErrors, setSettingsErrors] = useState<Record<string, string>>({});
+  const [themeErrors, setThemeErrors] = useState<Record<string, string>>({});
+
+  // Persist theme to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("obd:scheduler:theme", theme);
+    }
+  }, [theme]);
+
+  // Persist activeTab to localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("obd:scheduler:activeTab", activeTab);
+    }
+  }, [activeTab]);
+
   // Load data on mount and tab change
   useEffect(() => {
     if (activeTab === "requests") {
@@ -97,6 +144,8 @@ export default function OBDSchedulerPage() {
       loadTheme();
     } else if (activeTab === "settings") {
       loadSettings();
+    } else {
+      assertNever(activeTab, "Unhandled tab case");
     }
   }, [activeTab, requestFilter]);
 
@@ -246,6 +295,45 @@ export default function OBDSchedulerPage() {
     }
   };
 
+  // Notification helper - adds to toast queue
+  const showNotification = (message: string, type: "success" | "error" = "success") => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev.slice(-2), { id, message, type }]); // Keep max 3 toasts
+    
+    // Auto-dismiss after 3 seconds
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    }, 3000);
+  };
+
+  // Validation functions
+  const validateSettings = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (settingsForm.notificationEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settingsForm.notificationEmail)) {
+      errors.notificationEmail = "Please enter a valid email address";
+    }
+    if (settingsForm.policyText && settingsForm.policyText.length > 5000) {
+      errors.policyText = "Policy text must be 5000 characters or less";
+    }
+    setSettingsErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const validateTheme = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (themeForm.headlineText && themeForm.headlineText.length > 200) {
+      errors.headlineText = "Headline must be 200 characters or less";
+    }
+    if (themeForm.introText && themeForm.introText.length > 1000) {
+      errors.introText = "Introduction text must be 1000 characters or less";
+    }
+    if (themeForm.logoUrl && !/^https?:\/\/.+/.test(themeForm.logoUrl)) {
+      errors.logoUrl = "Please enter a valid URL starting with http:// or https://";
+    }
+    setThemeErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   // Update request status
   const updateRequestStatus = async (
     requestId: string,
@@ -266,12 +354,14 @@ export default function OBDSchedulerPage() {
       setSelectedRequest(null);
     } catch (error) {
       console.error("Error updating request:", error);
-      alert(error instanceof Error ? error.message : "Failed to update request");
+      showNotification(error instanceof Error ? error.message : "Failed to update request", "error");
     }
   };
 
   // Save service
   const saveService = async () => {
+    if (savingService) return;
+    setSavingService(true);
     try {
       const url = editingService
         ? `/api/obd-scheduler/services/${editingService.id}`
@@ -291,14 +381,23 @@ export default function OBDSchedulerPage() {
       setShowServiceModal(false);
       setEditingService(null);
       setServiceForm({ name: "", durationMinutes: 60, description: "", active: true });
+      showNotification(editingService ? "Service updated successfully" : "Service created successfully");
     } catch (error) {
       console.error("Error saving service:", error);
-      alert(error instanceof Error ? error.message : "Failed to save service");
+      showNotification(error instanceof Error ? error.message : "Failed to save service", "error");
+    } finally {
+      setSavingService(false);
     }
   };
 
   // Save settings
   const saveSettings = async () => {
+    if (savingSettings) return;
+    if (!validateSettings()) {
+      showNotification("Please fix validation errors before saving", "error");
+      return;
+    }
+    setSavingSettings(true);
     try {
       const res = await fetch("/api/obd-scheduler/settings", {
         method: "POST",
@@ -310,15 +409,19 @@ export default function OBDSchedulerPage() {
         throw new Error(data.error || "Failed to save settings");
       }
       await loadSettings();
-      alert("Settings saved successfully");
+      showNotification("Settings saved successfully");
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert(error instanceof Error ? error.message : "Failed to save settings");
+      showNotification(error instanceof Error ? error.message : "Failed to save settings", "error");
+    } finally {
+      setSavingSettings(false);
     }
   };
 
   // Save availability
   const saveAvailability = async () => {
+    if (savingAvailability) return;
+    setSavingAvailability(true);
     try {
       const res = await fetch("/api/obd-scheduler/availability", {
         method: "PUT",
@@ -333,15 +436,23 @@ export default function OBDSchedulerPage() {
         throw new Error(data.error || "Failed to save availability");
       }
       await loadAvailability();
-      alert("Availability saved successfully");
+      showNotification("Availability saved successfully");
     } catch (error) {
       console.error("Error saving availability:", error);
-      alert(error instanceof Error ? error.message : "Failed to save availability");
+      showNotification(error instanceof Error ? error.message : "Failed to save availability", "error");
+    } finally {
+      setSavingAvailability(false);
     }
   };
 
   // Save theme
   const saveTheme = async () => {
+    if (savingTheme) return;
+    if (!validateTheme()) {
+      showNotification("Please fix validation errors before saving", "error");
+      return;
+    }
+    setSavingTheme(true);
     try {
       const res = await fetch("/api/obd-scheduler/theme", {
         method: "PUT",
@@ -353,10 +464,12 @@ export default function OBDSchedulerPage() {
         throw new Error(data.error || "Failed to save theme");
       }
       await loadTheme();
-      alert("Theme saved successfully");
+      showNotification("Theme saved successfully");
     } catch (error) {
       console.error("Error saving theme:", error);
-      alert(error instanceof Error ? error.message : "Failed to save theme");
+      showNotification(error instanceof Error ? error.message : "Failed to save theme", "error");
+    } finally {
+      setSavingTheme(false);
     }
   };
 
@@ -390,15 +503,26 @@ export default function OBDSchedulerPage() {
       title="OBD Scheduler & Booking"
       tagline="Manage booking requests, services, availability, and settings for your business."
     >
+      {/* Toast Queue */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+        {toasts.slice(0, 3).map((toast) => (
+          <OBDToast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            isDark={isDark}
+          />
+        ))}
+      </div>
       {/* Tabs */}
       <OBDPanel isDark={isDark} className="mb-6" variant="toolbar">
         <div className={`flex flex-wrap gap-2 border-b ${isDark ? "border-slate-700" : "border-slate-200"}`}>
           {[
-            { id: "requests" as Tab, label: "Requests" },
-            { id: "services" as Tab, label: "Services" },
-            { id: "availability" as Tab, label: "Availability" },
-            { id: "branding" as Tab, label: "Branding" },
-            { id: "settings" as Tab, label: "Settings" },
+            { id: "requests" as SchedulerTab, label: "Requests" },
+            { id: "services" as SchedulerTab, label: "Services" },
+            { id: "availability" as SchedulerTab, label: "Availability" },
+            { id: "branding" as SchedulerTab, label: "Branding" },
+            { id: "settings" as SchedulerTab, label: "Settings" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -691,15 +815,19 @@ export default function OBDSchedulerPage() {
                 </p>
               </div>
 
-              <button onClick={saveAvailability} className={SUBMIT_BUTTON_CLASSES}>
-                Save Availability
+              <button 
+                onClick={saveAvailability} 
+                disabled={savingAvailability}
+                className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {savingAvailability ? "Saving..." : "Save Availability"}
               </button>
             </div>
           )}
         </OBDPanel>
       )}
 
-      {/* Branding Tab */}
+      {/* ===== TAB: BRANDING (start) ===== */}
       {activeTab === "branding" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Branding & Theme</OBDHeading>
@@ -714,7 +842,9 @@ export default function OBDSchedulerPage() {
           )}
 
           {themeLoading ? (
-            <p className={themeClasses.mutedText}>Loading theme...</p>
+            <div className="space-y-4">
+              <p className={themeClasses.mutedText}>Loading theme...</p>
+            </div>
           ) : (
             <div className="space-y-4">
               <div>
@@ -724,13 +854,24 @@ export default function OBDSchedulerPage() {
                 <input
                   type="url"
                   value={themeForm.logoUrl || ""}
-                  onChange={(e) => setThemeForm({ ...themeForm, logoUrl: e.target.value })}
+                  onChange={(e) => {
+                    setThemeForm({ ...themeForm, logoUrl: e.target.value });
+                    if (themeErrors.logoUrl) {
+                      setThemeErrors({ ...themeErrors, logoUrl: "" });
+                    }
+                  }}
                   className={getInputClasses(isDark)}
                   placeholder="https://example.com/logo.png"
                 />
-                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                  URL to your business logo image.
-                </p>
+                {themeErrors.logoUrl ? (
+                  <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                    {themeErrors.logoUrl}
+                  </p>
+                ) : (
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    URL to your business logo image.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -782,14 +923,25 @@ export default function OBDSchedulerPage() {
                 <input
                   type="text"
                   value={themeForm.headlineText || ""}
-                  onChange={(e) => setThemeForm({ ...themeForm, headlineText: e.target.value })}
+                  onChange={(e) => {
+                    setThemeForm({ ...themeForm, headlineText: e.target.value });
+                    if (themeErrors.headlineText) {
+                      setThemeErrors({ ...themeErrors, headlineText: "" });
+                    }
+                  }}
                   className={getInputClasses(isDark)}
                   placeholder="Book your appointment"
                   maxLength={200}
                 />
-                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                  Main headline displayed on the booking page.
-                </p>
+                {themeErrors.headlineText ? (
+                  <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                    {themeErrors.headlineText}
+                  </p>
+                ) : (
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Main headline displayed on the booking page.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -798,26 +950,42 @@ export default function OBDSchedulerPage() {
                 </label>
                 <textarea
                   value={themeForm.introText || ""}
-                  onChange={(e) => setThemeForm({ ...themeForm, introText: e.target.value })}
+                  onChange={(e) => {
+                    setThemeForm({ ...themeForm, introText: e.target.value });
+                    if (themeErrors.introText) {
+                      setThemeErrors({ ...themeErrors, introText: "" });
+                    }
+                  }}
                   rows={4}
                   className={getInputClasses(isDark, "resize-none")}
                   placeholder="Welcome! Select a service and time that works for you."
                   maxLength={1000}
                 />
-                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                  Brief introduction text displayed below the headline.
-                </p>
+                {themeErrors.introText ? (
+                  <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                    {themeErrors.introText}
+                  </p>
+                ) : (
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Brief introduction text displayed below the headline.
+                  </p>
+                )}
               </div>
 
-              <button onClick={saveTheme} className={SUBMIT_BUTTON_CLASSES}>
-                Save Branding
+              <button 
+                onClick={saveTheme} 
+                disabled={savingTheme}
+                className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {savingTheme ? "Saving..." : "Save Branding"}
               </button>
             </div>
           )}
         </OBDPanel>
       )}
+      {/* ===== TAB: BRANDING (end) ===== */}
 
-      {/* Settings Tab */}
+      {/* ===== TAB: SETTINGS (start) ===== */}
       {activeTab === "settings" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Booking Settings</OBDHeading>
@@ -829,7 +997,9 @@ export default function OBDSchedulerPage() {
           )}
 
           {settingsLoading ? (
-            <p className={themeClasses.mutedText}>Loading settings...</p>
+            <div className="space-y-6">
+              <p className={themeClasses.mutedText}>Loading settings...</p>
+            </div>
           ) : (
             <div className="space-y-6">
               {/* Booking Mode Section */}
@@ -889,76 +1059,104 @@ export default function OBDSchedulerPage() {
                     <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                       Notification Email
                     </label>
-                <input
-                  type="email"
-                  value={settingsForm.notificationEmail || ""}
-                  onChange={(e) => setSettingsForm({ ...settingsForm, notificationEmail: e.target.value })}
-                  className={getInputClasses(isDark)}
-                  placeholder="owner@business.com"
-                />
-                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                  Where booking request alerts should be sent.
-                </p>
-              </div>
-
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Booking Policies
-                </label>
-                <textarea
-                  value={settingsForm.policyText || ""}
-                  onChange={(e) => setSettingsForm({ ...settingsForm, policyText: e.target.value })}
-                  rows={6}
-                  className={getInputClasses(isDark, "resize-none")}
-                  placeholder="Enter your booking policies, cancellation policy, etc."
-                />
-              </div>
-
-              {settings && (
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Public Booking Link
-                  </label>
-                  <div className="flex gap-2">
                     <input
-                      type="text"
-                      readOnly
-                      value={`https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`}
+                      type="email"
+                      value={settingsForm.notificationEmail || ""}
+                      onChange={(e) => {
+                        setSettingsForm({ ...settingsForm, notificationEmail: e.target.value });
+                        if (settingsErrors.notificationEmail) {
+                          setSettingsErrors({ ...settingsErrors, notificationEmail: "" });
+                        }
+                      }}
                       className={getInputClasses(isDark)}
+                      placeholder="owner@business.com"
                     />
-                    <button
-                      onClick={() => {
-                        const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
-                        navigator.clipboard.writeText(link);
-                        alert("Link copied to clipboard!");
-                      }}
-                      className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
-                    >
-                      Copy
-                    </button>
-                    <button
-                      onClick={() => {
-                        const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
-                        window.open(link, "_blank", "noopener,noreferrer");
-                      }}
-                      className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
-                    >
-                      Test Link
-                    </button>
+                    {settingsErrors.notificationEmail ? (
+                      <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                        {settingsErrors.notificationEmail}
+                      </p>
+                    ) : (
+                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                        Where booking request alerts should be sent.
+                      </p>
+                    )}
                   </div>
-                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                    Share this link with customers to allow them to submit booking requests.
-                  </p>
-                </div>
-              )}
 
-              <button onClick={saveSettings} className={SUBMIT_BUTTON_CLASSES}>
-                Save Settings
-              </button>
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Booking Policies
+                    </label>
+                    <textarea
+                      value={settingsForm.policyText || ""}
+                      onChange={(e) => {
+                        setSettingsForm({ ...settingsForm, policyText: e.target.value });
+                        if (settingsErrors.policyText) {
+                          setSettingsErrors({ ...settingsErrors, policyText: "" });
+                        }
+                      }}
+                      rows={6}
+                      className={getInputClasses(isDark, "resize-none")}
+                      placeholder="Enter your booking policies, cancellation policy, etc."
+                    />
+                    {settingsErrors.policyText && (
+                      <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                        {settingsErrors.policyText}
+                      </p>
+                    )}
+                  </div>
+
+                  {settings && (
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                        Public Booking Link
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={`https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`}
+                          className={getInputClasses(isDark)}
+                        />
+                        <button
+                          onClick={() => {
+                            const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                            navigator.clipboard.writeText(link);
+                            showNotification("Link copied to clipboard!");
+                          }}
+                          className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                        >
+                          Copy
+                        </button>
+                        <button
+                          onClick={() => {
+                            const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                            window.open(link, "_blank", "noopener,noreferrer");
+                          }}
+                          className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                        >
+                          Test Link
+                        </button>
+                      </div>
+                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                        Share this link with customers to allow them to submit booking requests.
+                      </p>
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={saveSettings} 
+                    disabled={savingSettings}
+                    className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {savingSettings ? "Saving..." : "Save Settings"}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </OBDPanel>
       )}
+      {/* ===== TAB: SETTINGS (end) ===== */}
 
       {/* Request Detail Modal */}
       {showRequestDetail && selectedRequest && (
@@ -1191,8 +1389,14 @@ export default function OBDSchedulerPage() {
               </div>
 
               <div className="flex gap-2 pt-4">
-                <button onClick={saveService} className={SUBMIT_BUTTON_CLASSES}>
-                  {editingService ? "Update" : "Create"}
+                <button 
+                  onClick={saveService} 
+                  disabled={savingService}
+                  className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {savingService 
+                    ? "Saving..." 
+                    : editingService ? "Update" : "Create"}
                 </button>
                 <button
                   onClick={() => {

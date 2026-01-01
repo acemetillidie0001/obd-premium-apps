@@ -73,7 +73,7 @@ export default function OBDResultsPanel({
         <div className="flex items-center justify-center h-32">
           <div className={themeClasses.mutedText}>Generating...</div>
         </div>
-      ) : emptyState ? (
+      ) : !children && emptyState ? (
         <div className="py-8">
           {emptyState}
         </div>

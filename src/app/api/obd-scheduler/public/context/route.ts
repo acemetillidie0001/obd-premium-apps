@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       where: { bookingKey },
       select: {
         businessId: true,
+        bookingModeDefault: true,
         timezone: true,
         bufferMinutes: true,
         minNoticeHours: true,
@@ -64,14 +65,29 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Get business name from BrandProfile and logo from BookingTheme
+    const [brandProfile, bookingTheme] = await Promise.all([
+      prisma.brandProfile.findUnique({
+        where: { userId: settings.businessId },
+        select: { businessName: true },
+      }),
+      prisma.bookingTheme.findUnique({
+        where: { businessId: settings.businessId },
+        select: { logoUrl: true },
+      }),
+    ]);
+
     return apiSuccessResponse({
       businessId: settings.businessId,
+      bookingModeDefault: settings.bookingModeDefault,
       timezone: settings.timezone,
       bufferMinutes: settings.bufferMinutes,
       minNoticeHours: settings.minNoticeHours,
       maxDaysOut: settings.maxDaysOut,
       policyText: settings.policyText,
       services,
+      businessName: brandProfile?.businessName || null,
+      logoUrl: bookingTheme?.logoUrl || null,
     });
   } catch (error) {
     return handleApiError(error);

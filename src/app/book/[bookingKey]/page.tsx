@@ -17,6 +17,8 @@ interface BusinessContext {
   maxDaysOut: number;
   policyText: string | null;
   services: BookingService[];
+  businessName: string | null;
+  logoUrl: string | null;
 }
 
 interface Slot {
@@ -39,7 +41,7 @@ export default function PublicBookingPage() {
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [error, setError] = useState("");
   const [context, setContext] = useState<BusinessContext | null>(null);
   const [timeAdjusted, setTimeAdjusted] = useState(false);
@@ -223,7 +225,7 @@ export default function PublicBookingPage() {
         throw new Error(data.error || "Failed to create booking");
       }
 
-      setSubmitted(true);
+      setSubmitSuccess(true);
       setFormData({
         serviceId: null,
         customerName: "",
@@ -304,7 +306,7 @@ export default function PublicBookingPage() {
         throw new Error(data.error || "Failed to submit booking request");
       }
 
-      setSubmitted(true);
+      setSubmitSuccess(true);
       setFormData({
         serviceId: null,
         customerName: "",
@@ -367,23 +369,22 @@ export default function PublicBookingPage() {
     );
   }
 
-  if (submitted) {
-    const isInstant = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED;
-    return (
-      <main className="min-h-screen bg-slate-50 py-12 px-4">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstant ? "Booking Confirmed" : "Booking Request"}</h1>
-          <p className="text-sm md:text-base text-slate-600 mb-8">{isInstant ? "Your booking is confirmed" : "Submit a booking request"}</p>
-          <OBDPanel isDark={isDark}>
-            <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
-              <h2 className="text-lg font-semibold mb-2">{isInstant ? "Booking Confirmed!" : "Request Received"}</h2>
-              <p>{isInstant ? "Your booking has been confirmed. You'll receive a confirmation email shortly." : "The business will confirm shortly."}</p>
-            </div>
-          </OBDPanel>
-        </div>
-      </main>
-    );
-  }
+  // Reset form handler
+  const handleResetForm = () => {
+    setSubmitSuccess(false);
+    setError("");
+    setFormData({
+      serviceId: null,
+      customerName: "",
+      customerEmail: "",
+      customerPhone: "",
+      preferredStart: "",
+      message: "",
+    });
+    setSelectedSlot(null);
+    setSelectedDate("");
+    setSlots([]);
+  };
 
   const isInstantMode = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
 
@@ -405,10 +406,50 @@ export default function PublicBookingPage() {
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="max-w-2xl mx-auto">
+        {/* Business Logo and Name Header */}
+        {(context?.logoUrl || context?.businessName) && (
+          <div className="mb-8 text-center">
+            {context.logoUrl && (
+              <img
+                src={context.logoUrl}
+                alt={context.businessName || "Business logo"}
+                className="mx-auto mb-3 max-h-12 object-contain"
+              />
+            )}
+            {context.businessName && (
+              <h2 className="text-xl md:text-2xl font-semibold text-slate-900">
+                {context.businessName}
+              </h2>
+            )}
+          </div>
+        )}
+
         <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
         <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
         <OBDPanel isDark={isDark}>
-        {context?.policyText && (
+        {submitSuccess ? (
+          // Success State
+          <div className="space-y-6">
+            <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
+              <h2 className="text-lg font-semibold mb-2">Request sent!</h2>
+              <p className="mb-4">
+                Thanks — your request has been sent to the business for review. You'll receive confirmation once they approve the time or suggest a new one.
+              </p>
+              <p className="text-sm opacity-80">
+                You can close this page now.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleResetForm}
+              className={SUBMIT_BUTTON_CLASSES}
+            >
+              Submit another request
+            </button>
+          </div>
+        ) : (
+          <>
+          {context?.policyText && (
           <div className={`mb-6 p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
             <h3 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Booking Policies</h3>
             <p className={`text-sm whitespace-pre-wrap ${themeClasses.mutedText}`}>{context.policyText}</p>
@@ -802,7 +843,24 @@ export default function PublicBookingPage() {
           </p>
         </form>
         )}
+          </>
+        )}
       </OBDPanel>
+      
+      {/* Footer */}
+      <div className="mt-12 pb-8 text-center">
+        <p className="text-xs text-slate-500">
+          Powered by{" "}
+          <a
+            href="https://ocalabusinessdirectory.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-600 hover:text-slate-900 underline"
+          >
+            Ocala Business Directory
+          </a>
+        </p>
+      </div>
       </div>
     </main>
   );

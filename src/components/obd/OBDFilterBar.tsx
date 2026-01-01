@@ -65,7 +65,7 @@ export default function OBDFilterBar({
             {content}
           </OBDPanel>
         ) : (
-          <div className={usePanel ? "" : "px-4 py-3 md:px-5 md:py-4"}>
+          <div className="px-4 py-3 md:px-5 md:py-4">
             {content}
           </div>
         )}

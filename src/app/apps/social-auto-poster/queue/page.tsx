@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
+import OBDFilterBar from "@/components/obd/OBDFilterBar";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import SocialQueueCalendar from "@/components/obd/SocialQueueCalendar";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
@@ -320,7 +321,7 @@ export default function SocialAutoPosterQueuePage() {
             </div>
           </div>
           {viewMode === "list" && (
-            <div className="flex flex-wrap gap-2">
+            <OBDFilterBar isDark={isDark} usePanel={false}>
               <button
                 onClick={() => setFilter("all")}
                 className={`px-4 py-2 rounded-full text-sm transition-colors ${
@@ -348,7 +349,7 @@ export default function SocialAutoPosterQueuePage() {
                   {status.charAt(0).toUpperCase() + status.slice(1)}
                 </button>
               ))}
-            </div>
+            </OBDFilterBar>
           )}
         </OBDPanel>
 

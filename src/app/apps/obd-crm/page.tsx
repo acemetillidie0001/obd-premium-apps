@@ -10,7 +10,6 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDTableWrapper from "@/components/obd/OBDTableWrapper";
 import OBDStickyToolbar from "@/components/obd/OBDStickyToolbar";
-import OBDToolbarRow from "@/components/obd/OBDToolbarRow";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -1997,242 +1996,241 @@ function OBDCRMPageContent() {
       {/* Controls */}
       <OBDStickyToolbar isDark={isDark} className="mt-6">
         <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden">
-          <OBDToolbarRow
-            left={
-              <>
-          {/* Search */}
-          <div className="min-w-[200px] max-w-[300px] flex-shrink">
-            <input
-              type="text"
-              placeholder="Search by name, email, or phone..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className={getInputClasses(isDark)}
-            />
-          </div>
+          <div className="flex flex-col gap-4">
+            {/* Row 1: Filters and Search */}
+            <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 items-start md:items-center">
+              {/* Search */}
+              <div className="w-full md:min-w-[200px] md:max-w-[300px] flex-shrink-0">
+                <input
+                  type="text"
+                  placeholder="Search by name, email, or phone..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className={getInputClasses(isDark)}
+                />
+              </div>
 
-          {/* Status Filter */}
-          <div className="min-w-[150px]">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as CrmContactStatus | "")}
-              className={getInputClasses(isDark)}
-            >
-              <option value="">All Statuses</option>
-              <option value="Lead">Lead</option>
-              <option value="Active">Active</option>
-              <option value="Past">Past</option>
-              <option value="DoNotContact">Do Not Contact</option>
-            </select>
-          </div>
-
-          {/* Tag Filter */}
-          <div className="min-w-[150px]">
-            <select
-              value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
-              className={getInputClasses(isDark)}
-            >
-              <option value="">All Tags</option>
-              {tags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Follow-Up Filter */}
-          <div className="min-w-[150px]">
-            <select
-              value={followUpFilter}
-              onChange={(e) => setFollowUpFilter(e.target.value as typeof followUpFilter)}
-              className={getInputClasses(isDark)}
-            >
-              <option value="all">All Follow-Ups</option>
-              <option value="dueToday">Due Today</option>
-              <option value="overdue">Overdue</option>
-              <option value="upcoming">Upcoming (7 days)</option>
-            </select>
-          </div>
-
-          {/* View Toggle */}
-          <div className="flex items-center gap-2">
-            <span className={`text-sm ${themeClasses.mutedText}`}>View:</span>
-            <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
-              <button
-                type="button"
-                onClick={() => setFollowUpView("table")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  followUpView === "table"
-                    ? isDark
-                      ? "bg-blue-700 text-white"
-                      : "bg-blue-100 text-blue-700"
-                    : isDark
-                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setFollowUpView("queue")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  followUpView === "queue"
-                    ? isDark
-                      ? "bg-blue-700 text-white"
-                      : "bg-blue-100 text-blue-700"
-                    : isDark
-                    ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                Queue
-              </button>
-            </div>
-          </div>
-
-          {/* Density Toggle (only in table view) */}
-          {followUpView === "table" && (
-            <div className="flex items-center gap-2">
-              <span className={`text-sm ${themeClasses.mutedText}`}>Density:</span>
-              <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
-                <button
-                  type="button"
-                  onClick={() => setTableDensity("comfortable")}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    tableDensity === "comfortable"
-                      ? isDark
-                        ? "bg-blue-700 text-white"
-                        : "bg-blue-100 text-blue-700"
-                      : isDark
-                      ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                      : "bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
+              {/* Status Filter */}
+              <div className="min-w-[150px] flex-shrink-0">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as CrmContactStatus | "")}
+                  className={getInputClasses(isDark)}
                 >
-                  Comfortable
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTableDensity("compact")}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    tableDensity === "compact"
-                      ? isDark
-                        ? "bg-blue-700 text-white"
-                        : "bg-blue-100 text-blue-700"
-                      : isDark
-                      ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                      : "bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
+                  <option value="">All Statuses</option>
+                  <option value="Lead">Lead</option>
+                  <option value="Active">Active</option>
+                  <option value="Past">Past</option>
+                  <option value="DoNotContact">Do Not Contact</option>
+                </select>
+              </div>
+
+              {/* Tag Filter */}
+              <div className="min-w-[150px] flex-shrink-0">
+                <select
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className={getInputClasses(isDark)}
                 >
-                  Compact
-                </button>
+                  <option value="">All Tags</option>
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Follow-Up Filter */}
+              <div className="min-w-[150px] flex-shrink-0">
+                <select
+                  value={followUpFilter}
+                  onChange={(e) => setFollowUpFilter(e.target.value as typeof followUpFilter)}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="all">All Follow-Ups</option>
+                  <option value="dueToday">Due Today</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="upcoming">Upcoming (7 days)</option>
+                </select>
+              </div>
+
+              {/* View Toggle */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`text-sm ${themeClasses.mutedText}`}>View:</span>
+                <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpView("table")}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      followUpView === "table"
+                        ? isDark
+                          ? "bg-blue-700 text-white"
+                          : "bg-blue-100 text-blue-700"
+                        : isDark
+                        ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Table
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFollowUpView("queue")}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      followUpView === "queue"
+                        ? isDark
+                          ? "bg-blue-700 text-white"
+                          : "bg-blue-100 text-blue-700"
+                        : isDark
+                        ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Queue
+                  </button>
+                </div>
+              </div>
+
+              {/* Density Toggle (only in table view) */}
+              {followUpView === "table" && (
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-sm ${themeClasses.mutedText}`}>Density:</span>
+                  <div className="flex rounded-lg border overflow-hidden" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.3)" : "rgba(148, 163, 184, 0.5)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setTableDensity("comfortable")}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                        tableDensity === "comfortable"
+                          ? isDark
+                            ? "bg-blue-700 text-white"
+                            : "bg-blue-100 text-blue-700"
+                          : isDark
+                          ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Comfortable
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTableDensity("compact")}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                        tableDensity === "compact"
+                          ? isDark
+                            ? "bg-blue-700 text-white"
+                            : "bg-blue-100 text-blue-700"
+                          : isDark
+                          ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Compact
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Segments Dropdown */}
+              <div className="flex items-center gap-2 min-w-[150px] flex-shrink-0">
+                <div className="flex-1 min-w-0">
+                  <select
+                    value={selectedSegmentId || ""}
+                    onChange={(e) => handleSegmentSelect(e.target.value || null)}
+                    className={getInputClasses(isDark)}
+                  >
+                    <option value="">No segment</option>
+                    {segments.map((segment) => (
+                      <option key={segment.id} value={segment.id}>
+                        {segment.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {segments.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowManageSegmentsModal(true);
+                      setEditingSegmentId(null);
+                      setDeletingSegmentId(null);
+                    }}
+                    className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                      isDark
+                        ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                    }`}
+                    title="Manage segments"
+                    aria-label="Manage segments"
+                  >
+                    Manage
+                  </button>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Segments Dropdown */}
-          <div className="flex items-center gap-2 min-w-[150px]">
-            <div className="flex-1 min-w-0">
-              <select
-                value={selectedSegmentId || ""}
-                onChange={(e) => handleSegmentSelect(e.target.value || null)}
-                className={getInputClasses(isDark)}
-              >
-                <option value="">No segment</option>
-                {segments.map((segment) => (
-                  <option key={segment.id} value={segment.id}>
-                    {segment.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {segments.length > 0 && (
+            {/* Row 2: Action Buttons */}
+            <div className="flex flex-wrap gap-2 items-center justify-end border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.15)" : "rgba(148, 163, 184, 0.2)" }}>
+              {/* Save View Button */}
               <button
                 type="button"
                 onClick={() => {
-                  setShowManageSegmentsModal(true);
-                  setEditingSegmentId(null);
-                  setDeletingSegmentId(null);
+                  setShowSaveSegmentModal(true);
+                  setNewSegmentName("");
+                  setSegmentSaveError(null);
                 }}
-                className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   isDark
-                    ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    ? "bg-blue-700 text-white hover:bg-blue-600"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                Save view
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={isExporting}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isExporting
+                    ? "opacity-50 cursor-not-allowed"
+                    : ""
+                } ${
+                  isDark
+                    ? "bg-slate-700 text-white hover:bg-slate-600"
                     : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                 }`}
-                title="Manage segments"
-                aria-label="Manage segments"
               >
-                Manage
+                {isExporting ? "Exporting…" : "Export CSV"}
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportModal(true);
+                  setImportStep(1);
+                  setCsvFile(null);
+                  setCsvData(null);
+                  setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
+                  setImportPreview([]);
+                  setImportResult(null);
+                }}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-green-700 text-white hover:bg-green-600"
+                    : "bg-green-100 text-green-700 hover:bg-green-200"
+                }`}
+              >
+                Import CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className={SUBMIT_BUTTON_CLASSES + " w-auto"}
+              >
+                Add Contact
+              </button>
+            </div>
           </div>
-              </>
-            }
-            right={
-              <>
-            {/* Save View Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setShowSaveSegmentModal(true);
-                setNewSegmentName("");
-                setSegmentSaveError(null);
-              }}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                isDark
-                  ? "bg-blue-700 text-white hover:bg-blue-600"
-                  : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-              }`}
-            >
-              Save view
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={isExporting}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                isExporting
-                  ? "opacity-50 cursor-not-allowed"
-                  : ""
-              } ${
-                isDark
-                  ? "bg-slate-700 text-white hover:bg-slate-600"
-                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-              }`}
-            >
-              {isExporting ? "Exporting…" : "Export CSV"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowImportModal(true);
-                setImportStep(1);
-                setCsvFile(null);
-                setCsvData(null);
-                setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
-                setImportPreview([]);
-                setImportResult(null);
-              }}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                isDark
-                  ? "bg-green-700 text-white hover:bg-green-600"
-                  : "bg-green-100 text-green-700 hover:bg-green-200"
-              }`}
-            >
-              Import CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className={SUBMIT_BUTTON_CLASSES + " w-auto"}
-            >
-              Add Contact
-            </button>
-              </>
-            }
-          />
         </OBDPanel>
       </OBDStickyToolbar>
 

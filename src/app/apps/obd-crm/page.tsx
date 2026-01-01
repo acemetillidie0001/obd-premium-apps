@@ -2171,22 +2171,6 @@ function OBDCRMPageContent() {
 
             {/* Row 2: Action Buttons */}
             <div className="flex flex-wrap gap-2 items-center justify-end border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.15)" : "rgba(148, 163, 184, 0.2)" }}>
-              {/* Save View Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSaveSegmentModal(true);
-                  setNewSegmentName("");
-                  setSegmentSaveError(null);
-                }}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isDark
-                    ? "bg-blue-700 text-white hover:bg-blue-600"
-                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                }`}
-              >
-                Save view
-              </button>
               <button
                 type="button"
                 onClick={handleExport}
@@ -2202,6 +2186,22 @@ function OBDCRMPageContent() {
                 }`}
               >
                 {isExporting ? "Exporting…" : "Export CSV"}
+              </button>
+              {/* Save View Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaveSegmentModal(true);
+                  setNewSegmentName("");
+                  setSegmentSaveError(null);
+                }}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  isDark
+                    ? "bg-blue-700 text-white hover:bg-blue-600"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                Save view
               </button>
               <button
                 type="button"

@@ -175,6 +175,36 @@ export async function POST(request: NextRequest) {
 
     // preferredEnd is ignored for backward compatibility (always set to null for new requests)
 
+    // Normalize preferredStart to 15-minute increments (round down to previous 15-min mark)
+    if (body.preferredStart) {
+      try {
+        const date = new Date(body.preferredStart);
+        const minutes = date.getMinutes();
+        const validMinutes = [0, 15, 30, 45];
+        
+        if (!validMinutes.includes(minutes)) {
+          // Round down to previous 15-minute mark (user-friendly - doesn't push time forward)
+          const roundedMinutes = Math.floor(minutes / 15) * 15;
+          date.setMinutes(roundedMinutes);
+          date.setSeconds(0);
+          date.setMilliseconds(0);
+          body.preferredStart = date.toISOString();
+        } else {
+          // Ensure seconds and milliseconds are 0 even if minutes are valid
+          date.setSeconds(0);
+          date.setMilliseconds(0);
+          body.preferredStart = date.toISOString();
+        }
+      } catch (error) {
+        // If date parsing fails, return validation error
+        return apiErrorResponse(
+          "Invalid preferred start time format",
+          "VALIDATION_ERROR",
+          400
+        );
+      }
+    }
+
     // Determine businessId
     let businessId: string;
     

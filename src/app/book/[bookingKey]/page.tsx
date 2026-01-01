@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
@@ -31,6 +31,7 @@ export default function PublicBookingPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
   const [context, setContext] = useState<BusinessContext | null>(null);
+  const [timeAdjusted, setTimeAdjusted] = useState(false);
   const [formData, setFormData] = useState<CreateBookingRequestRequest>({
     serviceId: null,
     customerName: "",
@@ -69,10 +70,65 @@ export default function PublicBookingPage() {
     loadContext();
   }, [bookingKey]);
 
+  // Calculate suggested start time
+  const suggestedStartTime = useMemo(() => {
+    if (!context) return null;
+    
+    try {
+      // Start from now (use business timezone if available, otherwise local)
+      const now = new Date();
+      
+      // Round up to next full hour
+      const nextHour = new Date(now);
+      nextHour.setMinutes(0);
+      nextHour.setSeconds(0);
+      nextHour.setMilliseconds(0);
+      nextHour.setHours(nextHour.getHours() + 1);
+      
+      // Add minNoticeHours (from context or default to 24)
+      const minNoticeHours = context.minNoticeHours || 24;
+      const suggested = new Date(nextHour.getTime() + minNoticeHours * 60 * 60 * 1000);
+      
+      // Snap minutes to next 15-minute boundary (ceil to 0/15/30/45)
+      const minutes = suggested.getMinutes();
+      const roundedMinutes = Math.ceil(minutes / 15) * 15;
+      if (roundedMinutes >= 60) {
+        // If rounded to 60, move to next hour
+        suggested.setHours(suggested.getHours() + 1);
+        suggested.setMinutes(0);
+      } else {
+        suggested.setMinutes(roundedMinutes);
+      }
+      suggested.setSeconds(0);
+      suggested.setMilliseconds(0);
+      
+      return suggested.toISOString();
+    } catch {
+      return null;
+    }
+  }, [context]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError("");
+
+    // Normalize preferredStart to 15-minute increments before submit (extra safety)
+    if (formData.preferredStart) {
+      try {
+        const date = new Date(formData.preferredStart);
+        const minutes = date.getMinutes();
+        const roundedMinutes = Math.round(minutes / 15) * 15;
+        if (minutes !== roundedMinutes) {
+          date.setMinutes(roundedMinutes);
+          date.setSeconds(0);
+          date.setMilliseconds(0);
+          setFormData({ ...formData, preferredStart: date.toISOString() });
+        }
+      } catch {
+        // If date parsing fails, continue with validation
+      }
+    }
 
     if (!formData.customerName.trim()) {
       setError("Please enter your name");
@@ -230,6 +286,17 @@ export default function PublicBookingPage() {
                   </option>
                 ))}
               </select>
+              {formData.serviceId && context && (() => {
+                const selectedService = context.services.find(s => s.id === formData.serviceId);
+                if (selectedService && selectedService.durationMinutes) {
+                  return (
+                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                      This service typically takes about {selectedService.durationMinutes} minutes.
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
           )}
 
@@ -277,13 +344,106 @@ export default function PublicBookingPage() {
             </label>
             <input
               type="datetime-local"
+              step={900}
               value={formData.preferredStart ? new Date(formData.preferredStart).toISOString().slice(0, 16) : ""}
-              onChange={(e) => setFormData({ ...formData, preferredStart: e.target.value ? new Date(e.target.value).toISOString() : "" })}
+              onChange={(e) => {
+                setTimeAdjusted(false);
+                if (!e.target.value) {
+                  setFormData({ ...formData, preferredStart: "" });
+                  return;
+                }
+                // Normalize to 15-minute increments
+                const date = new Date(e.target.value);
+                const minutes = date.getMinutes();
+                const roundedMinutes = Math.round(minutes / 15) * 15;
+                date.setMinutes(roundedMinutes);
+                date.setSeconds(0);
+                date.setMilliseconds(0);
+                setFormData({ ...formData, preferredStart: date.toISOString() });
+              }}
+              onBlur={(e) => {
+                if (!e.target.value || !formData.preferredStart) {
+                  setTimeAdjusted(false);
+                  return;
+                }
+                // Normalize on blur to handle manual typing
+                const date = new Date(e.target.value);
+                const originalMinutes = date.getMinutes();
+                const roundedMinutes = Math.round(originalMinutes / 15) * 15;
+                
+                if (originalMinutes !== roundedMinutes) {
+                  date.setMinutes(roundedMinutes);
+                  date.setSeconds(0);
+                  date.setMilliseconds(0);
+                  setFormData({ ...formData, preferredStart: date.toISOString() });
+                  setTimeAdjusted(true);
+                  // Clear the message after 3 seconds
+                  setTimeout(() => setTimeAdjusted(false), 3000);
+                } else {
+                  setTimeAdjusted(false);
+                }
+              }}
               className={getInputClasses(isDark)}
             />
             <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
               Optional — pick your preferred start time. The service duration is handled automatically.
             </p>
+            <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+              Times are available in 15-minute increments.
+            </p>
+            {timeAdjusted && (
+              <p className={`mt-1 text-xs ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                Adjusted to the nearest 15-minute increment.
+              </p>
+            )}
+            {!formData.preferredStart && suggestedStartTime && (
+              <div className={`mt-2 flex items-center gap-2 p-2 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  Suggested: {new Date(suggestedStartTime).toLocaleString()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const suggestedDate = new Date(suggestedStartTime);
+                    const localDateTime = new Date(suggestedDate.getTime() - suggestedDate.getTimezoneOffset() * 60000);
+                    const isoString = localDateTime.toISOString().slice(0, 16);
+                    setFormData({ ...formData, preferredStart: suggestedDate.toISOString() });
+                  }}
+                  className={`px-2 py-1 text-xs rounded ${isDark ? "bg-teal-600 text-white hover:bg-teal-700" : "bg-teal-500 text-white hover:bg-teal-600"} transition-colors`}
+                >
+                  Use suggested time
+                </button>
+              </div>
+            )}
+            {formData.preferredStart && formData.serviceId && context && (() => {
+              const selectedService = context.services.find(s => s.id === formData.serviceId);
+              if (selectedService && selectedService.durationMinutes) {
+                try {
+                  const startDate = new Date(formData.preferredStart);
+                  const endDate = new Date(startDate.getTime() + selectedService.durationMinutes * 60000);
+                  const formattedEnd = endDate.toLocaleString();
+                  return (
+                    <p className={`mt-1 text-xs font-medium ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                      Estimated end time: {formattedEnd}
+                    </p>
+                  );
+                } catch {
+                  return null;
+                }
+              }
+              return null;
+            })()}
+            {!formData.preferredStart && formData.serviceId && context && (() => {
+              const selectedService = context.services.find(s => s.id === formData.serviceId);
+              if (selectedService && selectedService.durationMinutes) {
+                return (
+                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                    Pick a preferred start time and we'll estimate the end time based on service duration.
+                  </p>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           <div>

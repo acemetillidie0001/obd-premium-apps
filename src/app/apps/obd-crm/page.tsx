@@ -240,6 +240,26 @@ function OBDCRMPageContent() {
     }
   }, [tableDensity]);
 
+  // Density class maps for consistent spacing
+  const densityClasses = {
+    cell: {
+      comfortable: "py-3 px-4",
+      compact: "py-2 px-3",
+    },
+    text: {
+      comfortable: "text-sm",
+      compact: "text-xs",
+    },
+    header: {
+      comfortable: "py-3 px-4 text-sm",
+      compact: "py-2 px-3 text-xs",
+    },
+    button: {
+      comfortable: "px-3 py-1.5 text-xs",
+      compact: "px-2.5 py-1 text-[10px]",
+    },
+  };
+
   // Follow-up view mode (Table or Queue)
   const [followUpView, setFollowUpView] = useState<"table" | "queue">(() => {
     if (typeof window !== "undefined") {
@@ -1973,8 +1993,10 @@ function OBDCRMPageContent() {
       fullWidth={true}
     >
       {/* Controls */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-4 items-start md:items-center">
+      <OBDPanel isDark={isDark} className={`mt-6 sticky top-0 z-30 ${isDark ? "bg-slate-900/95 backdrop-blur-sm border-b border-slate-700/50" : "bg-white/95 backdrop-blur-sm border-b border-slate-200/50"}`}>
+        <div className="flex flex-col lg:flex-row lg:flex-nowrap gap-3 lg:gap-4 items-start lg:items-center lg:justify-between">
+          {/* Left Group: Search, Filters, Toggles */}
+          <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 flex-1 min-w-0">
           {/* Search */}
           <div className="flex-1 min-w-0">
             <input
@@ -2143,38 +2165,31 @@ function OBDCRMPageContent() {
               </button>
             )}
           </div>
+          </div>
 
-          {/* Save View Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setShowSaveSegmentModal(true);
-              setNewSegmentName("");
-              setSegmentSaveError(null);
-            }}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              isDark
-                ? "bg-blue-700 text-white hover:bg-blue-600"
-                : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-            }`}
-          >
-            Save view
-          </button>
-
-          {/* Actions */}
-          <div className="flex gap-2">
+          {/* Right Group: Actions */}
+          <div className="flex flex-wrap gap-2 lg:flex-nowrap lg:items-center lg:shrink-0">
+            {/* Save View Button */}
             <button
               type="button"
-              onClick={() => setShowCreateModal(true)}
-              className={SUBMIT_BUTTON_CLASSES + " w-auto"}
+              onClick={() => {
+                setShowSaveSegmentModal(true);
+                setNewSegmentName("");
+                setSegmentSaveError(null);
+              }}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                isDark
+                  ? "bg-blue-700 text-white hover:bg-blue-600"
+                  : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+              }`}
             >
-              Add Contact
+              Save view
             </button>
             <button
               type="button"
               onClick={handleExport}
               disabled={isExporting}
-              className={`px-4 py-2 rounded-full font-medium transition-colors ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 isExporting
                   ? "opacity-50 cursor-not-allowed"
                   : ""
@@ -2197,13 +2212,20 @@ function OBDCRMPageContent() {
                 setImportPreview([]);
                 setImportResult(null);
               }}
-              className={`px-4 py-2 rounded-full font-medium transition-colors ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 isDark
                   ? "bg-green-700 text-white hover:bg-green-600"
                   : "bg-green-100 text-green-700 hover:bg-green-200"
               }`}
             >
               Import CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className={SUBMIT_BUTTON_CLASSES + " w-auto"}
+            >
+              Add Contact
             </button>
           </div>
         </div>
@@ -2356,7 +2378,7 @@ function OBDCRMPageContent() {
       )}
 
       {/* Contacts List */}
-      <OBDPanel isDark={isDark} className="mt-4">
+      <OBDPanel isDark={isDark} className="mt-3">
         {/* Follow-ups Counter Strip */}
         {(() => {
           if (isLoading) {
@@ -2468,28 +2490,28 @@ function OBDCRMPageContent() {
             <table className="w-full">
               <thead>
                 <tr className={`border-b ${themeClasses.panelBorder}`}>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Name
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Phone
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Email
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Status
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Tags
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Last Note
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Next Follow-Up
                   </th>
-                  <th className={`text-left py-3 px-4 font-semibold ${themeClasses.labelText}`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Updated
                   </th>
                 </tr>
@@ -2497,37 +2519,37 @@ function OBDCRMPageContent() {
               <tbody>
                 {[...Array(5)].map((_, idx) => (
                   <tr key={idx} className={`border-b ${themeClasses.panelBorder}`}>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-32 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-5 w-16 rounded-full" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-40 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-28 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <div className="flex gap-1">
                         <Skeleton className="h-5 w-12 rounded-full" isDark={isDark} />
                         <Skeleton className="h-5 w-16 rounded-full" isDark={isDark} />
                       </div>
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-48 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-16 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-20 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <Skeleton className="h-4 w-24 rounded" isDark={isDark} />
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <div className="flex gap-1">
                         <Skeleton className="h-6 w-6 rounded" isDark={isDark} />
                         <Skeleton className="h-6 w-6 rounded" isDark={isDark} />
@@ -3562,9 +3584,7 @@ function OBDCRMPageContent() {
               <table className="w-full">
               <thead className={`sticky top-0 z-10 ${isDark ? "bg-slate-900" : "bg-white"}`}>
                 <tr className={`border-b ${themeClasses.panelBorder}`}>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`} style={{ width: "40px" }}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`} style={{ width: "40px" }}>
                     <input
                       type="checkbox"
                       checked={filteredContactsForHeader.length > 0 && filteredContactsForHeader.every((c) => selectedContactIds.has(c.id))}
@@ -3579,54 +3599,34 @@ function OBDCRMPageContent() {
                       aria-label="Select all visible contacts"
                     />
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Name
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Phone
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Email
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Status
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Tags
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Last Note
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Last Touch
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Next Follow-Up
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Updated
                   </th>
-                  <th className={`text-left font-semibold ${themeClasses.labelText} ${
-                    tableDensity === "compact" ? "py-2 px-3 text-xs" : "py-3 px-4 text-sm"
-                  }`}>
+                  <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`}>
                     Actions
                   </th>
                 </tr>
@@ -3659,9 +3659,7 @@ function OBDCRMPageContent() {
                     const status = getFollowUpStatus(dateStr);
                     if (status === "NONE" || status === "UPCOMING") return null;
                     
-                    const baseStyles = `inline-flex items-center rounded-full font-medium ml-2 ${
-                      tableDensity === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                    }`;
+                    const baseStyles = `inline-flex items-center rounded-full font-medium ml-2 ${densityClasses.button[tableDensity]}`;
                     
                     if (status === "OVERDUE") {
                       return (
@@ -3775,7 +3773,7 @@ function OBDCRMPageContent() {
                       <tr>
                         <td colSpan={11} className={tableDensity === "compact" ? "py-8 px-3" : "py-12 px-4"}>
                           <div className={`text-center ${themeClasses.mutedText}`}>
-                            <p className={`${tableDensity === "compact" ? "text-base" : "text-lg"} mb-2 ${themeClasses.headingText}`}>
+                            <p className={`${densityClasses.text[tableDensity] === "text-xs" ? "text-base" : "text-lg"} mb-2 ${themeClasses.headingText}`}>
                               No contacts match your filters.
                             </p>
                             <button
@@ -3786,7 +3784,7 @@ function OBDCRMPageContent() {
                                 setTagFilter("");
                                 setFollowUpFilter("all");
                               }}
-                              className={`mt-3 px-4 py-2 rounded-full ${tableDensity === "compact" ? "text-xs" : "text-sm"} font-medium transition-colors ${
+                              className={`mt-3 px-4 py-2 rounded-full ${densityClasses.text[tableDensity]} font-medium transition-colors ${
                                 isDark
                                   ? "bg-blue-700 text-white hover:bg-blue-600"
                                   : "bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -3809,7 +3807,7 @@ function OBDCRMPageContent() {
                     } transition-colors`}
                   >
                     <td
-                      className={`${tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}`}
+                      className={densityClasses.cell[tableDensity]}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -3824,28 +3822,20 @@ function OBDCRMPageContent() {
                         aria-label={`Select ${contact.name}`}
                       />
                     </td>
-                    <td className={`${themeClasses.headingText} ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.headingText} ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {contact.name}
                     </td>
-                    <td className={`${themeClasses.mutedText} ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.mutedText} ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {contact.phone || "—"}
                     </td>
-                    <td className={`${themeClasses.mutedText} ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.mutedText} ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {contact.email || "—"}
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       {(() => {
                         // Status pill styling helper
                         const getStatusStyles = (status: string) => {
-                          const baseStyles = `inline-flex items-center rounded-full font-medium ${
-                            tableDensity === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                          }`;
+                          const baseStyles = `inline-flex items-center rounded-full font-medium ${densityClasses.button[tableDensity]}`;
                           
                           switch (status) {
                             case "Active":
@@ -3897,9 +3887,7 @@ function OBDCRMPageContent() {
                           {contact.tags.slice(0, 3).map((tag) => (
                             <span
                               key={tag.id}
-                              className={`inline-flex items-center rounded truncate max-w-[120px] ${
-                                tableDensity === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                              } ${
+                              className={`inline-flex items-center rounded truncate max-w-[120px] ${densityClasses.button[tableDensity]} ${
                                 isDark
                                   ? "bg-slate-700/80 text-slate-300 border border-slate-600/50"
                                   : "bg-slate-100 text-slate-700 border border-slate-300"
@@ -3911,9 +3899,7 @@ function OBDCRMPageContent() {
                           ))}
                           {contact.tags.length > 3 && (
                             <span
-                              className={`inline-flex items-center rounded ${
-                                tableDensity === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                              } ${
+                              className={`inline-flex items-center rounded ${densityClasses.button[tableDensity]} ${
                                 isDark
                                   ? "bg-slate-700/80 text-slate-300 border border-slate-600/50"
                                   : "bg-slate-100 text-slate-700 border border-slate-300"
@@ -3928,21 +3914,15 @@ function OBDCRMPageContent() {
                         "—"
                       )}
                     </td>
-                    <td className={`${themeClasses.mutedText} max-w-xs ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.mutedText} max-w-xs ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       <div className="truncate">
                         {contact.lastNote || "—"}
                       </div>
                     </td>
-                    <td className={`${themeClasses.mutedText} ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.mutedText} ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {formatRelativeTime(contact.lastTouchAt)}
                     </td>
-                    <td className={`${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {(() => {
                         const followUpInfo = formatFollowUpDate(contact.nextFollowUpAt);
                         const badge = getFollowUpBadge(contact.nextFollowUpAt);
@@ -3962,12 +3942,10 @@ function OBDCRMPageContent() {
                         );
                       })()}
                     </td>
-                    <td className={`${themeClasses.mutedText} ${
-                      tableDensity === "compact" ? "py-1.5 px-3 text-xs" : "py-3 px-4 text-sm"
-                    }`}>
+                    <td className={`${themeClasses.mutedText} ${densityClasses.cell[tableDensity]} ${densityClasses.text[tableDensity]}`}>
                       {formatDate(contact.updatedAt)}
                     </td>
-                    <td className={tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-4"}>
+                    <td className={densityClasses.cell[tableDensity]}>
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         {contact.email && (
                           <button

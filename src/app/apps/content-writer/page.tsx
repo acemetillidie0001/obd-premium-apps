@@ -4,6 +4,7 @@ import { useState } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
 
@@ -238,7 +239,7 @@ export default function ContentWriterPage() {
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
-              <div className="space-y-6">
+              <div className="space-y-6 pb-24">
                 {/* Business Basics Section */}
                 <div>
                   <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>Business Basics</h3>
@@ -680,7 +681,9 @@ export default function ContentWriterPage() {
                     <p className="text-sm">{error}</p>
                   </div>
                 )}
-
+              </div>
+              
+              <OBDStickyActionBar isDark={isDark}>
                 <button
                   type="submit"
                   disabled={loading || !formValues.topic.trim()}
@@ -698,7 +701,7 @@ export default function ContentWriterPage() {
                     "Start Writing"
                   )}
                 </button>
-              </div>
+              </OBDStickyActionBar>
             </form>
       </OBDPanel>
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
@@ -1617,7 +1618,7 @@ function OffersBuilderPageContent() {
 
       {/* Results */}
       {result && (
-        <OBDPanel isDark={isDark} className="mt-8">
+        <OBDPanel isDark={isDark} className="mt-8 pb-24">
           <div className="flex items-center justify-between mb-4">
             <OBDHeading level={2} isDark={isDark}>
               Generated Promotional Content
@@ -2209,39 +2210,29 @@ function OffersBuilderPageContent() {
 
       {/* Sticky Bottom Action Bar */}
       {result && !loading && (
-        <div
-          className={`sticky bottom-0 left-0 right-0 z-10 mt-12 border-t ${
-            isDark
-              ? "bg-slate-950 border-slate-800"
-              : "bg-white border-slate-200"
-          } shadow-lg`}
-        >
-          <div className="mx-auto max-w-6xl px-4 py-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-              <button
-                onClick={handleRegenerate}
-                disabled={loading}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Regenerate with Same Inputs
-              </button>
-              <button
-                onClick={handleStartNew}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors ${
-                  isDark
-                    ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                    : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                }`}
-              >
-                Start New Promotion
-              </button>
-            </div>
-          </div>
-        </div>
+        <OBDStickyActionBar isDark={isDark} className="mt-12">
+          <button
+            onClick={handleRegenerate}
+            disabled={loading}
+            className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              isDark
+                ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Regenerate with Same Inputs
+          </button>
+          <button
+            onClick={handleStartNew}
+            className={`px-6 py-2.5 font-medium rounded-xl transition-colors ${
+              isDark
+                ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+            }`}
+          >
+            Start New Promotion
+          </button>
+        </OBDStickyActionBar>
       )}
     </OBDPageContainer>
   );

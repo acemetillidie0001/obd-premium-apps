@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 
@@ -327,7 +328,7 @@ export default function FAQGeneratorPage() {
                   Save Template
                 </button>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 pb-24">
                 <div>
                   <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Business Name
@@ -503,7 +504,9 @@ export default function FAQGeneratorPage() {
                     placeholder="e.g., pricing, services, policies"
                   />
                 </div>
-
+              </div>
+              
+              <OBDStickyActionBar isDark={isDark}>
                 <button
                   type="submit"
                   disabled={loading}
@@ -511,7 +514,7 @@ export default function FAQGeneratorPage() {
                 >
                   {loading ? "Generating..." : "Generate FAQs"}
                 </button>
-              </div>
+              </OBDStickyActionBar>
             </form>
       </OBDPanel>
 

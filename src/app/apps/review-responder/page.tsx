@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
 
@@ -577,23 +578,26 @@ export default function ReviewResponderPage() {
       </OBDPanel>
 
       {/* Results section */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <OBDHeading level={2} isDark={isDark}>
-            Generated Responses
-          </OBDHeading>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className={themeClasses.mutedText}>Generating review responses...</div>
-          </div>
-        ) : error && !result ? (
+      {error && !result ? (
+        <OBDPanel isDark={isDark} className="mt-8">
           <div className={getErrorPanelClasses(isDark)}>
             <p className="font-medium mb-2">Error:</p>
             <p>{error}</p>
           </div>
-        ) : result ? (
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="Generated Responses"
+          isDark={isDark}
+          loading={isLoading}
+          emptyState={
+            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Fill out the form above and click &quot;Generate Responses&quot; to create your review responses.
+            </p>
+          }
+          className="mt-8"
+        >
+          {result ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ResultCard title="Standard Reply" isDark={isDark}>
               <div className="space-y-2">
@@ -712,12 +716,9 @@ export default function ReviewResponderPage() {
               </ResultCard>
             )}
           </div>
-        ) : (
-          <p className={`italic obd-soft-text text-center py-8 ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-            Fill out the form above and click &quot;Generate Responses&quot; to create your review responses.
-          </p>
-        )}
-      </OBDPanel>
+          ) : null}
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

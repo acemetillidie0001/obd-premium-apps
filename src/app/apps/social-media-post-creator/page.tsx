@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 
@@ -798,67 +799,82 @@ export default function SocialMediaPostCreatorPage() {
       </OBDPanel>
 
       {/* Response card */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <OBDHeading level={2} isDark={isDark} className="mb-4">
-            AI-Generated Posts
-          </OBDHeading>
-                {(aiResponse || loading || error) && (
-                  <div className="flex gap-2">
-                    {aiResponse && (
-                      <button
-                        onClick={handleRegenerate}
-                        disabled={loading}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        {loading ? "Regenerating..." : "Regenerate"}
-                      </button>
-                    )}
-                    {aiResponse && (
-                      <button
-                        onClick={handleCopy}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        {copied ? "Copied!" : "Copy"}
-                      </button>
-                    )}
-                    {aiResponse && (
-                      <button
-                        onClick={handleDownloadTxt}
-                        disabled={!aiResponse}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        Download .txt
-                      </button>
-                    )}
-                    {effectivePosts.length > 0 && lastPayload?.outputMode === "ContentCalendar" && (
-                      <button
-                        onClick={handleShufflePosts}
-                        disabled={!effectivePosts.length || lastPayload?.outputMode !== "ContentCalendar"}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        Shuffle Posts
-                      </button>
-                    )}
-                  </div>
+      {error ? (
+        <OBDPanel isDark={isDark} className="mt-8">
+          <div className={getErrorPanelClasses(isDark)}>
+            <p className="font-medium mb-2">Error:</p>
+            <p>{error}</p>
+          </div>
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="AI-Generated Posts"
+          isDark={isDark}
+          actions={
+            (aiResponse || loading || error) ? (
+              <>
+                {aiResponse && (
+                  <button
+                    onClick={handleRegenerate}
+                    disabled={loading}
+                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDark
+                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {loading ? "Regenerating..." : "Regenerate"}
+                  </button>
                 )}
-              </div>
+                {aiResponse && (
+                  <button
+                    onClick={handleCopy}
+                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm ${
+                      isDark
+                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                )}
+                {aiResponse && (
+                  <button
+                    onClick={handleDownloadTxt}
+                    disabled={!aiResponse}
+                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDark
+                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Download .txt
+                  </button>
+                )}
+                {effectivePosts.length > 0 && lastPayload?.outputMode === "ContentCalendar" && (
+                  <button
+                    onClick={handleShufflePosts}
+                    disabled={!effectivePosts.length || lastPayload?.outputMode !== "ContentCalendar"}
+                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDark
+                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Shuffle Posts
+                  </button>
+                )}
+              </>
+            ) : undefined
+          }
+          loading={loading}
+          emptyState={
+            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Your AI-generated social media posts will appear here...
+            </p>
+          }
+          className="mt-8"
+        >
               {effectivePosts.length > 0 && (
                 <div className="mb-6">
                   {lastPayload?.outputMode === "ContentCalendar" && (
@@ -986,29 +1002,17 @@ export default function SocialMediaPostCreatorPage() {
                   </div>
                 </div>
               )}
-        <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
-          isDark ? "bg-slate-800" : "bg-gray-50"
-        }`}>
-          {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className={themeClasses.mutedText}>Generating post...</div>
+          <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
+            isDark ? "bg-slate-800" : "bg-gray-50"
+          }`}>
+            {aiResponse ? (
+              <p className={`whitespace-pre-wrap ${isDark ? "text-slate-100" : "text-gray-800"}`}>
+                {aiResponse}
+              </p>
+            ) : null}
           </div>
-        ) : error ? (
-          <div className={getErrorPanelClasses(isDark)}>
-            <p className="font-medium mb-2">Error:</p>
-            <p>{error}</p>
-          </div>
-          ) : aiResponse ? (
-            <p className={`whitespace-pre-wrap ${isDark ? "text-slate-100" : "text-gray-800"}`}>
-              {aiResponse}
-            </p>
-          ) : (
-            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Your AI-generated social media posts will appear here...
-            </p>
-          )}
-        </div>
-      </OBDPanel>
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

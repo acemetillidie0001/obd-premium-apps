@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 
@@ -436,36 +437,41 @@ export default function BusinessDescriptionWriterPage() {
       </OBDPanel>
 
       {/* Results section */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <OBDHeading level={2} isDark={isDark}>
-            Generated Content
-          </OBDHeading>
-                {result && (
-                  <button
-                    onClick={handleRegenerate}
-                    disabled={loading}
-                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isDark
-                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {loading ? "Regenerating..." : "Regenerate"}
-                  </button>
-                )}
-              </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className={themeClasses.mutedText}>Generating description...</div>
-          </div>
-        ) : error ? (
+      {error ? (
+        <OBDPanel isDark={isDark} className="mt-8">
           <div className={getErrorPanelClasses(isDark)}>
             <p className="font-medium mb-2">Error:</p>
             <p>{error}</p>
           </div>
-              ) : result ? (
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="Generated Content"
+          isDark={isDark}
+          actions={
+            result ? (
+              <button
+                onClick={handleRegenerate}
+                disabled={loading}
+                className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {loading ? "Regenerating..." : "Regenerate"}
+              </button>
+            ) : undefined
+          }
+          loading={loading}
+          emptyState={
+            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Fill out the form above and click "Create Description" to generate your business descriptions.
+            </p>
+          }
+          className="mt-8"
+        >
+          {result ? (
                 <div className="grid grid-cols-1 gap-4">
                   <ResultCard title="OBD Listing Description" isDark={isDark}>
                     <p className="whitespace-pre-wrap">{result.obdListingDescription}</p>
@@ -533,12 +539,9 @@ export default function BusinessDescriptionWriterPage() {
                     </ResultCard>
                   )}
                 </div>
-              ) : (
-                <p className={`italic obd-soft-text text-center py-8 ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-                  Fill out the form above and click "Create Description" to generate your business descriptions.
-                </p>
-              )}
-        </OBDPanel>
+          ) : null}
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

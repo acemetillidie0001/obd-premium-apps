@@ -590,11 +590,9 @@ export default function ReviewResponderPage() {
           title="Generated Responses"
           isDark={isDark}
           loading={isLoading}
-          emptyState={
-            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Fill out the form above and click &quot;Generate Responses&quot; to create your review responses.
-            </p>
-          }
+          loadingText="Generating review responses..."
+          emptyTitle="No responses yet"
+          emptyDescription="Fill out the form above and click &quot;Generate Responses&quot; to create your review responses."
           className="mt-8"
         >
           {result ? (

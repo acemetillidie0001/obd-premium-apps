@@ -2,6 +2,7 @@
 
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStatusBlock from "@/components/obd/OBDStatusBlock";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
 
 /**
@@ -34,6 +35,9 @@ export default function OBDResultsPanel({
   children,
   emptyState,
   loading = false,
+  loadingText,
+  emptyTitle,
+  emptyDescription,
   className = "",
 }: {
   title: string;
@@ -43,6 +47,9 @@ export default function OBDResultsPanel({
   children: React.ReactNode;
   emptyState?: React.ReactNode;
   loading?: boolean;
+  loadingText?: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
   className?: string;
 }) {
   const themeClasses = getThemeClasses(isDark);
@@ -70,13 +77,30 @@ export default function OBDResultsPanel({
 
       {/* Body */}
       {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className={themeClasses.mutedText}>Generating...</div>
-        </div>
-      ) : !children && emptyState ? (
-        <div className="py-8">
-          {emptyState}
-        </div>
+        loadingText ? (
+          <OBDStatusBlock
+            variant="loading"
+            title={loadingText}
+            isDark={isDark}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-32">
+            <div className={themeClasses.mutedText}>Generating...</div>
+          </div>
+        )
+      ) : !children && (emptyState || emptyTitle) ? (
+        emptyState ? (
+          <div className="py-8">
+            {emptyState}
+          </div>
+        ) : (
+          <OBDStatusBlock
+            variant="empty"
+            title={emptyTitle || "No results"}
+            description={emptyDescription}
+            isDark={isDark}
+          />
+        )
       ) : (
         children
       )}

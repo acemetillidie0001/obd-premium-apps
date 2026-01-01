@@ -573,11 +573,9 @@ export default function FAQGeneratorPage() {
             ) : undefined
           }
           loading={loading}
-          emptyState={
-            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Your AI-generated FAQs will appear here...
-            </p>
-          }
+          loadingText="Generating FAQs..."
+          emptyTitle="No FAQs yet"
+          emptyDescription="Fill out the form above and click &quot;Generate FAQs&quot; to create your FAQ section."
           className="mt-8"
         >
               {effectiveFAQs.length > 0 && (

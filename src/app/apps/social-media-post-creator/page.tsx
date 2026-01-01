@@ -868,11 +868,9 @@ export default function SocialMediaPostCreatorPage() {
             ) : undefined
           }
           loading={loading}
-          emptyState={
-            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Your AI-generated social media posts will appear here...
-            </p>
-          }
+          loadingText="Generating posts..."
+          emptyTitle="No posts yet"
+          emptyDescription="Fill out the form above and click &quot;Create Posts&quot; to generate your social media posts."
           className="mt-8"
         >
               {effectivePosts.length > 0 && (

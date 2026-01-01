@@ -36,7 +36,7 @@ export default function OBDToolbarRow({
   return (
     <div className={`flex flex-col lg:flex-row lg:flex-nowrap gap-3 lg:gap-4 items-start lg:items-center lg:justify-between ${className}`}>
       {/* Left Group: Search, Filters, Toggles */}
-      <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 flex-1 min-w-0">
+      <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 flex-1 min-w-0 overflow-hidden">
         {left}
       </div>
       

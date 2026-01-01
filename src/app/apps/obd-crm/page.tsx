@@ -1996,12 +1996,12 @@ function OBDCRMPageContent() {
     >
       {/* Controls */}
       <OBDStickyToolbar isDark={isDark} className="mt-6">
-        <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none">
+        <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden">
           <OBDToolbarRow
             left={
               <>
           {/* Search */}
-          <div className="flex-1 min-w-0">
+          <div className="min-w-[200px] max-w-[300px] flex-shrink">
             <input
               type="text"
               placeholder="Search by name, email, or phone..."

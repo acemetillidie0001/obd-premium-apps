@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDTableWrapper from "@/components/obd/OBDTableWrapper";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -2463,7 +2464,7 @@ function OBDCRMPageContent() {
           );
         })()}
         {isLoading ? (
-          <div className="overflow-x-auto">
+          <OBDTableWrapper>
             <table className="w-full">
               <thead>
                 <tr className={`border-b ${themeClasses.panelBorder}`}>
@@ -2542,7 +2543,7 @@ function OBDCRMPageContent() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </OBDTableWrapper>
         ) : contacts.length === 0 ? (
           <div className={`text-center py-12 px-4 ${themeClasses.mutedText}`}>
             <div className={`inline-block p-6 rounded-lg ${isDark ? "bg-slate-800/50" : "bg-slate-50"} max-w-md`}>
@@ -3556,8 +3557,9 @@ function OBDCRMPageContent() {
           });
 
           return (
-          <div className="overflow-x-auto overflow-y-auto relative" style={{ maxHeight: "calc(100vh - 400px)" }}>
-            <table className="w-full">
+          <div className="overflow-y-auto relative" style={{ maxHeight: "calc(100vh - 400px)" }}>
+            <OBDTableWrapper>
+              <table className="w-full">
               <thead className={`sticky top-0 z-10 ${isDark ? "bg-slate-900" : "bg-white"}`}>
                 <tr className={`border-b ${themeClasses.panelBorder}`}>
                   <th className={`text-left font-semibold ${themeClasses.labelText} ${
@@ -4058,6 +4060,7 @@ function OBDCRMPageContent() {
                 })()}
               </tbody>
             </table>
+            </OBDTableWrapper>
           </div>
           );
         })()}

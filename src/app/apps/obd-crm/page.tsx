@@ -1996,11 +1996,11 @@ function OBDCRMPageContent() {
       {/* Controls */}
       <OBDStickyToolbar isDark={isDark} className="mt-6">
         <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {/* Row 1: Filters and Search */}
             <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 items-start md:items-center">
               {/* Search */}
-              <div className="w-full md:min-w-[200px] md:max-w-[300px] flex-shrink-0">
+              <div className="w-full md:min-w-[220px] md:max-w-[320px] flex-shrink-0">
                 <input
                   type="text"
                   placeholder="Search by name, email, or phone..."
@@ -2062,7 +2062,7 @@ function OBDCRMPageContent() {
                   <select
                     value={selectedSegmentId || ""}
                     onChange={(e) => handleSegmentSelect(e.target.value || null)}
-                    className={getInputClasses(isDark)}
+                    className={`${getInputClasses(isDark)} ${selectedSegmentId ? (isDark ? "ring-1 ring-blue-500/50" : "ring-1 ring-blue-400/50") : ""}`}
                   >
                     <option value="">No segment</option>
                     {segments.map((segment) => (
@@ -2095,7 +2095,7 @@ function OBDCRMPageContent() {
             </div>
 
             {/* Row 2: View Controls and Action Buttons */}
-            <div className="flex flex-wrap gap-2 items-center justify-between border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.15)" : "rgba(148, 163, 184, 0.2)" }}>
+            <div className="flex flex-wrap gap-2 items-center justify-between border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(148, 163, 184, 0.25)" }}>
               {/* Left: View Controls */}
               <div className="flex flex-wrap gap-3 items-center">
                 {/* View Toggle */}
@@ -2177,64 +2177,74 @@ function OBDCRMPageContent() {
 
               {/* Right: Action Buttons */}
               <div className="flex flex-wrap gap-2 items-center">
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={isExporting}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isExporting
-                    ? "opacity-50 cursor-not-allowed"
-                    : ""
-                } ${
-                  isDark
-                    ? "bg-slate-700 text-white hover:bg-slate-600"
-                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                }`}
-              >
-                {isExporting ? "Exporting…" : "Export CSV"}
-              </button>
-              {/* Save View Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  setShowSaveSegmentModal(true);
-                  setNewSegmentName("");
-                  setSegmentSaveError(null);
-                }}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isDark
-                    ? "bg-blue-700 text-white hover:bg-blue-600"
-                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                }`}
-              >
-                Save view
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowImportModal(true);
-                  setImportStep(1);
-                  setCsvFile(null);
-                  setCsvData(null);
-                  setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
-                  setImportPreview([]);
-                  setImportResult(null);
-                }}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  isDark
-                    ? "bg-green-700 text-white hover:bg-green-600"
-                    : "bg-green-100 text-green-700 hover:bg-green-200"
-                }`}
-              >
-                Import CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
-                className={SUBMIT_BUTTON_CLASSES + " w-auto"}
-              >
-                Add Contact
-              </button>
+                {/* Data Actions Group */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    disabled={isExporting}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      isExporting
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                    } ${
+                      isDark
+                        ? "bg-slate-700 text-white hover:bg-slate-600"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                    }`}
+                  >
+                    {isExporting ? "Exporting…" : "Export CSV"}
+                  </button>
+                  {/* Save View Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSaveSegmentModal(true);
+                      setNewSegmentName("");
+                      setSegmentSaveError(null);
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      isDark
+                        ? "bg-blue-700 text-white hover:bg-blue-600"
+                        : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                    }`}
+                  >
+                    Save view
+                  </button>
+                </div>
+                
+                {/* Visual Separator */}
+                <div className="h-6 w-px" style={{ backgroundColor: isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(148, 163, 184, 0.3)" }}></div>
+                
+                {/* Primary Actions Group */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportModal(true);
+                      setImportStep(1);
+                      setCsvFile(null);
+                      setCsvData(null);
+                      setColumnMapping({ name: "", email: "", phone: "", status: "", tags: "" });
+                      setImportPreview([]);
+                      setImportResult(null);
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      isDark
+                        ? "bg-green-700 text-white hover:bg-green-600"
+                        : "bg-green-100 text-green-700 hover:bg-green-200"
+                    }`}
+                  >
+                    Import CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(true)}
+                    className={`${SUBMIT_BUTTON_CLASSES} w-auto font-semibold shadow-sm hover:shadow-md transition-shadow`}
+                  >
+                    Add Contact
+                  </button>
+                </div>
               </div>
             </div>
           </div>

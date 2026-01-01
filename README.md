@@ -1,5 +1,10 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Documentation
+
+- [OBD UI System — Shared Components](docs/obd-ui-system-shared-components.md) - Standardized UI components for OBD Premium Apps
+- [Design System](docs/design-system.md) - Brand colors, spacing, and visual guidelines
+
 ## Getting Started
 
 First, run the development server:

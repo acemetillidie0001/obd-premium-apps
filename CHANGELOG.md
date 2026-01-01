@@ -5,6 +5,70 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## UI Standardization — Shared Components (2025-01-XX)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Added - Shared UI Components
+
+- **Standardized Toolbars**
+  - `OBDStickyToolbar`: Sticky toolbar wrapper with backdrop blur for toolbar/controls sections
+  - `OBDToolbarRow`: Flex layout helper for left/right toolbar content slots (filters/actions)
+  - `OBDFilterBar`: Wrap-friendly filter/control row component for inline filter patterns
+  - Supports theme-aware styling (light/dark mode) and responsive layouts
+
+- **Sticky Action Bar for Form Apps**
+  - `OBDStickyActionBar`: Sticky bottom action bar for form-based applications
+  - Mobile-friendly with safe area support (`pb-[env(safe-area-inset-bottom)]`)
+  - Standardized bottom padding offset class (`OBD_STICKY_ACTION_BAR_OFFSET_CLASS = "pb-24"`)
+  - Optional `left` prop for left-aligned content
+
+- **Results Panel System**
+  - `OBDResultsPanel`: Shared results panel component for generated output
+    - Consistent header with title/subtitle and action buttons
+    - Integrated loading and empty state support
+    - Theme-aware styling
+  - `OBDResultsActions`: Helper component for common results actions (Copy, Download .txt, Clear)
+    - Standardized button styling and layout
+    - Optional `extra` prop for app-specific actions
+    - Copy button with visual feedback state
+
+- **Status Blocks**
+  - `OBDStatusBlock`: Shared component for empty/loading/error/success states
+    - Consistent styling and layout across apps
+    - Variants: `empty`, `loading`, `error`, `success`
+    - Optional icons, descriptions, and action buttons
+    - Integrated into `OBDResultsPanel` for seamless UX
+
+### Changed - Component Enhancements
+
+- **OBDPanel**: Added `variant="toolbar"` prop for tighter padding in toolbar contexts
+
+### Migration Status
+
+**Migrated Apps (Batch 1 & 2):**
+- OBD CRM: Standardized toolbar with two-row layout (filters + actions)
+- Local Keyword Research: Migrated to `OBDFilterBar` for filter controls
+- Content Writer: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDStatusBlock`
+- FAQ Generator: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDResultsActions` + `OBDStatusBlock`
+- Offers Builder: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDResultsActions`
+- Business Description Writer: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDStatusBlock`
+- Social Media Post Creator: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDResultsActions` + `OBDStatusBlock`
+- Review Responder: Migrated to `OBDStickyActionBar` + `OBDResultsPanel` + `OBDStatusBlock`
+- Image Caption Generator: Migrated to `OBDResultsPanel` + `OBDStatusBlock`
+
+### Technical Notes
+
+- **UI-only changes**: No business logic, API calls, handlers, validation, or state management modified
+- **Backward compatible**: All new components are additive and optional
+- **Theme-aware**: All components support light/dark mode via `isDark` prop
+- **Responsive**: All components use mobile-first responsive design patterns
+- **Component location**: `src/components/obd/`
+
+### Documentation
+
+- See [OBD UI System — Shared Components](docs/obd-ui-system-shared-components.md) for detailed component documentation
+
 ## OBD CRM — V3.1 (Hub + Premium UX + Notes/Activities + Follow-Ups + Queue View)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

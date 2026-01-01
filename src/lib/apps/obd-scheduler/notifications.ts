@@ -30,8 +30,7 @@ export async function sendCustomerRequestConfirmationEmail(
       
       <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
         ${service ? `<p><strong>Service:</strong> ${escapeHtml(service.name)}</p>` : ""}
-        ${request.preferredStart ? `<p><strong>Preferred Start:</strong> ${formatDateTime(request.preferredStart)}</p>` : ""}
-        ${request.preferredEnd ? `<p><strong>Preferred End:</strong> ${formatDateTime(request.preferredEnd)}</p>` : ""}
+        ${request.preferredStart ? `<p><strong>Preferred Start:</strong> ${formatDateTime(request.preferredStart)}</p>` : "<p><strong>Preferred Start:</strong> No preference</p>"}
       </div>
       
       <p>We will review your request and get back to you shortly.</p>
@@ -71,8 +70,7 @@ export async function sendBusinessRequestNotificationEmail(
         <p><strong>Email:</strong> ${escapeHtml(request.customerEmail)}</p>
         ${request.customerPhone ? `<p><strong>Phone:</strong> ${escapeHtml(request.customerPhone)}</p>` : ""}
         ${service ? `<p><strong>Service:</strong> ${escapeHtml(service.name)}</p>` : ""}
-        ${request.preferredStart ? `<p><strong>Preferred Start:</strong> ${formatDateTime(request.preferredStart)}</p>` : ""}
-        ${request.preferredEnd ? `<p><strong>Preferred End:</strong> ${formatDateTime(request.preferredEnd)}</p>` : ""}
+        <p><strong>Preferred Start:</strong> ${request.preferredStart ? formatDateTime(request.preferredStart) : "No preference"}</p>
         ${request.message ? `<p><strong>Message:</strong><br>${escapeHtml(request.message)}</p>` : ""}
       </div>
       

@@ -28,7 +28,6 @@ export default function OBDSchedulerPublicPage() {
     customerEmail: "",
     customerPhone: "",
     preferredStart: "",
-    preferredEnd: "",
     message: "",
   });
 
@@ -86,16 +85,6 @@ export default function OBDSchedulerPublicPage() {
       return;
     }
 
-    // Validate preferredEnd > preferredStart if both provided
-    if (formData.preferredStart && formData.preferredEnd) {
-      const start = new Date(formData.preferredStart);
-      const end = new Date(formData.preferredEnd);
-      if (end <= start) {
-        setError("End time must be after start time");
-        setSubmitting(false);
-        return;
-      }
-    }
 
     try {
       const payload: CreateBookingRequestRequest = {
@@ -122,7 +111,6 @@ export default function OBDSchedulerPublicPage() {
         customerEmail: "",
         customerPhone: "",
         preferredStart: "",
-        preferredEnd: "",
         message: "",
       });
     } catch (error) {
@@ -281,18 +269,9 @@ export default function OBDSchedulerPublicPage() {
               onChange={(e) => setFormData({ ...formData, preferredStart: e.target.value ? new Date(e.target.value).toISOString() : "" })}
               className={getInputClasses(isDark)}
             />
-          </div>
-
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-              Preferred End Time (Optional)
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.preferredEnd ? new Date(formData.preferredEnd).toISOString().slice(0, 16) : ""}
-              onChange={(e) => setFormData({ ...formData, preferredEnd: e.target.value ? new Date(e.target.value).toISOString() : "" })}
-              className={getInputClasses(isDark)}
-            />
+            <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+              Optional — pick your preferred start time. The service duration is handled automatically.
+            </p>
           </div>
 
           <div>

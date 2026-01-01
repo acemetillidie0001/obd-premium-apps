@@ -321,6 +321,9 @@ export default function OBDSchedulerPage() {
                           Service: {request.service.name}
                         </p>
                       )}
+                      <p className={`text-sm ${themeClasses.mutedText}`}>
+                        Preferred Start: {request.preferredStart ? formatDateTime(request.preferredStart) : "No preference"}
+                      </p>
                     </div>
                     <div className="text-right">
                       <span
@@ -629,19 +632,12 @@ export default function OBDSchedulerPage() {
                 </span>
               </div>
 
-              {selectedRequest.preferredStart && (
-                <div>
-                  <p className={`text-sm font-medium ${themeClasses.labelText}`}>Preferred Start</p>
-                  <p className={themeClasses.headingText}>{formatDateTime(selectedRequest.preferredStart)}</p>
-                </div>
-              )}
-
-              {selectedRequest.preferredEnd && (
-                <div>
-                  <p className={`text-sm font-medium ${themeClasses.labelText}`}>Preferred End</p>
-                  <p className={themeClasses.headingText}>{formatDateTime(selectedRequest.preferredEnd)}</p>
-                </div>
-              )}
+              <div>
+                <p className={`text-sm font-medium ${themeClasses.labelText}`}>Preferred Start</p>
+                <p className={themeClasses.headingText}>
+                  {selectedRequest.preferredStart ? formatDateTime(selectedRequest.preferredStart) : "No preference"}
+                </p>
+              </div>
 
               {selectedRequest.proposedStart && (
                 <div>

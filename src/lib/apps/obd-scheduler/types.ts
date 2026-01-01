@@ -80,7 +80,6 @@ export interface CreateBookingRequestRequest {
   customerEmail: string;
   customerPhone?: string | null;
   preferredStart?: string | null;
-  preferredEnd?: string | null;
   message?: string | null;
   bookingKey?: string; // For public form
 }

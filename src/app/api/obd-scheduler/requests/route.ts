@@ -36,7 +36,7 @@ const createRequestSchema = z.object({
   customerEmail: z.string().email("Invalid email format"),
   customerPhone: z.string().max(50).optional().nullable(),
   preferredStart: z.string().datetime().optional().nullable(),
-  preferredEnd: z.string().datetime().optional().nullable(),
+  preferredEnd: z.string().datetime().optional().nullable(), // Ignored for backward compatibility
   message: z.string().max(2000).optional().nullable(),
   bookingKey: z.string().optional(), // For public form
 });
@@ -119,8 +119,6 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    // Validate preferredEnd > preferredStart if both provided
-    // This is handled at creation time, but we can add a filter here if needed
 
     // Get total count
     const total = await prisma.bookingRequest.count({ where });
@@ -175,18 +173,7 @@ export async function POST(request: NextRequest) {
 
     const body = parsed.data;
 
-    // Validate preferredEnd > preferredStart if both provided
-    if (body.preferredStart && body.preferredEnd) {
-      const start = new Date(body.preferredStart);
-      const end = new Date(body.preferredEnd);
-      if (end <= start) {
-        return apiErrorResponse(
-          "Preferred end time must be after preferred start time",
-          "VALIDATION_ERROR",
-          400
-        );
-      }
-    }
+    // preferredEnd is ignored for backward compatibility (always set to null for new requests)
 
     // Determine businessId
     let businessId: string;
@@ -240,7 +227,7 @@ export async function POST(request: NextRequest) {
         customerEmail: body.customerEmail.trim().toLowerCase(),
         customerPhone: body.customerPhone?.trim() || null,
         preferredStart: body.preferredStart ? new Date(body.preferredStart) : null,
-        preferredEnd: body.preferredEnd ? new Date(body.preferredEnd) : null,
+        preferredEnd: null, // Always null for new requests (start-only preferred time)
         message: body.message?.trim() || null,
         status: PrismaBookingStatus.REQUESTED,
       },

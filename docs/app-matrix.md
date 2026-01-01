@@ -46,7 +46,7 @@ This is the definitive index of all 22 apps, their slugs, their status, and thei
 | App | Slug | Status |
 |-----|------|--------|
 | OBD Social Auto-Poster | auto-poster | Coming Q1 2026 |
-| OBD Scheduler & Booking | scheduler-booking | Coming Q1 2026 |
+| OBD Scheduler & Booking | scheduler-booking | Live |
 | OBD CRM | crm | Coming Q1 2026 |
 | OBD AI Chatbot | ai-chatbot | Coming Q1 2026 |
 

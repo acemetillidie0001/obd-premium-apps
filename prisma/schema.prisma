@@ -632,19 +632,19 @@ enum CrmContactSource {
 }
 
 model CrmContact {
-  id              String           @id @default(cuid())
-  businessId      String
-  name            String
-  email           String?
-  phone           String?
-  company         String?
-  address         String?
-  status          CrmContactStatus @default(Lead)
-  source          CrmContactSource @default(manual)
-  nextFollowUpAt  DateTime?
+  id               String           @id @default(cuid())
+  businessId       String
+  name             String
+  email            String?
+  phone            String?
+  company          String?
+  address          String?
+  status           CrmContactStatus @default(Lead)
+  source           CrmContactSource @default(manual)
+  nextFollowUpAt   DateTime?
   nextFollowUpNote String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   tags       CrmContactTag[]
   activities CrmContactActivity[]
@@ -689,8 +689,8 @@ model CrmContactActivity {
   contactId  String
   businessId String
   type       String    @default("note") // "note" or activity types: "CALL", "EMAIL", "TEXT", "MEETING", "TASK", "OTHER"
-  content    String?  @db.Text // For notes
-  summary    String?  @db.Text // For activities
+  content    String?   @db.Text // For notes
+  summary    String?   @db.Text // For activities
   occurredAt DateTime? // For activities (when the activity happened)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -701,4 +701,71 @@ model CrmContactActivity {
   @@index([businessId])
   @@index([businessId, createdAt])
   @@index([businessId, occurredAt])
+}
+
+enum BookingStatus {
+  REQUESTED
+  APPROVED
+  DECLINED
+  PROPOSED_TIME
+  COMPLETED
+  CANCELED
+}
+
+model BookingService {
+  id              String   @id @default(cuid())
+  businessId      String
+  name            String
+  durationMinutes Int
+  description     String?  @db.Text
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  requests BookingRequest[]
+
+  @@index([businessId])
+  @@index([businessId, active])
+}
+
+model BookingSettings {
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  timezone          String   @default("America/New_York")
+  bufferMinutes     Int      @default(15)
+  minNoticeHours    Int      @default(24)
+  maxDaysOut        Int      @default(90)
+  policyText        String?  @db.Text
+  bookingKey        String   @unique // Random key for public booking link
+  notificationEmail String? // Email address for booking request notifications
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([bookingKey])
+}
+
+model BookingRequest {
+  id             String        @id @default(cuid())
+  businessId     String
+  serviceId      String?
+  customerName   String
+  customerEmail  String
+  customerPhone  String?
+  preferredStart DateTime?
+  preferredEnd   DateTime?
+  message        String?       @db.Text
+  status         BookingStatus @default(REQUESTED)
+  proposedStart  DateTime?
+  proposedEnd    DateTime?
+  internalNotes  String?       @db.Text
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  service BookingService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([status])
 }

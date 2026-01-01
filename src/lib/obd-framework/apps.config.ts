@@ -239,8 +239,10 @@ export const OBD_APPS: ObdAppDefinition[] = [
     id: "scheduler-booking",
     name: "OBD Scheduler & Booking",
     description: "Let customers book appointments online with synced calendars and reminders.",
+    href: "/apps/obd-scheduler",
     category: "productivity",
-    status: "coming-soon",
+    status: "live",
+    ctaLabel: "Open Scheduler",
     icon: "calendar-clock",
   },
   {

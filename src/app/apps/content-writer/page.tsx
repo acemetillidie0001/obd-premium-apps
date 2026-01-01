@@ -879,7 +879,7 @@ export default function ContentWriterPage() {
                     </>
                   )}
                 </div>
-          ) : null}
+              ) : null}
         </OBDResultsPanel>
       )}
     </OBDPageContainer>

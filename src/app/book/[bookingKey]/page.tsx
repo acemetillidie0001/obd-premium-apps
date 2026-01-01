@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
-import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -34,8 +33,8 @@ export default function PublicBookingPage() {
   const params = useParams();
   const bookingKey = params?.bookingKey as string;
 
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const isDark = theme === "dark";
+  // Force light mode for public booking page (no theme toggle)
+  const isDark = false;
   const themeClasses = getThemeClasses(isDark);
 
   const [loading, setLoading] = useState(true);
@@ -324,69 +323,65 @@ export default function PublicBookingPage() {
 
   if (!bookingKey) {
     return (
-      <OBDPageContainer
-        isDark={isDark}
-        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title="Booking Request"
-        tagline="Submit a booking request"
-      >
-        <OBDPanel isDark={isDark}>
-          <div className={getErrorPanelClasses(isDark)}>
-            <p>Invalid booking link. Please use the link provided by the business.</p>
-          </div>
-        </OBDPanel>
-      </OBDPageContainer>
+      <main className="min-h-screen bg-slate-50 py-12 px-4">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
+          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
+          <OBDPanel isDark={isDark}>
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>Invalid booking link. Please use the link provided by the business.</p>
+            </div>
+          </OBDPanel>
+        </div>
+      </main>
     );
   }
 
   if (loading) {
     return (
-      <OBDPageContainer
-        isDark={isDark}
-        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title="Booking Request"
-        tagline="Submit a booking request"
-      >
-        <OBDPanel isDark={isDark}>
-          <p className={themeClasses.mutedText}>Loading booking form...</p>
-        </OBDPanel>
-      </OBDPageContainer>
+      <main className="min-h-screen bg-slate-50 py-12 px-4">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
+          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
+          <OBDPanel isDark={isDark}>
+            <p className={themeClasses.mutedText}>Loading booking form...</p>
+          </OBDPanel>
+        </div>
+      </main>
     );
   }
 
   if (error && !context) {
     return (
-      <OBDPageContainer
-        isDark={isDark}
-        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title="Booking Request"
-        tagline="Submit a booking request"
-      >
-        <OBDPanel isDark={isDark}>
-          <div className={getErrorPanelClasses(isDark)}>
-            <p>{error}</p>
-          </div>
-        </OBDPanel>
-      </OBDPageContainer>
+      <main className="min-h-screen bg-slate-50 py-12 px-4">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
+          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
+          <OBDPanel isDark={isDark}>
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{error}</p>
+            </div>
+          </OBDPanel>
+        </div>
+      </main>
     );
   }
 
   if (submitted) {
     const isInstant = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED;
     return (
-      <OBDPageContainer
-        isDark={isDark}
-        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title={isInstant ? "Booking Confirmed" : "Booking Request"}
-        tagline={isInstant ? "Your booking is confirmed" : "Submit a booking request"}
-      >
-        <OBDPanel isDark={isDark}>
-          <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
-            <h2 className="text-lg font-semibold mb-2">{isInstant ? "Booking Confirmed!" : "Request Received"}</h2>
-            <p>{isInstant ? "Your booking has been confirmed. You'll receive a confirmation email shortly." : "The business will confirm shortly."}</p>
-          </div>
-        </OBDPanel>
-      </OBDPageContainer>
+      <main className="min-h-screen bg-slate-50 py-12 px-4">
+        <div className="max-w-2xl mx-auto">
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstant ? "Booking Confirmed" : "Booking Request"}</h1>
+          <p className="text-sm md:text-base text-slate-600 mb-8">{isInstant ? "Your booking is confirmed" : "Submit a booking request"}</p>
+          <OBDPanel isDark={isDark}>
+            <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
+              <h2 className="text-lg font-semibold mb-2">{isInstant ? "Booking Confirmed!" : "Request Received"}</h2>
+              <p>{isInstant ? "Your booking has been confirmed. You'll receive a confirmation email shortly." : "The business will confirm shortly."}</p>
+            </div>
+          </OBDPanel>
+        </div>
+      </main>
     );
   }
 
@@ -408,13 +403,11 @@ export default function PublicBookingPage() {
   }, [context]);
 
   return (
-    <OBDPageContainer
-        isDark={isDark}
-        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title={isInstantMode ? "Book Appointment" : "Booking Request"}
-        tagline={isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}
-      >
-      <OBDPanel isDark={isDark}>
+    <main className="min-h-screen bg-slate-50 py-12 px-4">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
+        <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
+        <OBDPanel isDark={isDark}>
         {context?.policyText && (
           <div className={`mb-6 p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
             <h3 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Booking Policies</h3>
@@ -579,6 +572,10 @@ export default function PublicBookingPage() {
             >
               {submitting ? "Booking..." : "Book Now"}
             </button>
+
+            <p className="mt-3 text-xs text-slate-500 text-center">
+              After you submit your request, it's sent to the business for review. They'll confirm the time or suggest a new one before anything is booked.
+            </p>
 
             <div className="pt-4 border-t border-slate-300 dark:border-slate-600">
               <p className={`text-sm ${themeClasses.mutedText} mb-2`}>
@@ -799,10 +796,15 @@ export default function PublicBookingPage() {
           >
             {submitting ? "Submitting..." : loading ? "Loading..." : "Submit Booking Request"}
           </button>
+
+          <p className="mt-3 text-xs text-slate-500 text-center">
+            After you submit your request, it's sent to the business for review. They'll confirm the time or suggest a new one before anything is booked.
+          </p>
         </form>
         )}
       </OBDPanel>
-    </OBDPageContainer>
+      </div>
+    </main>
   );
 }
 

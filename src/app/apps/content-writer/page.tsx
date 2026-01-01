@@ -707,36 +707,41 @@ export default function ContentWriterPage() {
       </OBDPanel>
 
       {/* Results section */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <OBDHeading level={2} isDark={isDark}>
-            Generated Content
-          </OBDHeading>
-                {contentResponse && (
-                  <button
-                    onClick={handleRegenerate}
-                    disabled={loading}
-                    className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                      isDark
-                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {loading ? "Regenerating..." : "Regenerate"}
-                  </button>
-                )}
-              </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className={themeClasses.mutedText}>Generating content...</div>
-          </div>
-        ) : error && !contentResponse ? (
+      {error && !contentResponse ? (
+        <OBDPanel isDark={isDark} className="mt-8">
           <div className={getErrorPanelClasses(isDark)}>
             <p className="font-medium mb-2">Error:</p>
             <p>{error}</p>
           </div>
-              ) : contentResponse ? (
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="Generated Content"
+          isDark={isDark}
+          actions={
+            contentResponse ? (
+              <button
+                onClick={handleRegenerate}
+                disabled={loading}
+                className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {loading ? "Regenerating..." : "Regenerate"}
+              </button>
+            ) : undefined
+          }
+          loading={loading}
+          emptyState={
+            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Fill out the form above and click "Start Writing" to generate your content.
+            </p>
+          }
+          className="mt-8"
+        >
+          {contentResponse ? (
                 <div className="space-y-6">
                   {/* Summary Preview Card */}
                   {contentResponse.content.preview && (

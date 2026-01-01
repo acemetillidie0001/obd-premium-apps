@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
 
@@ -878,12 +879,9 @@ export default function ContentWriterPage() {
                     </>
                   )}
                 </div>
-              ) : (
-                <p className={`italic obd-soft-text text-center py-8 ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-                  Fill out the form above and click "Start Writing" to generate your content.
-                </p>
-              )}
-        </OBDPanel>
+          ) : null}
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

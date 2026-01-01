@@ -5,6 +5,8 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
+import OBDResultsActions from "@/components/obd/OBDResultsActions";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 
@@ -519,13 +521,26 @@ export default function FAQGeneratorPage() {
       </OBDPanel>
 
       {/* Response card */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <OBDHeading level={2} isDark={isDark}>
-            AI-Generated FAQs
-          </OBDHeading>
-                {(aiResponse || loading || error) && (
-                  <div className="flex gap-2">
+      {error ? (
+        <OBDPanel isDark={isDark} className="mt-8">
+          <div className={getErrorPanelClasses(isDark)}>
+            <p className="font-medium mb-2">Error:</p>
+            <p>{error}</p>
+          </div>
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="AI-Generated FAQs"
+          isDark={isDark}
+          actions={
+            (aiResponse || loading || error) ? (
+              <OBDResultsActions
+                isDark={isDark}
+                onCopy={aiResponse ? handleCopy : undefined}
+                copied={copied}
+                disabled={loading}
+                extra={
+                  <>
                     {aiResponse && (
                       <button
                         onClick={handleRegenerate}
@@ -537,18 +552,6 @@ export default function FAQGeneratorPage() {
                         }`}
                       >
                         {loading ? "Regenerating..." : "Regenerate"}
-                      </button>
-                    )}
-                    {aiResponse && (
-                      <button
-                        onClick={handleCopy}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        {copied ? "Copied!" : "Copy"}
                       </button>
                     )}
                     {parsedFAQs.length >= 5 && (
@@ -564,9 +567,19 @@ export default function FAQGeneratorPage() {
                         Shuffle FAQs
                       </button>
                     )}
-                  </div>
-                )}
-              </div>
+                  </>
+                }
+              />
+            ) : undefined
+          }
+          loading={loading}
+          emptyState={
+            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Your AI-generated FAQs will appear here...
+            </p>
+          }
+          className="mt-8"
+        >
               {effectiveFAQs.length > 0 && (
                 <div className="mb-6">
                   <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
@@ -611,29 +624,17 @@ export default function FAQGeneratorPage() {
                   </div>
                 </div>
               )}
-        <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
-          isDark ? "bg-slate-800" : "bg-gray-50"
-        }`}>
-          {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className={themeClasses.mutedText}>Generating FAQs...</div>
+          <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
+            isDark ? "bg-slate-800" : "bg-gray-50"
+          }`}>
+            {aiResponse ? (
+              <p className={`whitespace-pre-wrap ${isDark ? "text-slate-100" : "text-gray-800"}`}>
+                {aiResponse}
+              </p>
+            ) : null}
           </div>
-        ) : error ? (
-          <div className={getErrorPanelClasses(isDark)}>
-            <p className="font-medium mb-2">Error:</p>
-            <p>{error}</p>
-          </div>
-          ) : aiResponse ? (
-            <p className={`whitespace-pre-wrap ${isDark ? "text-slate-100" : "text-gray-800"}`}>
-              {aiResponse}
-            </p>
-          ) : (
-            <p className={`italic obd-soft-text ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-              Your AI-generated FAQs will appear here...
-            </p>
-          )}
-        </div>
-      </OBDPanel>
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

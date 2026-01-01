@@ -4,6 +4,7 @@ import { useState } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
 import type {
@@ -494,28 +495,27 @@ export default function ImageCaptionGeneratorPage() {
       </OBDPanel>
 
       {/* Results section */}
-      <OBDPanel isDark={isDark} className="mt-8">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <OBDHeading level={2} isDark={isDark}>
-              AI-Generated Captions
-            </OBDHeading>
-            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-              Each card is a variation you can copy and use.
-            </p>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className={themeClasses.mutedText}>Generating captions for your image...</div>
-          </div>
-        ) : error && !result ? (
+      {error && !result ? (
+        <OBDPanel isDark={isDark} className="mt-8">
           <div className={getErrorPanelClasses(isDark)}>
             <p className="font-medium mb-2">Error:</p>
             <p>{error}</p>
           </div>
-              ) : result && result.captions.length > 0 ? (
+        </OBDPanel>
+      ) : (
+        <OBDResultsPanel
+          title="AI-Generated Captions"
+          subtitle="Each card is a variation you can copy and use."
+          isDark={isDark}
+          loading={isLoading}
+          emptyState={
+            <p className={`italic obd-soft-text text-center ${isDark ? "text-slate-500" : "text-gray-400"}`}>
+              Fill out the form above and click "Write Captions" to generate your image captions.
+            </p>
+          }
+          className="mt-8"
+        >
+          {result && result.captions.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {result.captions.map((caption) => (
                     <div
@@ -587,12 +587,9 @@ export default function ImageCaptionGeneratorPage() {
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className={`italic obd-soft-text text-center py-8 ${isDark ? "text-slate-500" : "text-gray-400"}`}>
-                  Fill out the form above and click "Write Captions" to generate your image captions.
-                </p>
-              )}
-        </OBDPanel>
+          ) : null}
+        </OBDResultsPanel>
+      )}
     </OBDPageContainer>
   );
 }

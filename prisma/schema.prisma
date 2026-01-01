@@ -712,15 +712,34 @@ enum BookingStatus {
   CANCELED
 }
 
+enum BookingMode {
+  REQUEST_ONLY
+  INSTANT_ALLOWED
+}
+
+enum PaymentRequired {
+  NONE
+  DEPOSIT
+  FULL
+}
+
+enum AvailabilityExceptionType {
+  CLOSED_ALL_DAY
+  CUSTOM_HOURS
+}
+
 model BookingService {
-  id              String   @id @default(cuid())
-  businessId      String
-  name            String
-  durationMinutes Int
-  description     String?  @db.Text
-  active          Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String         @id @default(cuid())
+  businessId        String
+  name              String
+  durationMinutes   Int
+  description       String?        @db.Text
+  active            Boolean        @default(true)
+  paymentRequired   PaymentRequired @default(NONE)
+  depositAmountCents Int?
+  currency          String?        @default("USD")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   requests BookingRequest[]
 
@@ -729,17 +748,18 @@ model BookingService {
 }
 
 model BookingSettings {
-  id                String   @id @default(cuid())
-  businessId        String   @unique
-  timezone          String   @default("America/New_York")
-  bufferMinutes     Int      @default(15)
-  minNoticeHours    Int      @default(24)
-  maxDaysOut        Int      @default(90)
-  policyText        String?  @db.Text
-  bookingKey        String   @unique // Random key for public booking link
-  notificationEmail String? // Email address for booking request notifications
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                String      @id @default(cuid())
+  businessId        String      @unique
+  bookingModeDefault BookingMode @default(REQUEST_ONLY)
+  timezone          String      @default("America/New_York")
+  bufferMinutes     Int         @default(15)
+  minNoticeHours    Int         @default(24)
+  maxDaysOut        Int         @default(90)
+  policyText        String?     @db.Text
+  bookingKey        String      @unique // Random key for public booking link
+  notificationEmail String?     // Email address for booking request notifications
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([businessId])
   @@index([bookingKey])
@@ -768,4 +788,48 @@ model BookingRequest {
   @@index([businessId, status])
   @@index([businessId, createdAt])
   @@index([status])
+}
+
+model AvailabilityWindow {
+  id         String   @id @default(cuid())
+  businessId String
+  dayOfWeek  Int      // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime  String   // HH:mm format (e.g., "09:00")
+  endTime    String   // HH:mm format (e.g., "17:00")
+  isEnabled  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, dayOfWeek])
+  @@index([businessId])
+  @@index([businessId, dayOfWeek])
+}
+
+model AvailabilityException {
+  id         String                    @id @default(cuid())
+  businessId String
+  date       DateTime                  @db.Date
+  startTime  String?                   // HH:mm format (optional, only for CUSTOM_HOURS)
+  endTime    String?                   // HH:mm format (optional, only for CUSTOM_HOURS)
+  type       AvailabilityExceptionType
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+
+  @@unique([businessId, date])
+  @@index([businessId])
+  @@index([businessId, date])
+}
+
+model BookingTheme {
+  id          String   @id @default(cuid())
+  businessId  String   @unique
+  logoUrl     String?
+  primaryColor String?  @default("#29c4a9")
+  accentColor  String?
+  headlineText String? @db.Text
+  introText    String? @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([businessId])
 }

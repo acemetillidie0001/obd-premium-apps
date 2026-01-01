@@ -23,6 +23,7 @@ export const runtime = "nodejs";
 
 // Validation schema
 const updateSettingsSchema = z.object({
+  bookingModeDefault: z.enum(["REQUEST_ONLY", "INSTANT_ALLOWED"]).optional(),
   timezone: z.string().max(100).optional(),
   bufferMinutes: z.number().int().min(0).max(1440).optional(),
   minNoticeHours: z.number().int().min(0).max(168).optional(), // Max 1 week
@@ -36,6 +37,7 @@ function formatSettings(settings: any): BookingSettings {
   return {
     id: settings.id,
     businessId: settings.businessId,
+    bookingModeDefault: settings.bookingModeDefault,
     timezone: settings.timezone,
     bufferMinutes: settings.bufferMinutes,
     minNoticeHours: settings.minNoticeHours,
@@ -75,6 +77,7 @@ export async function GET(request: NextRequest) {
       settings = await prisma.bookingSettings.create({
         data: {
           businessId,
+          bookingModeDefault: "REQUEST_ONLY",
           timezone: "America/New_York",
           bufferMinutes: 15,
           minNoticeHours: 24,
@@ -130,6 +133,10 @@ export async function POST(request: NextRequest) {
 
     const updateData: any = {};
 
+    if (body.bookingModeDefault !== undefined) {
+      updateData.bookingModeDefault = body.bookingModeDefault;
+    }
+
     if (body.timezone !== undefined) {
       updateData.timezone = body.timezone;
     }
@@ -167,6 +174,7 @@ export async function POST(request: NextRequest) {
       settings = await prisma.bookingSettings.create({
         data: {
           businessId,
+          bookingModeDefault: body.bookingModeDefault || "REQUEST_ONLY",
           timezone: body.timezone || "America/New_York",
           bufferMinutes: body.bufferMinutes ?? 15,
           minNoticeHours: body.minNoticeHours ?? 24,

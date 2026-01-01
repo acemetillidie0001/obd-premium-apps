@@ -49,8 +49,14 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // Note: Shadow database is handled via environment variable SHADOW_DATABASE_URL
+    // If not set, Prisma will attempt to create a temporary shadow database
+    // For mature migration histories, you may need to provide a separate shadow database
   },
   datasource: {
     url: databaseUrl,
+    // Optional shadow DB for migrate dev only. Not used in this repo's default workflow.
+    // We use `prisma migrate deploy` instead, which doesn't require a shadow database.
+    ...(process.env.SHADOW_DATABASE_URL && { shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL }),
   },
 });

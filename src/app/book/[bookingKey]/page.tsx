@@ -6,16 +6,28 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
-import type { CreateBookingRequestRequest, BookingService } from "@/lib/apps/obd-scheduler/types";
+import type { CreateBookingRequestRequest, BookingService, BookingMode } from "@/lib/apps/obd-scheduler/types";
+import { BookingMode as BookingModeEnum } from "@/lib/apps/obd-scheduler/types";
 
 interface BusinessContext {
   businessId: string;
+  bookingModeDefault: BookingMode;
   timezone: string;
   bufferMinutes: number;
   minNoticeHours: number;
   maxDaysOut: number;
   policyText: string | null;
   services: BookingService[];
+}
+
+interface Slot {
+  startTime: string;
+  displayTime: string;
+}
+
+interface SlotsResponse {
+  date: string;
+  slots: Slot[];
 }
 
 export default function PublicBookingPage() {
@@ -40,6 +52,14 @@ export default function PublicBookingPage() {
     preferredStart: "",
     message: "",
   });
+
+  // Instant booking state
+  const [showRequestForm, setShowRequestForm] = useState(false); // Toggle to show request form fallback
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState("");
 
   // Load business context
   useEffect(() => {
@@ -107,6 +127,122 @@ export default function PublicBookingPage() {
       return null;
     }
   }, [context]);
+
+  // Fetch slots for selected date and service
+  const fetchSlots = async (date: string, serviceId: string | null) => {
+    if (!bookingKey || !date) return;
+
+    setSlotsLoading(true);
+    setSlotsError("");
+    setSlots([]);
+    setSelectedSlot(null);
+
+    try {
+      const params = new URLSearchParams({
+        bookingKey,
+        date,
+      });
+      if (serviceId) {
+        params.set("serviceId", serviceId);
+      }
+
+      const res = await fetch(`/api/obd-scheduler/slots?${params.toString()}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load available times");
+      }
+
+      const slotsData: SlotsResponse = data.data;
+      setSlots(slotsData.slots);
+    } catch (error) {
+      console.error("Error loading slots:", error);
+      setSlotsError(error instanceof Error ? error.message : "Failed to load available times");
+    } finally {
+      setSlotsLoading(false);
+    }
+  };
+
+  // Handle date or service change for instant booking
+  useEffect(() => {
+    if (context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && selectedDate) {
+      fetchSlots(selectedDate, formData.serviceId);
+    }
+  }, [selectedDate, formData.serviceId, context?.bookingModeDefault, bookingKey]);
+
+  // Handle instant booking submission
+  const handleInstantBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    if (!selectedSlot) {
+      setError("Please select a time slot");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!formData.customerName.trim()) {
+      setError("Please enter your name");
+      setSubmitting(false);
+      return;
+    }
+
+    if (!formData.customerEmail.trim()) {
+      setError("Please enter your email");
+      setSubmitting(false);
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.customerEmail)) {
+      setError("Please enter a valid email address");
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const payload = {
+        bookingKey,
+        customerName: formData.customerName.trim(),
+        customerEmail: formData.customerEmail.trim(),
+        customerPhone: formData.customerPhone?.trim() || null,
+        message: formData.message?.trim() || null,
+        serviceId: formData.serviceId || null,
+        startTime: selectedSlot.startTime,
+      };
+
+      const res = await fetch("/api/obd-scheduler/bookings/instant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to create booking");
+      }
+
+      setSubmitted(true);
+      setFormData({
+        serviceId: null,
+        customerName: "",
+        customerEmail: "",
+        customerPhone: "",
+        preferredStart: "",
+        message: "",
+      });
+      setSelectedSlot(null);
+      setSelectedDate("");
+      setSlots([]);
+    } catch (error) {
+      console.error("Error creating instant booking:", error);
+      setError(error instanceof Error ? error.message : "Failed to create booking");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,29 +372,47 @@ export default function PublicBookingPage() {
   }
 
   if (submitted) {
+    const isInstant = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED;
     return (
       <OBDPageContainer
         isDark={isDark}
         onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title="Booking Request"
-        tagline="Submit a booking request"
+        title={isInstant ? "Booking Confirmed" : "Booking Request"}
+        tagline={isInstant ? "Your booking is confirmed" : "Submit a booking request"}
       >
         <OBDPanel isDark={isDark}>
           <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
-            <h2 className="text-lg font-semibold mb-2">Request Received</h2>
-            <p>The business will confirm shortly.</p>
+            <h2 className="text-lg font-semibold mb-2">{isInstant ? "Booking Confirmed!" : "Request Received"}</h2>
+            <p>{isInstant ? "Your booking has been confirmed. You'll receive a confirmation email shortly." : "The business will confirm shortly."}</p>
           </div>
         </OBDPanel>
       </OBDPageContainer>
     );
   }
 
+  const isInstantMode = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
+
+  // Calculate min and max dates for date picker
+  const minDate = useMemo(() => {
+    if (!context) return "";
+    const now = new Date();
+    const minNotice = new Date(now.getTime() + context.minNoticeHours * 60 * 60 * 1000);
+    return minNotice.toISOString().split("T")[0];
+  }, [context]);
+
+  const maxDate = useMemo(() => {
+    if (!context) return "";
+    const now = new Date();
+    const max = new Date(now.getTime() + context.maxDaysOut * 24 * 60 * 60 * 1000);
+    return max.toISOString().split("T")[0];
+  }, [context]);
+
   return (
     <OBDPageContainer
         isDark={isDark}
         onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-        title="Booking Request"
-        tagline="Submit a booking request"
+        title={isInstantMode ? "Book Appointment" : "Booking Request"}
+        tagline={isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}
       >
       <OBDPanel isDark={isDark}>
         {context?.policyText && (
@@ -268,7 +422,180 @@ export default function PublicBookingPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {isInstantMode ? (
+          // Instant Booking UI
+          <form onSubmit={handleInstantBooking} className="space-y-6">
+            {context && context.services.length > 0 && (
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Service (Optional)
+                </label>
+                <select
+                  value={formData.serviceId || ""}
+                  onChange={(e) => setFormData({ ...formData, serviceId: e.target.value || null })}
+                  className={getInputClasses(isDark)}
+                >
+                  <option value="">Select a service...</option>
+                  {context.services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name} ({service.durationMinutes} min)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                Select Date <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                min={minDate}
+                max={maxDate}
+                className={getInputClasses(isDark)}
+                required
+              />
+              <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                Select a date to see available times.
+              </p>
+            </div>
+
+            {selectedDate && (
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Select Time <span className="text-red-500">*</span>
+                </label>
+                {slotsLoading ? (
+                  <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <p className={themeClasses.mutedText}>Loading available times...</p>
+                  </div>
+                ) : slotsError ? (
+                  <div className={getErrorPanelClasses(isDark)}>
+                    <p>{slotsError}</p>
+                  </div>
+                ) : slots.length === 0 ? (
+                  <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <p className={themeClasses.mutedText}>
+                      No times available for this date. Please select another date or{" "}
+                      <button
+                        type="button"
+                        onClick={() => setShowRequestForm(true)}
+                        className={`underline ${isDark ? "text-teal-400" : "text-teal-600"}`}
+                      >
+                        request a different time
+                      </button>
+                      .
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                    {slots.map((slot) => (
+                      <button
+                        key={slot.startTime}
+                        type="button"
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`p-3 rounded border text-sm transition-colors ${
+                          selectedSlot?.startTime === slot.startTime
+                            ? isDark
+                              ? "bg-teal-600 border-teal-500 text-white"
+                              : "bg-teal-500 border-teal-600 text-white"
+                            : isDark
+                            ? "bg-slate-800/50 border-slate-700 text-slate-200 hover:bg-slate-700"
+                            : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {slot.displayTime}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                Your Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={formData.customerName}
+                onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                className={getInputClasses(isDark)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                Email <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="email"
+                value={formData.customerEmail}
+                onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
+                className={getInputClasses(isDark)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                Phone (Optional)
+              </label>
+              <input
+                type="tel"
+                value={formData.customerPhone || ""}
+                onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+                className={getInputClasses(isDark)}
+              />
+            </div>
+
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                Message (Optional)
+              </label>
+              <textarea
+                value={formData.message || ""}
+                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                rows={4}
+                className={getInputClasses(isDark, "resize-none")}
+                placeholder="Any additional information or special requests..."
+              />
+            </div>
+
+            {error && (
+              <div className={getErrorPanelClasses(isDark)}>
+                <p>{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || !selectedSlot || !selectedDate}
+              className={SUBMIT_BUTTON_CLASSES}
+            >
+              {submitting ? "Booking..." : "Book Now"}
+            </button>
+
+            <div className="pt-4 border-t border-slate-300 dark:border-slate-600">
+              <p className={`text-sm ${themeClasses.mutedText} mb-2`}>
+                Prefer a different time?
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowRequestForm(true)}
+                className={`text-sm underline ${isDark ? "text-teal-400" : "text-teal-600"}`}
+              >
+                Submit a booking request instead
+              </button>
+            </div>
+          </form>
+        ) : (
+          // Request Form (V3 behavior)
+          <form onSubmit={handleSubmit} className="space-y-6">
           {context && context.services.length > 0 && (
             <div>
               <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
@@ -473,6 +800,7 @@ export default function PublicBookingPage() {
             {submitting ? "Submitting..." : loading ? "Loading..." : "Submit Booking Request"}
           </button>
         </form>
+        )}
       </OBDPanel>
     </OBDPageContainer>
   );

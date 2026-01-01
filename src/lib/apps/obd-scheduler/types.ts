@@ -1,8 +1,9 @@
 /**
- * OBD Scheduler & Booking Types (V3)
+ * OBD Scheduler & Booking Types (V3/V4)
  * 
  * Type definitions for the OBD Scheduler & Booking app.
  * V3 Principle: REQUEST-BASED BOOKING (not real-time calendar sync).
+ * V4 Tier 1: Foundation for Calendly parity (settings, models, UI scaffolding).
  */
 
 export enum BookingStatus {
@@ -14,6 +15,22 @@ export enum BookingStatus {
   CANCELED = "CANCELED",
 }
 
+export enum BookingMode {
+  REQUEST_ONLY = "REQUEST_ONLY",
+  INSTANT_ALLOWED = "INSTANT_ALLOWED",
+}
+
+export enum PaymentRequired {
+  NONE = "NONE",
+  DEPOSIT = "DEPOSIT",
+  FULL = "FULL",
+}
+
+export enum AvailabilityExceptionType {
+  CLOSED_ALL_DAY = "CLOSED_ALL_DAY",
+  CUSTOM_HOURS = "CUSTOM_HOURS",
+}
+
 export interface BookingService {
   id: string;
   businessId: string;
@@ -21,6 +38,9 @@ export interface BookingService {
   durationMinutes: number;
   description: string | null;
   active: boolean;
+  paymentRequired: PaymentRequired;
+  depositAmountCents: number | null;
+  currency: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +48,7 @@ export interface BookingService {
 export interface BookingSettings {
   id: string;
   businessId: string;
+  bookingModeDefault: BookingMode;
   timezone: string;
   bufferMinutes: number;
   minNoticeHours: number;
@@ -65,6 +86,9 @@ export interface CreateServiceRequest {
   durationMinutes: number;
   description?: string | null;
   active?: boolean;
+  paymentRequired?: PaymentRequired;
+  depositAmountCents?: number | null;
+  currency?: string | null;
 }
 
 export interface UpdateServiceRequest {
@@ -72,6 +96,9 @@ export interface UpdateServiceRequest {
   durationMinutes?: number;
   description?: string | null;
   active?: boolean;
+  paymentRequired?: PaymentRequired;
+  depositAmountCents?: number | null;
+  currency?: string | null;
 }
 
 export interface CreateBookingRequestRequest {
@@ -92,12 +119,67 @@ export interface UpdateBookingRequestRequest {
 }
 
 export interface UpdateBookingSettingsRequest {
+  bookingModeDefault?: BookingMode;
   timezone?: string;
   bufferMinutes?: number;
   minNoticeHours?: number;
   maxDaysOut?: number;
   policyText?: string | null;
   notificationEmail?: string | null;
+}
+
+// V4 Tier 1 Types
+
+export interface AvailabilityWindow {
+  id: string;
+  businessId: string;
+  dayOfWeek: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  startTime: string; // HH:mm format
+  endTime: string; // HH:mm format
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityException {
+  id: string;
+  businessId: string;
+  date: string; // ISO date string
+  startTime: string | null; // HH:mm format (optional)
+  endTime: string | null; // HH:mm format (optional)
+  type: AvailabilityExceptionType;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookingTheme {
+  id: string;
+  businessId: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  headlineText: string | null;
+  introText: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityData {
+  windows: AvailabilityWindow[];
+  exceptions: AvailabilityException[];
+}
+
+export interface UpdateAvailabilityRequest {
+  windows?: Omit<AvailabilityWindow, "id" | "businessId" | "createdAt" | "updatedAt">[];
+  exceptions?: Omit<AvailabilityException, "id" | "businessId" | "createdAt" | "updatedAt">[];
+}
+
+export interface UpdateBookingThemeRequest {
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  accentColor?: string | null;
+  headlineText?: string | null;
+  introText?: string | null;
 }
 
 export interface BookingRequestListQuery {

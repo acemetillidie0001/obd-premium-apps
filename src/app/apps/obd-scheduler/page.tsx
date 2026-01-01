@@ -13,10 +13,16 @@ import type {
   CreateServiceRequest,
   UpdateBookingRequestRequest,
   UpdateBookingSettingsRequest,
+  AvailabilityWindow,
+  AvailabilityException,
+  AvailabilityData,
+  UpdateAvailabilityRequest,
+  BookingTheme,
+  UpdateBookingThemeRequest,
 } from "@/lib/apps/obd-scheduler/types";
-import { BookingStatus } from "@/lib/apps/obd-scheduler/types";
+import { BookingStatus, BookingMode, AvailabilityExceptionType } from "@/lib/apps/obd-scheduler/types";
 
-type Tab = "requests" | "services" | "availability" | "settings";
+type Tab = "requests" | "services" | "availability" | "branding" | "settings";
 
 export default function OBDSchedulerPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -51,6 +57,7 @@ export default function OBDSchedulerPage() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const [settingsForm, setSettingsForm] = useState<UpdateBookingSettingsRequest>({
+    bookingModeDefault: BookingMode.REQUEST_ONLY,
     timezone: "America/New_York",
     bufferMinutes: 15,
     minNoticeHours: 24,
@@ -59,13 +66,36 @@ export default function OBDSchedulerPage() {
     notificationEmail: "",
   });
 
+  // Availability tab state
+  const [availability, setAvailability] = useState<AvailabilityData | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [availabilityWindows, setAvailabilityWindows] = useState<Omit<AvailabilityWindow, "id" | "businessId" | "createdAt" | "updatedAt">[]>([]);
+  const [availabilityExceptions, setAvailabilityExceptions] = useState<Omit<AvailabilityException, "id" | "businessId" | "createdAt" | "updatedAt">[]>([]);
+
+  // Branding tab state
+  const [bookingTheme, setBookingTheme] = useState<BookingTheme | null>(null);
+  const [themeLoading, setThemeLoading] = useState(false);
+  const [themeError, setThemeError] = useState("");
+  const [themeForm, setThemeForm] = useState<UpdateBookingThemeRequest>({
+    logoUrl: "",
+    primaryColor: "#29c4a9",
+    accentColor: "",
+    headlineText: "",
+    introText: "",
+  });
+
   // Load data on mount and tab change
   useEffect(() => {
     if (activeTab === "requests") {
       loadRequests();
     } else if (activeTab === "services") {
       loadServices();
-    } else if (activeTab === "availability" || activeTab === "settings") {
+    } else if (activeTab === "availability") {
+      loadAvailability();
+    } else if (activeTab === "branding") {
+      loadTheme();
+    } else if (activeTab === "settings") {
       loadSettings();
     }
   }, [activeTab, requestFilter]);
@@ -125,6 +155,7 @@ export default function OBDSchedulerPage() {
       const loadedSettings = data.data;
       setSettings(loadedSettings);
       setSettingsForm({
+        bookingModeDefault: loadedSettings.bookingModeDefault || BookingMode.REQUEST_ONLY,
         timezone: loadedSettings.timezone,
         bufferMinutes: loadedSettings.bufferMinutes,
         minNoticeHours: loadedSettings.minNoticeHours,
@@ -137,6 +168,81 @@ export default function OBDSchedulerPage() {
       setSettingsError(error instanceof Error ? error.message : "Failed to load settings");
     } finally {
       setSettingsLoading(false);
+    }
+  };
+
+  // Load availability
+  const loadAvailability = async () => {
+    setAvailabilityLoading(true);
+    setAvailabilityError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/availability");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load availability");
+      }
+      const loadedAvailability = data.data;
+      setAvailability(loadedAvailability);
+      
+      // Initialize windows - ensure all 7 days are represented
+      const defaultWindows = Array.from({ length: 7 }, (_, day) => ({
+        dayOfWeek: day,
+        startTime: "09:00",
+        endTime: "17:00",
+        isEnabled: false,
+      }));
+      
+      loadedAvailability.windows.forEach((w: AvailabilityWindow) => {
+        const idx = defaultWindows.findIndex((dw) => dw.dayOfWeek === w.dayOfWeek);
+        if (idx >= 0) {
+          defaultWindows[idx] = {
+            dayOfWeek: w.dayOfWeek,
+            startTime: w.startTime,
+            endTime: w.endTime,
+            isEnabled: w.isEnabled,
+          };
+        }
+      });
+      
+      setAvailabilityWindows(defaultWindows);
+      setAvailabilityExceptions(loadedAvailability.exceptions.map((e: AvailabilityException) => ({
+        date: e.date,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        type: e.type,
+      })));
+    } catch (error) {
+      console.error("Error loading availability:", error);
+      setAvailabilityError(error instanceof Error ? error.message : "Failed to load availability");
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  };
+
+  // Load theme
+  const loadTheme = async () => {
+    setThemeLoading(true);
+    setThemeError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/theme");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load theme");
+      }
+      const loadedTheme = data.data;
+      setBookingTheme(loadedTheme);
+      setThemeForm({
+        logoUrl: loadedTheme.logoUrl || "",
+        primaryColor: loadedTheme.primaryColor || "#29c4a9",
+        accentColor: loadedTheme.accentColor || "",
+        headlineText: loadedTheme.headlineText || "",
+        introText: loadedTheme.introText || "",
+      });
+    } catch (error) {
+      console.error("Error loading theme:", error);
+      setThemeError(error instanceof Error ? error.message : "Failed to load theme");
+    } finally {
+      setThemeLoading(false);
     }
   };
 
@@ -211,6 +317,49 @@ export default function OBDSchedulerPage() {
     }
   };
 
+  // Save availability
+  const saveAvailability = async () => {
+    try {
+      const res = await fetch("/api/obd-scheduler/availability", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          windows: availabilityWindows,
+          exceptions: availabilityExceptions,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save availability");
+      }
+      await loadAvailability();
+      alert("Availability saved successfully");
+    } catch (error) {
+      console.error("Error saving availability:", error);
+      alert(error instanceof Error ? error.message : "Failed to save availability");
+    }
+  };
+
+  // Save theme
+  const saveTheme = async () => {
+    try {
+      const res = await fetch("/api/obd-scheduler/theme", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(themeForm),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save theme");
+      }
+      await loadTheme();
+      alert("Theme saved successfully");
+    } catch (error) {
+      console.error("Error saving theme:", error);
+      alert(error instanceof Error ? error.message : "Failed to save theme");
+    }
+  };
+
   // Format date/time
   const formatDateTime = (isoString: string | null) => {
     if (!isoString) return "—";
@@ -248,6 +397,7 @@ export default function OBDSchedulerPage() {
             { id: "requests" as Tab, label: "Requests" },
             { id: "services" as Tab, label: "Services" },
             { id: "availability" as Tab, label: "Availability" },
+            { id: "branding" as Tab, label: "Branding" },
             { id: "settings" as Tab, label: "Settings" },
           ].map((tab) => (
             <button
@@ -395,6 +545,15 @@ export default function OBDSchedulerPage() {
                           {service.description}
                         </p>
                       )}
+                      {/* Payments Placeholder */}
+                      <div className={`mt-2 p-2 rounded text-xs ${isDark ? "bg-slate-700/50" : "bg-gray-100"}`}>
+                        <p className={themeClasses.mutedText}>
+                          💳 Payments: <span className="font-medium">Stripe not configured</span>
+                        </p>
+                        <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                          Payment settings will be available after Stripe integration.
+                        </p>
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -424,75 +583,234 @@ export default function OBDSchedulerPage() {
       {/* Availability Tab */}
       {activeTab === "availability" && (
         <OBDPanel isDark={isDark}>
-          <OBDHeading level={2} isDark={isDark}>Availability Settings</OBDHeading>
+          <OBDHeading level={2} isDark={isDark}>Availability Windows</OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
-            Configure your business hours and booking rules.
+            Configure your business hours by day of the week.
           </p>
 
-          {settingsLoading ? (
-            <p className={themeClasses.mutedText}>Loading settings...</p>
+          {availabilityError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{availabilityError}</p>
+            </div>
+          )}
+
+          {availabilityLoading ? (
+            <p className={themeClasses.mutedText}>Loading availability...</p>
+          ) : (
+            <div className="space-y-6">
+              {/* Availability Windows Editor */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Business Hours</h3>
+                <div className="space-y-3">
+                  {[
+                    { day: 0, label: "Sunday" },
+                    { day: 1, label: "Monday" },
+                    { day: 2, label: "Tuesday" },
+                    { day: 3, label: "Wednesday" },
+                    { day: 4, label: "Thursday" },
+                    { day: 5, label: "Friday" },
+                    { day: 6, label: "Saturday" },
+                  ].map(({ day, label }) => {
+                    const window = availabilityWindows.find((w) => w.dayOfWeek === day) || {
+                      dayOfWeek: day,
+                      startTime: "09:00",
+                      endTime: "17:00",
+                      isEnabled: false,
+                    };
+                    return (
+                      <div
+                        key={day}
+                        className={`flex items-center gap-4 p-3 rounded border ${
+                          isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 w-24">
+                          <input
+                            type="checkbox"
+                            checked={window.isEnabled}
+                            onChange={(e) => {
+                              const updated = [...availabilityWindows];
+                              const idx = updated.findIndex((w) => w.dayOfWeek === day);
+                              if (idx >= 0) {
+                                updated[idx] = { ...updated[idx], isEnabled: e.target.checked };
+                              } else {
+                                updated.push({ ...window, isEnabled: e.target.checked });
+                              }
+                              setAvailabilityWindows(updated);
+                            }}
+                            className="rounded"
+                          />
+                          <label className={`text-sm font-medium ${themeClasses.labelText}`}>{label}</label>
+                        </div>
+                        {window.isEnabled && (
+                          <>
+                            <input
+                              type="time"
+                              value={window.startTime}
+                              onChange={(e) => {
+                                const updated = [...availabilityWindows];
+                                const idx = updated.findIndex((w) => w.dayOfWeek === day);
+                                if (idx >= 0) {
+                                  updated[idx] = { ...updated[idx], startTime: e.target.value };
+                                } else {
+                                  updated.push({ ...window, startTime: e.target.value, isEnabled: true });
+                                }
+                                setAvailabilityWindows(updated);
+                              }}
+                              className={getInputClasses(isDark)}
+                            />
+                            <span className={themeClasses.mutedText}>to</span>
+                            <input
+                              type="time"
+                              value={window.endTime}
+                              onChange={(e) => {
+                                const updated = [...availabilityWindows];
+                                const idx = updated.findIndex((w) => w.dayOfWeek === day);
+                                if (idx >= 0) {
+                                  updated[idx] = { ...updated[idx], endTime: e.target.value };
+                                } else {
+                                  updated.push({ ...window, endTime: e.target.value, isEnabled: true });
+                                }
+                                setAvailabilityWindows(updated);
+                              }}
+                              className={getInputClasses(isDark)}
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Exceptions Placeholder */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Exceptions</h3>
+                <p className={`text-sm ${themeClasses.mutedText}`}>
+                  Closed days and custom hours will be available in a future update.
+                </p>
+              </div>
+
+              <button onClick={saveAvailability} className={SUBMIT_BUTTON_CLASSES}>
+                Save Availability
+              </button>
+            </div>
+          )}
+        </OBDPanel>
+      )}
+
+      {/* Branding Tab */}
+      {activeTab === "branding" && (
+        <OBDPanel isDark={isDark}>
+          <OBDHeading level={2} isDark={isDark}>Branding & Theme</OBDHeading>
+          <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+            Customize the appearance of your public booking page.
+          </p>
+
+          {themeError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{themeError}</p>
+            </div>
+          )}
+
+          {themeLoading ? (
+            <p className={themeClasses.mutedText}>Loading theme...</p>
           ) : (
             <div className="space-y-4">
               <div>
                 <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Timezone
+                  Logo URL
+                </label>
+                <input
+                  type="url"
+                  value={themeForm.logoUrl || ""}
+                  onChange={(e) => setThemeForm({ ...themeForm, logoUrl: e.target.value })}
+                  className={getInputClasses(isDark)}
+                  placeholder="https://example.com/logo.png"
+                />
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  URL to your business logo image.
+                </p>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Primary Color
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={themeForm.primaryColor || "#29c4a9"}
+                    onChange={(e) => setThemeForm({ ...themeForm, primaryColor: e.target.value })}
+                    className="h-10 w-20 rounded border"
+                  />
+                  <input
+                    type="text"
+                    value={themeForm.primaryColor || "#29c4a9"}
+                    onChange={(e) => setThemeForm({ ...themeForm, primaryColor: e.target.value })}
+                    className={getInputClasses(isDark)}
+                    placeholder="#29c4a9"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Accent Color
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={themeForm.accentColor || "#000000"}
+                    onChange={(e) => setThemeForm({ ...themeForm, accentColor: e.target.value })}
+                    className="h-10 w-20 rounded border"
+                  />
+                  <input
+                    type="text"
+                    value={themeForm.accentColor || ""}
+                    onChange={(e) => setThemeForm({ ...themeForm, accentColor: e.target.value })}
+                    className={getInputClasses(isDark)}
+                    placeholder="#000000"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Headline Text
                 </label>
                 <input
                   type="text"
-                  value={settingsForm.timezone}
-                  onChange={(e) => setSettingsForm({ ...settingsForm, timezone: e.target.value })}
+                  value={themeForm.headlineText || ""}
+                  onChange={(e) => setThemeForm({ ...themeForm, headlineText: e.target.value })}
                   className={getInputClasses(isDark)}
-                  placeholder="America/New_York"
+                  placeholder="Book your appointment"
+                  maxLength={200}
                 />
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Main headline displayed on the booking page.
+                </p>
               </div>
 
               <div>
                 <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Buffer Minutes (between bookings)
+                  Introduction Text
                 </label>
-                <input
-                  type="number"
-                  value={settingsForm.bufferMinutes}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, bufferMinutes: parseInt(e.target.value) || 0 })
-                  }
-                  className={getInputClasses(isDark)}
-                  min="0"
+                <textarea
+                  value={themeForm.introText || ""}
+                  onChange={(e) => setThemeForm({ ...themeForm, introText: e.target.value })}
+                  rows={4}
+                  className={getInputClasses(isDark, "resize-none")}
+                  placeholder="Welcome! Select a service and time that works for you."
+                  maxLength={1000}
                 />
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Brief introduction text displayed below the headline.
+                </p>
               </div>
 
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Minimum Notice (hours)
-                </label>
-                <input
-                  type="number"
-                  value={settingsForm.minNoticeHours}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, minNoticeHours: parseInt(e.target.value) || 0 })
-                  }
-                  className={getInputClasses(isDark)}
-                  min="0"
-                />
-              </div>
-
-              <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Maximum Days Out
-                </label>
-                <input
-                  type="number"
-                  value={settingsForm.maxDaysOut}
-                  onChange={(e) =>
-                    setSettingsForm({ ...settingsForm, maxDaysOut: parseInt(e.target.value) || 0 })
-                  }
-                  className={getInputClasses(isDark)}
-                  min="1"
-                />
-              </div>
-
-              <button onClick={saveSettings} className={SUBMIT_BUTTON_CLASSES}>
-                Save Availability Settings
+              <button onClick={saveTheme} className={SUBMIT_BUTTON_CLASSES}>
+                Save Branding
               </button>
             </div>
           )}
@@ -504,14 +822,73 @@ export default function OBDSchedulerPage() {
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Booking Settings</OBDHeading>
 
+          {settingsError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{settingsError}</p>
+            </div>
+          )}
+
           {settingsLoading ? (
             <p className={themeClasses.mutedText}>Loading settings...</p>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Booking Mode Section */}
               <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Notification Email
-                </label>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Booking Mode</h3>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex items-center gap-4 mb-3">
+                    <input
+                      type="radio"
+                      id="request-only"
+                      name="bookingMode"
+                      checked={settingsForm.bookingModeDefault === BookingMode.REQUEST_ONLY}
+                      onChange={() => setSettingsForm({ ...settingsForm, bookingModeDefault: BookingMode.REQUEST_ONLY })}
+                      className="rounded"
+                    />
+                    <label htmlFor="request-only" className={themeClasses.labelText}>
+                      <span className="font-medium">Request Only</span>
+                      <p className={`text-sm ${themeClasses.mutedText}`}>
+                        Customers submit booking requests that you approve manually.
+                      </p>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="radio"
+                      id="instant-allowed"
+                      name="bookingMode"
+                      checked={settingsForm.bookingModeDefault === BookingMode.INSTANT_ALLOWED}
+                      onChange={() => setSettingsForm({ ...settingsForm, bookingModeDefault: BookingMode.INSTANT_ALLOWED })}
+                      className="rounded"
+                    />
+                    <label htmlFor="instant-allowed" className={themeClasses.labelText}>
+                      <span className="font-medium">Instant Allowed</span>
+                      <p className={`text-sm ${themeClasses.mutedText}`}>
+                        Customers can book instantly when slots are available (requires calendar sync - coming soon).
+                      </p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connected Calendars Placeholder */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Connected Calendars</h3>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm ${themeClasses.mutedText}`}>
+                    Calendar connections will be available in a future update. Connect your Google Calendar, Outlook, or other calendars to enable instant booking.
+                  </p>
+                </div>
+              </div>
+
+              {/* Other Settings */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>General Settings</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Notification Email
+                    </label>
                 <input
                   type="email"
                   value={settingsForm.notificationEmail || ""}

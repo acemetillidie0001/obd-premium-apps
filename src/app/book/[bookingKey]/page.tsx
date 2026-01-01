@@ -44,6 +44,7 @@ export default function PublicBookingPage() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [error, setError] = useState("");
   const [context, setContext] = useState<BusinessContext | null>(null);
+  const [contextError, setContextError] = useState(false);
   const [timeAdjusted, setTimeAdjusted] = useState(false);
   const [formData, setFormData] = useState<CreateBookingRequestRequest>({
     serviceId: null,
@@ -73,16 +74,181 @@ export default function PublicBookingPage() {
     const loadContext = async () => {
       try {
         const res = await fetch(`/api/obd-scheduler/public/context?key=${encodeURIComponent(bookingKey)}`);
-        const data = await res.json();
-
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Failed to load booking form");
+        
+        // Check if response is OK before parsing
+        if (!res.ok) {
+          // For 404, set context error but don't block form rendering
+          if (res.status === 404) {
+            setContextError(true);
+            setError("This booking link isn't available");
+            // Set minimal context to allow form to render
+            setContext({
+              businessId: "",
+              bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+              timezone: "America/New_York",
+              bufferMinutes: 15,
+              minNoticeHours: 24,
+              maxDaysOut: 90,
+              policyText: null,
+              services: [],
+              businessName: null,
+              logoUrl: null,
+            });
+            setLoading(false);
+            return;
+          }
+          
+          // Try to read error message from response
+          let errorMessage = "Failed to load booking form";
+          try {
+            const errorText = await res.text();
+            // Try to parse as JSON
+            try {
+              const errorJson = JSON.parse(errorText);
+              errorMessage = errorJson.error || errorMessage;
+            } catch {
+              // If not JSON, use the text or default message
+              errorMessage = errorText || errorMessage;
+            }
+          } catch {
+            // If reading response fails, use default message
+            errorMessage = `Failed to load booking form (${res.status})`;
+          }
+          setContextError(true);
+          setError(errorMessage);
+          // Set minimal context to allow form to render
+          setContext({
+            businessId: "",
+            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+            timezone: "America/New_York",
+            bufferMinutes: 15,
+            minNoticeHours: 24,
+            maxDaysOut: 90,
+            policyText: null,
+            services: [],
+            businessName: null,
+            logoUrl: null,
+          });
+          setLoading(false);
+          return;
         }
 
-        setContext(data.data);
+        // Safely parse JSON response
+        let data;
+        try {
+          const text = await res.text();
+          data = JSON.parse(text);
+        } catch (parseError) {
+          console.error("Failed to parse JSON response:", parseError);
+          setContextError(true);
+          setError("Invalid response from server");
+          // Set minimal context to allow form to render
+          setContext({
+            businessId: "",
+            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+            timezone: "America/New_York",
+            bufferMinutes: 15,
+            minNoticeHours: 24,
+            maxDaysOut: 90,
+            policyText: null,
+            services: [],
+            businessName: null,
+            logoUrl: null,
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Validate response shape
+        if (!data || typeof data !== "object") {
+          setContextError(true);
+          setError("Invalid response format");
+          // Set minimal context to allow form to render
+          setContext({
+            businessId: "",
+            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+            timezone: "America/New_York",
+            bufferMinutes: 15,
+            minNoticeHours: 24,
+            maxDaysOut: 90,
+            policyText: null,
+            services: [],
+            businessName: null,
+            logoUrl: null,
+          });
+          setLoading(false);
+          return;
+        }
+
+        if (!data.ok) {
+          setContextError(true);
+          setError(data.error || "Failed to load booking form");
+          // Set minimal context to allow form to render
+          setContext({
+            businessId: "",
+            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+            timezone: "America/New_York",
+            bufferMinutes: 15,
+            minNoticeHours: 24,
+            maxDaysOut: 90,
+            policyText: null,
+            services: [],
+            businessName: null,
+            logoUrl: null,
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Ensure data.data exists and has required fields
+        if (!data.data) {
+          setContextError(true);
+          setError("Missing data in response");
+          // Set minimal context to allow form to render
+          setContext({
+            businessId: "",
+            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+            timezone: "America/New_York",
+            bufferMinutes: 15,
+            minNoticeHours: 24,
+            maxDaysOut: 90,
+            policyText: null,
+            services: [],
+            businessName: null,
+            logoUrl: null,
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Ensure services is always an array (defensive)
+        const contextData = {
+          ...data.data,
+          services: Array.isArray(data.data.services) ? data.data.services : [],
+          businessName: data.data.businessName ?? null,
+          logoUrl: data.data.logoUrl ?? null,
+        };
+
+        setContext(contextData);
+        setContextError(false);
+        setError("");
       } catch (error) {
         console.error("Error loading context:", error);
+        setContextError(true);
         setError(error instanceof Error ? error.message : "Failed to load booking form");
+        // Set minimal context to allow form to render
+        setContext({
+          businessId: "",
+          bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+          timezone: "America/New_York",
+          bufferMinutes: 15,
+          minNoticeHours: 24,
+          maxDaysOut: 90,
+          policyText: null,
+          services: [],
+          businessName: null,
+          logoUrl: null,
+        });
       } finally {
         setLoading(false);
       }
@@ -353,21 +519,24 @@ export default function PublicBookingPage() {
     );
   }
 
-  if (error && !context) {
+  // Ensure context exists before rendering form (prevent React error #310)
+  if (loading || !context) {
     return (
       <main className="min-h-screen bg-slate-50 py-12 px-4">
         <div className="max-w-2xl mx-auto">
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
           <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
           <OBDPanel isDark={isDark}>
-            <div className={getErrorPanelClasses(isDark)}>
-              <p>{error}</p>
-            </div>
+            <p className={themeClasses.mutedText}>Loading booking form...</p>
           </OBDPanel>
         </div>
       </main>
     );
   }
+
+  // Safe defaults for business name and logo
+  const businessName = context.businessName ?? null;
+  const logoUrl = context.logoUrl ?? null;
 
   // Reset form handler
   const handleResetForm = () => {
@@ -386,20 +555,20 @@ export default function PublicBookingPage() {
     setSlots([]);
   };
 
-  const isInstantMode = context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
+  const isInstantMode = context.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
 
   // Calculate min and max dates for date picker
   const minDate = useMemo(() => {
-    if (!context) return "";
+    const minNoticeHours = context.minNoticeHours ?? 24;
     const now = new Date();
-    const minNotice = new Date(now.getTime() + context.minNoticeHours * 60 * 60 * 1000);
+    const minNotice = new Date(now.getTime() + minNoticeHours * 60 * 60 * 1000);
     return minNotice.toISOString().split("T")[0];
   }, [context]);
 
   const maxDate = useMemo(() => {
-    if (!context) return "";
+    const maxDaysOut = context.maxDaysOut ?? 90;
     const now = new Date();
-    const max = new Date(now.getTime() + context.maxDaysOut * 24 * 60 * 60 * 1000);
+    const max = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
     return max.toISOString().split("T")[0];
   }, [context]);
 
@@ -407,18 +576,22 @@ export default function PublicBookingPage() {
     <main className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="max-w-2xl mx-auto">
         {/* Business Logo and Name Header */}
-        {(context?.logoUrl || context?.businessName) && (
+        {(logoUrl || businessName) && (
           <div className="mb-8 text-center">
-            {context.logoUrl && (
+            {logoUrl && (
               <img
-                src={context.logoUrl}
-                alt={context.businessName || "Business logo"}
+                src={logoUrl}
+                alt={businessName || "Business logo"}
                 className="mx-auto mb-3 max-h-12 object-contain"
+                onError={(e) => {
+                  // Hide image if it fails to load
+                  e.currentTarget.style.display = "none";
+                }}
               />
             )}
-            {context.businessName && (
+            {businessName && (
               <h2 className="text-xl md:text-2xl font-semibold text-slate-900">
-                {context.businessName}
+                {businessName}
               </h2>
             )}
           </div>
@@ -426,6 +599,19 @@ export default function PublicBookingPage() {
 
         <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
         <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
+        
+        {/* Context Error Warning Banner */}
+        {contextError && (
+          <div className="mb-6">
+            <OBDPanel isDark={isDark}>
+              <div className={getErrorPanelClasses(isDark)}>
+                <h2 className="text-lg font-semibold mb-2">This booking link isn't available</h2>
+                <p>Please contact the business for a new booking link.</p>
+              </div>
+            </OBDPanel>
+          </div>
+        )}
+        
         <OBDPanel isDark={isDark}>
         {submitSuccess ? (
           // Success State

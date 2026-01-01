@@ -19,7 +19,8 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const bookingKey = searchParams.get("key");
+    // Accept both 'key' and 'bookingKey' query params for flexibility
+    const bookingKey = searchParams.get("key") || searchParams.get("bookingKey");
 
     if (!bookingKey) {
       return apiErrorResponse("Booking key is required", "VALIDATION_ERROR", 400);
@@ -66,16 +67,29 @@ export async function GET(request: NextRequest) {
     });
 
     // Get business name from BrandProfile and logo from BookingTheme
-    const [brandProfile, bookingTheme] = await Promise.all([
-      prisma.brandProfile.findUnique({
-        where: { userId: settings.businessId },
-        select: { businessName: true },
-      }),
-      prisma.bookingTheme.findUnique({
-        where: { businessId: settings.businessId },
-        select: { logoUrl: true },
-      }),
-    ]);
+    // These are optional - missing records should not cause errors
+    let businessName: string | null = null;
+    let logoUrl: string | null = null;
+
+    try {
+      const [brandProfile, bookingTheme] = await Promise.all([
+        prisma.brandProfile.findUnique({
+          where: { userId: settings.businessId },
+          select: { businessName: true },
+        }).catch(() => null),
+        prisma.bookingTheme.findUnique({
+          where: { businessId: settings.businessId },
+          select: { logoUrl: true },
+        }).catch(() => null),
+      ]);
+
+      businessName = brandProfile?.businessName || null;
+      logoUrl = bookingTheme?.logoUrl || null;
+    } catch (lookupError) {
+      // If optional lookups fail, continue with null values
+      // This prevents crashes when BrandProfile or BookingTheme are missing
+      console.warn("[Public Context] Optional business data lookup failed:", lookupError);
+    }
 
     return apiSuccessResponse({
       businessId: settings.businessId,
@@ -85,9 +99,9 @@ export async function GET(request: NextRequest) {
       minNoticeHours: settings.minNoticeHours,
       maxDaysOut: settings.maxDaysOut,
       policyText: settings.policyText,
-      services,
-      businessName: brandProfile?.businessName || null,
-      logoUrl: bookingTheme?.logoUrl || null,
+      services: Array.isArray(services) ? services : [],
+      businessName,
+      logoUrl,
     });
   } catch (error) {
     return handleApiError(error);

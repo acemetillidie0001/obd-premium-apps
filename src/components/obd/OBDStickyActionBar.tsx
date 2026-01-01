@@ -12,15 +12,29 @@
  *   <button type="submit">Generate</button>
  *   <button>Export</button>
  * </OBDStickyActionBar>
+ * 
+ * // Don't forget to add bottom padding to content wrapper:
+ * <div className={`space-y-6 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
+ *   ...form fields...
+ * </div>
  */
+
+/**
+ * Standard offset class to add to form content wrappers when using OBDStickyActionBar.
+ * Prevents the sticky action bar from covering the last form fields.
+ */
+export const OBD_STICKY_ACTION_BAR_OFFSET_CLASS = "pb-24";
+
 export default function OBDStickyActionBar({
   children,
+  left,
   isDark = false,
   className = "",
   topBorder = true,
   safeArea = true,
 }: {
   children: React.ReactNode;
+  left?: React.ReactNode;
   isDark?: boolean;
   className?: string;
   topBorder?: boolean;
@@ -43,9 +57,16 @@ export default function OBDStickyActionBar({
     <div 
       className={`w-full min-w-0 sticky bottom-0 z-30 ${bgClass} ${borderClass} ${safeAreaClass} ${className}`}
     >
-      <div className="w-full min-w-0 flex flex-wrap gap-2 items-center justify-end px-4 py-4">
-        {children}
-      </div>
+      {left ? (
+        <div className="w-full min-w-0 flex items-center justify-between gap-3 px-4 py-4">
+          <div className="min-w-0">{left}</div>
+          <div className="flex flex-wrap justify-end gap-2">{children}</div>
+        </div>
+      ) : (
+        <div className="w-full min-w-0 flex flex-wrap gap-2 items-center justify-end px-4 py-4">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

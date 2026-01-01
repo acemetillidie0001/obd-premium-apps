@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
 
@@ -249,7 +250,7 @@ export default function ReviewResponderPage() {
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
+          <div className={`space-y-6 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
             {/* Business Info Section */}
             <div>
               <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>Business Info</h3>
@@ -551,7 +552,9 @@ export default function ReviewResponderPage() {
                 <p className="text-sm">{error}</p>
               </div>
             )}
-
+          </div>
+          
+          <OBDStickyActionBar isDark={isDark}>
             <button
               type="submit"
               disabled={isLoading || !formValues.businessName.trim() || !formValues.businessType.trim() || !formValues.reviewText.trim()}
@@ -569,7 +572,7 @@ export default function ReviewResponderPage() {
                 "Generate Responses"
               )}
             </button>
-          </div>
+          </OBDStickyActionBar>
         </form>
       </OBDPanel>
 

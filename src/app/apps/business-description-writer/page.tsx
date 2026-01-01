@@ -4,6 +4,7 @@ import { useState } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 
@@ -199,7 +200,7 @@ export default function BusinessDescriptionWriterPage() {
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
-              <div className="space-y-4">
+              <div className={`space-y-4 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
                 <div>
                   <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Business Name
@@ -420,7 +421,9 @@ export default function BusinessDescriptionWriterPage() {
                     <span className="text-sm">Include SEO meta description</span>
                   </label>
                 </div>
-
+              </div>
+              
+              <OBDStickyActionBar isDark={isDark}>
                 <button
                   type="submit"
                   disabled={loading}
@@ -428,7 +431,7 @@ export default function BusinessDescriptionWriterPage() {
                 >
                   {loading ? "Generating..." : "Create Description"}
                 </button>
-              </div>
+              </OBDStickyActionBar>
             </form>
       </OBDPanel>
 

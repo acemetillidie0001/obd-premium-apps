@@ -2132,6 +2132,7 @@ function OBDCRMPageContent() {
                       Queue
                     </button>
                   </div>
+                </div>
                 {/* Density Toggle (only in table view) */}
                 {followUpView === "table" && (
                   <div className="flex items-center gap-2 flex-shrink-0">

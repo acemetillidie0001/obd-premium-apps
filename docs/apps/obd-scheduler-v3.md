@@ -346,6 +346,15 @@ npx prisma migrate deploy
 
 The `notificationEmail` field was added to `BookingSettings` model in V3.1.
 
+**P3018 Migration Error Resolution:**
+
+On initial production deployment, the migration `20260101002629_add_booking_settings_notification_email` failed with error:
+- **Error**: `P3018 / 42701: column "notificationEmail" already exists on "BookingSettings"`
+- **Cause**: The column was added to production via `prisma db push` during local development/testing, but Prisma's migration tracking table (`_prisma_migrations`) did not have a record of the migration being applied.
+- **Resolution**: Used `npx prisma migrate resolve --applied 20260101002629_add_booking_settings_notification_email` to mark the migration as applied without running the SQL (since the column already existed).
+- **Result**: Migration tracking is now in sync with the actual database state. No schema rollback occurred - the column remained intact.
+- **Verification**: After resolving, `npx prisma migrate deploy` completed successfully with "No pending migrations to apply."
+
 **Local Development:**
 - If `npx prisma migrate dev` fails due to shadow database issues, use:
   ```bash

@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import OBDPanel from "@/components/obd/OBDPanel";
-import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import type { CreateBookingRequestRequest, BookingService, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { BookingMode as BookingModeEnum } from "@/lib/apps/obd-scheduler/types";
+
+// Hardcoded light mode classes (fully isolated from OBD framework)
+const PANEL_CLASSES = "w-full rounded-3xl border border-slate-200 bg-white shadow-md shadow-slate-300/60 hover:shadow-lg hover:shadow-slate-400/70 px-6 py-6 md:px-8 md:py-7 transition-shadow";
+const INPUT_CLASSES = "w-full px-4 py-2 border border-slate-300 bg-white text-slate-900 rounded-xl focus:ring-2 focus:ring-[#29c4a9] focus:border-transparent outline-none";
+const SUBMIT_BUTTON_CLASSES = "w-full px-6 py-3 bg-[#29c4a9] text-white font-medium rounded-full hover:bg-[#22ad93] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
+const ERROR_PANEL_CLASSES = "rounded-xl border border-red-200 bg-red-50 text-red-600 p-3";
 
 interface BusinessContext {
   businessId: string;
@@ -31,19 +34,30 @@ interface SlotsResponse {
   slots: Slot[];
 }
 
+// Default context object - ensures context is never null (prevents React #310)
+// Defined outside component to avoid recreation on every render
+const defaultContext: BusinessContext = {
+  businessId: "",
+  bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
+  timezone: "America/New_York",
+  bufferMinutes: 15,
+  minNoticeHours: 24,
+  maxDaysOut: 90,
+  policyText: null,
+  services: [],
+  businessName: null,
+  logoUrl: null,
+};
+
 export default function PublicBookingPage() {
   const params = useParams();
   const bookingKey = params?.bookingKey as string;
-
-  // Force light mode for public booking page (no theme toggle)
-  const isDark = false;
-  const themeClasses = getThemeClasses(isDark);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [error, setError] = useState("");
-  const [context, setContext] = useState<BusinessContext | null>(null);
+  const [context, setContext] = useState<BusinessContext>(defaultContext);
   const [contextError, setContextError] = useState(false);
   const [timeAdjusted, setTimeAdjusted] = useState(false);
   const [formData, setFormData] = useState<CreateBookingRequestRequest>({
@@ -73,7 +87,8 @@ export default function PublicBookingPage() {
 
     const loadContext = async () => {
       try {
-        const res = await fetch(`/api/obd-scheduler/public/context?key=${encodeURIComponent(bookingKey)}`);
+        // Use bookingKey parameter (API accepts both 'key' and 'bookingKey')
+        const res = await fetch(`/api/obd-scheduler/public/context?bookingKey=${encodeURIComponent(bookingKey)}`);
         
         // Check if response is OK before parsing
         if (!res.ok) {
@@ -82,18 +97,7 @@ export default function PublicBookingPage() {
             setContextError(true);
             setError("This booking link isn't available");
             // Set minimal context to allow form to render
-            setContext({
-              businessId: "",
-              bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-              timezone: "America/New_York",
-              bufferMinutes: 15,
-              minNoticeHours: 24,
-              maxDaysOut: 90,
-              policyText: null,
-              services: [],
-              businessName: null,
-              logoUrl: null,
-            });
+            setContext(defaultContext);
             setLoading(false);
             return;
           }
@@ -117,18 +121,7 @@ export default function PublicBookingPage() {
           setContextError(true);
           setError(errorMessage);
           // Set minimal context to allow form to render
-          setContext({
-            businessId: "",
-            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-            timezone: "America/New_York",
-            bufferMinutes: 15,
-            minNoticeHours: 24,
-            maxDaysOut: 90,
-            policyText: null,
-            services: [],
-            businessName: null,
-            logoUrl: null,
-          });
+          setContext(defaultContext);
           setLoading(false);
           return;
         }
@@ -143,18 +136,7 @@ export default function PublicBookingPage() {
           setContextError(true);
           setError("Invalid response from server");
           // Set minimal context to allow form to render
-          setContext({
-            businessId: "",
-            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-            timezone: "America/New_York",
-            bufferMinutes: 15,
-            minNoticeHours: 24,
-            maxDaysOut: 90,
-            policyText: null,
-            services: [],
-            businessName: null,
-            logoUrl: null,
-          });
+          setContext(defaultContext);
           setLoading(false);
           return;
         }
@@ -164,18 +146,7 @@ export default function PublicBookingPage() {
           setContextError(true);
           setError("Invalid response format");
           // Set minimal context to allow form to render
-          setContext({
-            businessId: "",
-            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-            timezone: "America/New_York",
-            bufferMinutes: 15,
-            minNoticeHours: 24,
-            maxDaysOut: 90,
-            policyText: null,
-            services: [],
-            businessName: null,
-            logoUrl: null,
-          });
+          setContext(defaultContext);
           setLoading(false);
           return;
         }
@@ -184,18 +155,7 @@ export default function PublicBookingPage() {
           setContextError(true);
           setError(data.error || "Failed to load booking form");
           // Set minimal context to allow form to render
-          setContext({
-            businessId: "",
-            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-            timezone: "America/New_York",
-            bufferMinutes: 15,
-            minNoticeHours: 24,
-            maxDaysOut: 90,
-            policyText: null,
-            services: [],
-            businessName: null,
-            logoUrl: null,
-          });
+          setContext(defaultContext);
           setLoading(false);
           return;
         }
@@ -205,25 +165,20 @@ export default function PublicBookingPage() {
           setContextError(true);
           setError("Missing data in response");
           // Set minimal context to allow form to render
-          setContext({
-            businessId: "",
-            bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-            timezone: "America/New_York",
-            bufferMinutes: 15,
-            minNoticeHours: 24,
-            maxDaysOut: 90,
-            policyText: null,
-            services: [],
-            businessName: null,
-            logoUrl: null,
-          });
+          setContext(defaultContext);
           setLoading(false);
           return;
         }
 
-        // Ensure services is always an array (defensive)
-        const contextData = {
-          ...data.data,
+        // Ensure services is always an array and all required fields are present (defensive)
+        const contextData: BusinessContext = {
+          businessId: data.data.businessId ?? "",
+          bookingModeDefault: data.data.bookingModeDefault ?? BookingModeEnum.REQUEST_ONLY,
+          timezone: data.data.timezone ?? "America/New_York",
+          bufferMinutes: data.data.bufferMinutes ?? 15,
+          minNoticeHours: data.data.minNoticeHours ?? 24,
+          maxDaysOut: data.data.maxDaysOut ?? 90,
+          policyText: data.data.policyText ?? null,
           services: Array.isArray(data.data.services) ? data.data.services : [],
           businessName: data.data.businessName ?? null,
           logoUrl: data.data.logoUrl ?? null,
@@ -237,18 +192,7 @@ export default function PublicBookingPage() {
         setContextError(true);
         setError(error instanceof Error ? error.message : "Failed to load booking form");
         // Set minimal context to allow form to render
-        setContext({
-          businessId: "",
-          bookingModeDefault: BookingModeEnum.REQUEST_ONLY,
-          timezone: "America/New_York",
-          bufferMinutes: 15,
-          minNoticeHours: 24,
-          maxDaysOut: 90,
-          policyText: null,
-          services: [],
-          businessName: null,
-          logoUrl: null,
-        });
+        setContext(defaultContext);
       } finally {
         setLoading(false);
       }
@@ -257,30 +201,24 @@ export default function PublicBookingPage() {
     loadContext();
   }, [bookingKey]);
 
-  // Calculate suggested start time
-  const suggestedStartTime = useMemo(() => {
-    if (!context) return null;
-    
+  // Extract primitive values from context (plain const, not hooks)
+  const minNoticeHours = context.minNoticeHours ?? 24;
+  const maxDaysOut = context.maxDaysOut ?? 90;
+  const bookingModeDefault = context.bookingModeDefault;
+
+  // Calculate suggested start time (plain const computation, no useMemo)
+  const suggestedStartTime = (() => {
     try {
-      // Start from now (use business timezone if available, otherwise local)
       const now = new Date();
-      
-      // Round up to next full hour
       const nextHour = new Date(now);
       nextHour.setMinutes(0);
       nextHour.setSeconds(0);
       nextHour.setMilliseconds(0);
       nextHour.setHours(nextHour.getHours() + 1);
-      
-      // Add minNoticeHours (from context or default to 24)
-      const minNoticeHours = context.minNoticeHours || 24;
       const suggested = new Date(nextHour.getTime() + minNoticeHours * 60 * 60 * 1000);
-      
-      // Snap minutes to next 15-minute boundary (ceil to 0/15/30/45)
       const minutes = suggested.getMinutes();
       const roundedMinutes = Math.ceil(minutes / 15) * 15;
       if (roundedMinutes >= 60) {
-        // If rounded to 60, move to next hour
         suggested.setHours(suggested.getHours() + 1);
         suggested.setMinutes(0);
       } else {
@@ -288,54 +226,52 @@ export default function PublicBookingPage() {
       }
       suggested.setSeconds(0);
       suggested.setMilliseconds(0);
-      
       return suggested.toISOString();
     } catch {
       return null;
     }
-  }, [context]);
-
-  // Fetch slots for selected date and service
-  const fetchSlots = async (date: string, serviceId: string | null) => {
-    if (!bookingKey || !date) return;
-
-    setSlotsLoading(true);
-    setSlotsError("");
-    setSlots([]);
-    setSelectedSlot(null);
-
-    try {
-      const params = new URLSearchParams({
-        bookingKey,
-        date,
-      });
-      if (serviceId) {
-        params.set("serviceId", serviceId);
-      }
-
-      const res = await fetch(`/api/obd-scheduler/slots?${params.toString()}`);
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load available times");
-      }
-
-      const slotsData: SlotsResponse = data.data;
-      setSlots(slotsData.slots);
-    } catch (error) {
-      console.error("Error loading slots:", error);
-      setSlotsError(error instanceof Error ? error.message : "Failed to load available times");
-    } finally {
-      setSlotsLoading(false);
-    }
-  };
+  })();
 
   // Handle date or service change for instant booking
+  // Inline fetch logic directly in useEffect to avoid useCallback dependency
   useEffect(() => {
-    if (context?.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && selectedDate) {
-      fetchSlots(selectedDate, formData.serviceId ?? null);
+    if (bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && selectedDate && bookingKey) {
+      // Fetch slots inline (no useCallback needed)
+      const fetchSlots = async () => {
+        setSlotsLoading(true);
+        setSlotsError("");
+        setSlots([]);
+        setSelectedSlot(null);
+
+        try {
+          const params = new URLSearchParams({
+            bookingKey,
+            date: selectedDate,
+          });
+          if (formData.serviceId) {
+            params.set("serviceId", formData.serviceId);
+          }
+
+          const res = await fetch(`/api/obd-scheduler/slots?${params.toString()}`);
+          const data = await res.json();
+
+          if (!res.ok || !data.ok) {
+            throw new Error(data.error || "Failed to load available times");
+          }
+
+          const slotsData: SlotsResponse = data.data;
+          setSlots(slotsData.slots);
+        } catch (error) {
+          console.error("Error loading slots:", error);
+          setSlotsError(error instanceof Error ? error.message : "Failed to load available times");
+        } finally {
+          setSlotsLoading(false);
+        }
+      };
+
+      fetchSlots();
     }
-  }, [selectedDate, formData.serviceId, context?.bookingModeDefault, bookingKey]);
+  }, [selectedDate, formData.serviceId, bookingModeDefault, bookingKey]);
 
   // Handle instant booking submission
   const handleInstantBooking = async (e: React.FormEvent) => {
@@ -489,51 +425,6 @@ export default function PublicBookingPage() {
     }
   };
 
-  if (!bookingKey) {
-    return (
-      <main className="min-h-screen bg-slate-50 py-12 px-4">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
-          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
-          <OBDPanel isDark={isDark}>
-            <div className={getErrorPanelClasses(isDark)}>
-              <p>Invalid booking link. Please use the link provided by the business.</p>
-            </div>
-          </OBDPanel>
-        </div>
-      </main>
-    );
-  }
-
-  if (loading) {
-    return (
-      <main className="min-h-screen bg-slate-50 py-12 px-4">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
-          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
-          <OBDPanel isDark={isDark}>
-            <p className={themeClasses.mutedText}>Loading booking form...</p>
-          </OBDPanel>
-        </div>
-      </main>
-    );
-  }
-
-  // Ensure context exists before rendering form (prevent React error #310)
-  if (loading || !context) {
-    return (
-      <main className="min-h-screen bg-slate-50 py-12 px-4">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
-          <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
-          <OBDPanel isDark={isDark}>
-            <p className={themeClasses.mutedText}>Loading booking form...</p>
-          </OBDPanel>
-        </div>
-      </main>
-    );
-  }
-
   // Safe defaults for business name and logo
   const businessName = context.businessName ?? null;
   const logoUrl = context.logoUrl ?? null;
@@ -555,68 +446,75 @@ export default function PublicBookingPage() {
     setSlots([]);
   };
 
-  const isInstantMode = context.bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
+  const isInstantMode = bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && !showRequestForm;
 
-  // Calculate min and max dates for date picker
-  const minDate = useMemo(() => {
-    const minNoticeHours = context.minNoticeHours ?? 24;
-    const now = new Date();
-    const minNotice = new Date(now.getTime() + minNoticeHours * 60 * 60 * 1000);
-    return minNotice.toISOString().split("T")[0];
-  }, [context]);
+  // Calculate min and max dates for date picker (plain const computations, no useMemo)
+  const now = new Date();
+  const minDate = new Date(now.getTime() + minNoticeHours * 60 * 60 * 1000).toISOString().split("T")[0];
+  const maxDate = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
-  const maxDate = useMemo(() => {
-    const maxDaysOut = context.maxDaysOut ?? 90;
-    const now = new Date();
-    const max = new Date(now.getTime() + maxDaysOut * 24 * 60 * 60 * 1000);
-    return max.toISOString().split("T")[0];
-  }, [context]);
-
+  // NO EARLY RETURNS - All hooks must run unconditionally
+  // Handle missing bookingKey in JSX instead of early return
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
       <div className="max-w-2xl mx-auto">
-        {/* Business Logo and Name Header */}
-        {(logoUrl || businessName) && (
-          <div className="mb-8 text-center">
-            {logoUrl && (
-              <img
-                src={logoUrl}
-                alt={businessName || "Business logo"}
-                className="mx-auto mb-3 max-h-12 object-contain"
-                onError={(e) => {
-                  // Hide image if it fails to load
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-            )}
-            {businessName && (
-              <h2 className="text-xl md:text-2xl font-semibold text-slate-900">
-                {businessName}
-              </h2>
-            )}
-          </div>
-        )}
-
-        <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
-        <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
-        
-        {/* Context Error Warning Banner */}
-        {contextError && (
-          <div className="mb-6">
-            <OBDPanel isDark={isDark}>
-              <div className={getErrorPanelClasses(isDark)}>
-                <h2 className="text-lg font-semibold mb-2">This booking link isn't available</h2>
-                <p>Please contact the business for a new booking link.</p>
+        {!bookingKey ? (
+          <>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
+            <p className="text-sm md:text-base text-slate-600 mb-8">Submit a booking request</p>
+            <div className={PANEL_CLASSES}>
+              <div className={ERROR_PANEL_CLASSES}>
+                <p>Invalid booking link. Please use the link provided by the business.</p>
               </div>
-            </OBDPanel>
-          </div>
-        )}
-        
-        <OBDPanel isDark={isDark}>
-        {submitSuccess ? (
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Business Logo and Name Header */}
+            {(logoUrl || businessName) && (
+              <div className="mb-8 text-center">
+                {logoUrl && (
+                  <img
+                    src={logoUrl}
+                    alt={businessName || "Business logo"}
+                    className="mx-auto mb-3 max-h-12 object-contain"
+                    onError={(e) => {
+                      // Hide image if it fails to load
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+                {businessName && (
+                  <h2 className="text-xl md:text-2xl font-semibold text-slate-900">
+                    {businessName}
+                  </h2>
+                )}
+              </div>
+            )}
+
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
+            <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
+            
+            {/* Context Error Warning Banner */}
+            {contextError && (
+              <div className="mb-6">
+                <div className={PANEL_CLASSES}>
+                  <div className={ERROR_PANEL_CLASSES}>
+                    <h2 className="text-lg font-semibold mb-2">This booking link isn't available</h2>
+                    <p>Please contact the business for a new booking link.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className={PANEL_CLASSES}>
+        {loading ? (
+          // Loading state
+          <p className="text-slate-600">Loading booking form...</p>
+        ) : submitSuccess ? (
           // Success State
           <div className="space-y-6">
-            <div className={`rounded-xl border p-6 ${isDark ? "bg-green-900/20 border-green-700 text-green-400" : "bg-green-50 border-green-200 text-green-600"}`}>
+            <div className="rounded-xl border border-green-200 bg-green-50 text-green-600 p-6">
               <h2 className="text-lg font-semibold mb-2">Request sent!</h2>
               <p className="mb-4">
                 Thanks — your request has been sent to the business for review. You'll receive confirmation once they approve the time or suggest a new one.
@@ -635,25 +533,25 @@ export default function PublicBookingPage() {
           </div>
         ) : (
           <>
-          {context?.policyText && (
-          <div className={`mb-6 p-4 rounded-lg border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-            <h3 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Booking Policies</h3>
-            <p className={`text-sm whitespace-pre-wrap ${themeClasses.mutedText}`}>{context.policyText}</p>
+            {context.policyText && (
+          <div className="mb-6 p-4 rounded-lg border border-slate-200 bg-slate-50">
+            <h3 className="text-sm font-semibold mb-2 text-slate-900">Booking Policies</h3>
+            <p className="text-sm whitespace-pre-wrap text-slate-600">{context.policyText}</p>
           </div>
         )}
 
         {isInstantMode ? (
           // Instant Booking UI
           <form onSubmit={handleInstantBooking} className="space-y-6">
-            {context && context.services.length > 0 && (
+            {context.services && context.services.length > 0 && (
               <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                <label className="block text-sm font-medium mb-2 text-slate-700">
                   Service (Optional)
                 </label>
                 <select
                   value={formData.serviceId || ""}
                   onChange={(e) => setFormData({ ...formData, serviceId: e.target.value || null })}
-                  className={getInputClasses(isDark)}
+                  className={INPUT_CLASSES}
                 >
                   <option value="">Select a service...</option>
                   {context.services.map((service) => (
@@ -666,7 +564,7 @@ export default function PublicBookingPage() {
             )}
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Select Date <span className="text-red-500">*</span>
               </label>
               <input
@@ -675,35 +573,35 @@ export default function PublicBookingPage() {
                 onChange={(e) => setSelectedDate(e.target.value)}
                 min={minDate}
                 max={maxDate}
-                className={getInputClasses(isDark)}
+                className={INPUT_CLASSES}
                 required
               />
-              <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+              <p className="mt-1 text-xs text-slate-600">
                 Select a date to see available times.
               </p>
             </div>
 
             {selectedDate && (
               <div>
-                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                <label className="block text-sm font-medium mb-2 text-slate-700">
                   Select Time <span className="text-red-500">*</span>
                 </label>
                 {slotsLoading ? (
-                  <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <p className={themeClasses.mutedText}>Loading available times...</p>
+                  <div className="p-4 rounded border border-slate-200 bg-slate-50">
+                    <p className="text-slate-600">Loading available times...</p>
                   </div>
                 ) : slotsError ? (
-                  <div className={getErrorPanelClasses(isDark)}>
+                  <div className={ERROR_PANEL_CLASSES}>
                     <p>{slotsError}</p>
                   </div>
                 ) : slots.length === 0 ? (
-                  <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                    <p className={themeClasses.mutedText}>
+                  <div className="p-4 rounded border border-slate-200 bg-slate-50">
+                    <p className="text-slate-600">
                       No times available for this date. Please select another date or{" "}
                       <button
                         type="button"
                         onClick={() => setShowRequestForm(true)}
-                        className={`underline ${isDark ? "text-teal-400" : "text-teal-600"}`}
+                        className="underline text-teal-600"
                       >
                         request a different time
                       </button>
@@ -719,11 +617,7 @@ export default function PublicBookingPage() {
                         onClick={() => setSelectedSlot(slot)}
                         className={`p-3 rounded border text-sm transition-colors ${
                           selectedSlot?.startTime === slot.startTime
-                            ? isDark
-                              ? "bg-teal-600 border-teal-500 text-white"
-                              : "bg-teal-500 border-teal-600 text-white"
-                            : isDark
-                            ? "bg-slate-800/50 border-slate-700 text-slate-200 hover:bg-slate-700"
+                            ? "bg-teal-500 border-teal-600 text-white"
                             : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
                         }`}
                       >
@@ -736,58 +630,58 @@ export default function PublicBookingPage() {
             )}
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Your Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                className={getInputClasses(isDark)}
+                className={INPUT_CLASSES}
                 required
               />
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Email <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
                 value={formData.customerEmail}
                 onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
-                className={getInputClasses(isDark)}
+                className={INPUT_CLASSES}
                 required
               />
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Phone (Optional)
               </label>
               <input
                 type="tel"
                 value={formData.customerPhone || ""}
                 onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
-                className={getInputClasses(isDark)}
+                className={INPUT_CLASSES}
               />
             </div>
 
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Message (Optional)
               </label>
               <textarea
                 value={formData.message || ""}
                 onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                 rows={4}
-                className={getInputClasses(isDark, "resize-none")}
+                className={`${INPUT_CLASSES} resize-none`}
                 placeholder="Any additional information or special requests..."
               />
             </div>
 
             {error && (
-              <div className={getErrorPanelClasses(isDark)}>
+              <div className={ERROR_PANEL_CLASSES}>
                 <p>{error}</p>
               </div>
             )}
@@ -804,14 +698,14 @@ export default function PublicBookingPage() {
               After you submit your request, it's sent to the business for review. They'll confirm the time or suggest a new one before anything is booked.
             </p>
 
-            <div className="pt-4 border-t border-slate-300 dark:border-slate-600">
-              <p className={`text-sm ${themeClasses.mutedText} mb-2`}>
+            <div className="pt-4 border-t border-slate-300">
+              <p className="text-sm text-slate-600 mb-2">
                 Prefer a different time?
               </p>
               <button
                 type="button"
                 onClick={() => setShowRequestForm(true)}
-                className={`text-sm underline ${isDark ? "text-teal-400" : "text-teal-600"}`}
+                className="text-sm underline text-teal-600"
               >
                 Submit a booking request instead
               </button>
@@ -822,13 +716,13 @@ export default function PublicBookingPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
           {context && context.services.length > 0 && (
             <div>
-              <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+              <label className="block text-sm font-medium mb-2 text-slate-700">
                 Service (Optional)
               </label>
               <select
                 value={formData.serviceId || ""}
                 onChange={(e) => setFormData({ ...formData, serviceId: e.target.value || null })}
-                className={getInputClasses(isDark)}
+                className={INPUT_CLASSES}
               >
                 <option value="">Select a service...</option>
                 {context.services.map((service) => (
@@ -841,7 +735,7 @@ export default function PublicBookingPage() {
                 const selectedService = context.services.find(s => s.id === formData.serviceId);
                 if (selectedService && selectedService.durationMinutes) {
                   return (
-                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                    <p className="mt-1 text-xs text-slate-600">
                       This service typically takes about {selectedService.durationMinutes} minutes.
                     </p>
                   );
@@ -852,45 +746,45 @@ export default function PublicBookingPage() {
           )}
 
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+            <label className="block text-sm font-medium mb-2 text-slate-700">
               Your Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.customerName}
               onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-              className={getInputClasses(isDark)}
+              className={INPUT_CLASSES}
               required
             />
           </div>
 
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+            <label className="block text-sm font-medium mb-2 text-slate-700">
               Email <span className="text-red-500">*</span>
             </label>
             <input
               type="email"
               value={formData.customerEmail}
               onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
-              className={getInputClasses(isDark)}
+              className={INPUT_CLASSES}
               required
             />
           </div>
 
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+            <label className="block text-sm font-medium mb-2 text-slate-700">
               Phone (Optional)
             </label>
             <input
               type="tel"
               value={formData.customerPhone || ""}
               onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
-              className={getInputClasses(isDark)}
+              className={INPUT_CLASSES}
             />
           </div>
 
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+            <label className="block text-sm font-medium mb-2 text-slate-700">
               Preferred Start Time (Optional)
             </label>
             <input
@@ -934,22 +828,22 @@ export default function PublicBookingPage() {
                   setTimeAdjusted(false);
                 }
               }}
-              className={getInputClasses(isDark)}
+              className={INPUT_CLASSES}
             />
-            <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+            <p className="mt-1 text-xs text-slate-600">
               Optional — pick your preferred start time. The service duration is handled automatically.
             </p>
-            <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+            <p className="mt-1 text-xs text-slate-600">
               Times are available in 15-minute increments.
             </p>
             {timeAdjusted && (
-              <p className={`mt-1 text-xs ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+              <p className="mt-1 text-xs text-teal-600">
                 Adjusted to the nearest 15-minute increment.
               </p>
             )}
             {!formData.preferredStart && suggestedStartTime && (
-              <div className={`mt-2 flex items-center gap-2 p-2 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                <span className={`text-xs ${themeClasses.mutedText}`}>
+              <div className="mt-2 flex items-center gap-2 p-2 rounded border border-slate-200 bg-slate-50">
+                <span className="text-xs text-slate-600">
                   Suggested: {new Date(suggestedStartTime).toLocaleString()}
                 </span>
                 <button
@@ -960,7 +854,7 @@ export default function PublicBookingPage() {
                     const isoString = localDateTime.toISOString().slice(0, 16);
                     setFormData({ ...formData, preferredStart: suggestedDate.toISOString() });
                   }}
-                  className={`px-2 py-1 text-xs rounded ${isDark ? "bg-teal-600 text-white hover:bg-teal-700" : "bg-teal-500 text-white hover:bg-teal-600"} transition-colors`}
+                  className="px-2 py-1 text-xs rounded bg-teal-500 text-white hover:bg-teal-600 transition-colors"
                 >
                   Use suggested time
                 </button>
@@ -974,7 +868,7 @@ export default function PublicBookingPage() {
                   const endDate = new Date(startDate.getTime() + selectedService.durationMinutes * 60000);
                   const formattedEnd = endDate.toLocaleString();
                   return (
-                    <p className={`mt-1 text-xs font-medium ${isDark ? "text-teal-400" : "text-teal-600"}`}>
+                    <p className="mt-1 text-xs font-medium text-teal-600">
                       Estimated end time: {formattedEnd}
                     </p>
                   );
@@ -988,7 +882,7 @@ export default function PublicBookingPage() {
               const selectedService = context.services.find(s => s.id === formData.serviceId);
               if (selectedService && selectedService.durationMinutes) {
                 return (
-                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                  <p className="mt-1 text-xs text-slate-600">
                     Pick a preferred start time and we'll estimate the end time based on service duration.
                   </p>
                 );
@@ -998,20 +892,20 @@ export default function PublicBookingPage() {
           </div>
 
           <div>
-            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+            <label className="block text-sm font-medium mb-2 text-slate-700">
               Message (Optional)
             </label>
             <textarea
               value={formData.message || ""}
               onChange={(e) => setFormData({ ...formData, message: e.target.value })}
               rows={4}
-              className={getInputClasses(isDark, "resize-none")}
+              className={`${INPUT_CLASSES} resize-none`}
               placeholder="Any additional information or special requests..."
             />
           </div>
 
           {error && (
-            <div className={getErrorPanelClasses(isDark)}>
+            <div className={ERROR_PANEL_CLASSES}>
               <p>{error}</p>
             </div>
           )}
@@ -1029,11 +923,13 @@ export default function PublicBookingPage() {
           </p>
         </form>
         )}
-          </>
+            </>
+          )}
+        </div>
+        </>
         )}
-      </OBDPanel>
-      
-      {/* Footer */}
+        
+        {/* Footer - Always shown */}
       <div className="mt-12 pb-8 text-center">
         <p className="text-xs text-slate-500">
           Powered by{" "}

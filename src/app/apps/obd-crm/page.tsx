@@ -9,6 +9,8 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDTableWrapper from "@/components/obd/OBDTableWrapper";
+import OBDStickyToolbar from "@/components/obd/OBDStickyToolbar";
+import OBDToolbarRow from "@/components/obd/OBDToolbarRow";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -1993,10 +1995,11 @@ function OBDCRMPageContent() {
       fullWidth={true}
     >
       {/* Controls */}
-      <OBDPanel isDark={isDark} className={`mt-6 sticky top-0 z-30 ${isDark ? "bg-slate-900/95 backdrop-blur-sm border-b border-slate-700/50" : "bg-white/95 backdrop-blur-sm border-b border-slate-200/50"}`}>
-        <div className="flex flex-col lg:flex-row lg:flex-nowrap gap-3 lg:gap-4 items-start lg:items-center lg:justify-between">
-          {/* Left Group: Search, Filters, Toggles */}
-          <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap gap-3 flex-1 min-w-0">
+      <OBDStickyToolbar isDark={isDark} className="mt-6">
+        <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none">
+          <OBDToolbarRow
+            left={
+              <>
           {/* Search */}
           <div className="flex-1 min-w-0">
             <input
@@ -2165,10 +2168,10 @@ function OBDCRMPageContent() {
               </button>
             )}
           </div>
-          </div>
-
-          {/* Right Group: Actions */}
-          <div className="flex flex-wrap gap-2 lg:flex-nowrap lg:items-center lg:shrink-0">
+              </>
+            }
+            right={
+              <>
             {/* Save View Button */}
             <button
               type="button"
@@ -2227,9 +2230,11 @@ function OBDCRMPageContent() {
             >
               Add Contact
             </button>
-          </div>
-        </div>
-      </OBDPanel>
+              </>
+            }
+          />
+        </OBDPanel>
+      </OBDStickyToolbar>
 
       {/* Error Display */}
       {/* Show DB Doctor report if verdict is FAIL */}

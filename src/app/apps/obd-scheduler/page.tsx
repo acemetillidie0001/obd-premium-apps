@@ -302,6 +302,17 @@ function OBDSchedulerPageContent() {
     policyText: "",
     notificationEmail: "",
   });
+  // Public link state
+  const [publicLink, setPublicLink] = useState<{
+    code: string;
+    slug: string | null;
+    shortUrl: string;
+    prettyUrl: string | null;
+  } | null>(null);
+  const [publicLinkSlug, setPublicLinkSlug] = useState("");
+  const [savingSlug, setSavingSlug] = useState(false);
+  const [publicLinkLoading, setPublicLinkLoading] = useState(false);
+  const [publicLinkError, setPublicLinkError] = useState("");
 
   // Availability tab state
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -564,12 +575,12 @@ function OBDSchedulerPageContent() {
     setSettingsLoading(true);
     setSettingsError("");
     try {
-      const res = await fetch("/api/obd-scheduler/settings");
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load settings");
+      const settingsRes = await fetch("/api/obd-scheduler/settings");
+      const settingsData = await settingsRes.json();
+      if (!settingsRes.ok || !settingsData.ok) {
+        throw new Error(settingsData.error || "Failed to load settings");
       }
-      const loadedSettings = data.data;
+      const loadedSettings = settingsData.data;
       setSettings(loadedSettings);
       setSettingsForm({
         bookingModeDefault: loadedSettings.bookingModeDefault || BookingMode.REQUEST_ONLY,
@@ -585,6 +596,31 @@ function OBDSchedulerPageContent() {
       setSettingsError(error instanceof Error ? error.message : "Failed to load settings");
     } finally {
       setSettingsLoading(false);
+    }
+  };
+
+  // Load public link (separate from settings to avoid breaking settings if this fails)
+  const loadPublicLink = async () => {
+    setPublicLinkLoading(true);
+    setPublicLinkError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/public-link");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load public link");
+      }
+      setPublicLink({
+        code: data.data.code,
+        slug: data.data.slug,
+        shortUrl: data.data.shortUrl,
+        prettyUrl: data.data.prettyUrl,
+      });
+      setPublicLinkSlug(data.data.slug || "");
+    } catch (error) {
+      console.error("Error loading public link:", error);
+      setPublicLinkError(error instanceof Error ? error.message : "Failed to load public link");
+    } finally {
+      setPublicLinkLoading(false);
     }
   };
 
@@ -679,6 +715,7 @@ function OBDSchedulerPageContent() {
       loadTheme();
     } else if (activeTab === "settings") {
       loadSettings();
+      loadPublicLink();
     } else if (activeTab === "metrics") {
       // Metrics are loaded via useEffect when tab is active
       // No initial load needed here
@@ -1181,6 +1218,42 @@ function OBDSchedulerPageContent() {
       showNotification(error instanceof Error ? error.message : "Failed to save settings", "error");
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  // Save slug for public link
+  const saveSlug = async () => {
+    if (savingSlug) return;
+    
+    // Validate slug client-side
+    const trimmedSlug = publicLinkSlug.trim();
+    if (trimmedSlug && !/^[a-z0-9-]+$/.test(trimmedSlug)) {
+      showNotification("Slug must contain only lowercase letters, numbers, and hyphens", "error");
+      return;
+    }
+    if (trimmedSlug && trimmedSlug.length < 2) {
+      showNotification("Slug must be at least 2 characters long", "error");
+      return;
+    }
+    
+    setSavingSlug(true);
+    try {
+      const res = await fetch("/api/obd-scheduler/public-link", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: trimmedSlug || null }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save custom URL");
+      }
+      await loadPublicLink(); // Reload to get updated public link
+      showNotification("Custom URL saved successfully");
+    } catch (error) {
+      console.error("Error saving slug:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to save custom URL", "error");
+    } finally {
+      setSavingSlug(false);
     }
   };
 
@@ -1936,7 +2009,7 @@ function OBDSchedulerPageContent() {
       {/* Services Tab */}
       {activeTab === "services" && (
         <OBDPanel isDark={isDark}>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-0">
             <OBDHeading level={2} isDark={isDark}>Services</OBDHeading>
             <button
               onClick={() => {
@@ -1944,9 +2017,9 @@ function OBDSchedulerPageContent() {
                 setServiceForm({ name: "", durationMinutes: 60, description: "", active: true });
                 setShowServiceModal(true);
               }}
-              className={SUBMIT_BUTTON_CLASSES}
+              className={`w-full md:w-auto px-4 py-2 bg-[#29c4a9] text-white text-sm font-medium rounded-lg hover:bg-[#22ad93] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${isDark ? "shadow-[#29c4a9]/10" : ""}`}
             >
-              Add Service
+              Add a Service
             </button>
           </div>
 
@@ -2422,42 +2495,187 @@ function OBDSchedulerPageContent() {
                   </div>
 
                   {settings && (
-                    <div>
-                      <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                        Public Booking Link
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          readOnly
-                          value={`https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`}
-                          className={getInputClasses(isDark)}
-                        />
-                        <button
-                          onClick={() => {
-                            const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
-                            navigator.clipboard.writeText(link);
-                            showNotification("Link copied to clipboard!");
-                          }}
-                          className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
-                          aria-label="Copy booking link"
-                        >
-                          Copy
-                        </button>
-                        <button
-                          onClick={() => {
-                            const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
-                            window.open(link, "_blank", "noopener,noreferrer");
-                          }}
-                          className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
-                        >
-                          Test Link
-                        </button>
+                    <>
+                      <div>
+                        <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                          Public Booking Link
+                        </label>
+                        
+                        {publicLinkLoading ? (
+                          <div className={`p-3 rounded ${isDark ? "bg-slate-800/50" : "bg-slate-50"}`}>
+                            <p className={`text-sm ${themeClasses.mutedText}`}>Loading booking link...</p>
+                          </div>
+                        ) : publicLinkError ? (
+                          <div className="mb-2">
+                            <div className={`p-2 rounded border ${isDark ? "bg-red-900/20 border-red-700 text-red-400" : "bg-red-50 border-red-200 text-red-600"} text-sm`}>
+                              {publicLinkError}
+                            </div>
+                            {settings.bookingKey && (
+                              <div className="mt-2">
+                                <p className={`text-xs ${themeClasses.mutedText} mb-2`}>Using legacy booking link:</p>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={`https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`}
+                                    className={getInputClasses(isDark)}
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                                      navigator.clipboard.writeText(link);
+                                      showNotification("Link copied to clipboard!");
+                                    }}
+                                    className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                                    aria-label="Copy booking link"
+                                  >
+                                    Copy
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                                      window.open(link, "_blank", "noopener,noreferrer");
+                                    }}
+                                    className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                                  >
+                                    Test Link
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : publicLink ? (
+                          <>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={publicLink.shortUrl}
+                                className={getInputClasses(isDark)}
+                              />
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(publicLink.shortUrl);
+                                  showNotification("Link copied to clipboard!");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                                aria-label="Copy booking link"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => {
+                                  window.open(publicLink.shortUrl, "_blank", "noopener,noreferrer");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                              >
+                                Test Link
+                              </button>
+                            </div>
+                            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                              Share this link with customers to allow them to submit booking requests.
+                            </p>
+                          </>
+                        ) : settings.bookingKey ? (
+                          <>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={`https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`}
+                                className={getInputClasses(isDark)}
+                              />
+                              <button
+                                onClick={() => {
+                                  const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                                  navigator.clipboard.writeText(link);
+                                  showNotification("Link copied to clipboard!");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                                aria-label="Copy booking link"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const link = `https://apps.ocalabusinessdirectory.com/book/${settings.bookingKey}`;
+                                  window.open(link, "_blank", "noopener,noreferrer");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                              >
+                                Test Link
+                              </button>
+                            </div>
+                            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                              Share this link with customers to allow them to submit booking requests.
+                            </p>
+                          </>
+                        ) : null}
+
+                        {publicLink?.prettyUrl && (
+                          <div className="mt-4">
+                            <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                              Pretty Link (Optional)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                readOnly
+                                value={publicLink.prettyUrl}
+                                className={getInputClasses(isDark)}
+                              />
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(publicLink.prettyUrl!);
+                                  showNotification("Pretty link copied to clipboard!");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                                aria-label="Copy pretty link"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                onClick={() => {
+                                  window.open(publicLink.prettyUrl!, "_blank", "noopener,noreferrer");
+                                }}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                              >
+                                Test Link
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {publicLink && (
+                          <div className="mt-4">
+                            <label htmlFor="public-link-slug" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                              Custom Booking URL (Optional)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                id="public-link-slug"
+                                type="text"
+                                value={publicLinkSlug}
+                                onChange={(e) => setPublicLinkSlug(e.target.value)}
+                                placeholder="my-business-name"
+                                className={getInputClasses(isDark)}
+                                maxLength={50}
+                              />
+                              <button
+                                onClick={saveSlug}
+                                disabled={savingSlug || publicLinkSlug === (publicLink.slug || "")}
+                                className={`px-4 py-2 rounded text-sm ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"} disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {savingSlug ? "Saving..." : "Save"}
+                              </button>
+                            </div>
+                            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                              Use letters, numbers, and hyphens only (e.g., "my-business-name"). Leave empty to remove custom URL.
+                            </p>
+                          </div>
+                        )}
                       </div>
-                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                        Share this link with customers to allow them to submit booking requests.
-                      </p>
-                    </div>
+                    </>
                   )}
 
                   <button 

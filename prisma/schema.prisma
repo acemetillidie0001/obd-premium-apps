@@ -756,13 +756,26 @@ model BookingSettings {
   minNoticeHours    Int         @default(24)
   maxDaysOut        Int         @default(90)
   policyText        String?     @db.Text
-  bookingKey        String      @unique // Random key for public booking link
+  bookingKey        String      @unique // Random key for public booking link (legacy long format)
   notificationEmail String?     // Email address for booking request notifications
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
   @@index([businessId])
   @@index([bookingKey])
+}
+
+model BookingPublicLink {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  code       String   @unique // Short base62 code (8-10 chars)
+  slug       String?  // Optional custom slug for pretty URLs
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([code])
+  @@index([slug])
 }
 
 model BookingRequest {

@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
 import { validateBookingKeyFormat } from "@/lib/apps/obd-scheduler/bookingKey";
+import { resolveBookingLink } from "@/lib/apps/obd-scheduler/bookingPublicLink";
 
 export const runtime = "nodejs";
 
@@ -167,22 +168,26 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     // Accept both 'key' and 'bookingKey' query params for flexibility
-    const bookingKey = searchParams.get("key") || searchParams.get("bookingKey");
+    const bookingParam = searchParams.get("key") || searchParams.get("bookingKey");
 
-    if (!bookingKey) {
+    if (!bookingParam) {
       return apiErrorResponse("Booking key is required", "VALIDATION_ERROR", 400);
     }
 
-    // Validate booking key format
-    if (!validateBookingKeyFormat(bookingKey)) {
+    // Resolve booking link (supports short code, slug-code, and legacy bookingKey)
+    const resolution = await resolveBookingLink(bookingParam);
+
+    if (!resolution) {
       // P1-16: Log failed lookup for security/audit
-      logFailedBookingKeyLookup(bookingKey, clientIP, request, "invalid_format");
-      return apiErrorResponse("Invalid booking key format", "VALIDATION_ERROR", 400);
+      // Check if it looks like a legacy bookingKey format for logging
+      const isLegacyFormat = bookingParam.length === 64 && /^[0-9a-f]+$/i.test(bookingParam);
+      logFailedBookingKeyLookup(bookingParam, clientIP, request, isLegacyFormat ? "not_found" : "invalid_format");
+      return apiErrorResponse("Invalid booking link", "NOT_FOUND", 404);
     }
 
-    // Find settings by bookingKey
+    // Find settings by businessId
     const settings = await prisma.bookingSettings.findUnique({
-      where: { bookingKey },
+      where: { businessId: resolution.businessId },
       select: {
         businessId: true,
         bookingModeDefault: true,
@@ -196,8 +201,8 @@ export async function GET(request: NextRequest) {
 
     if (!settings) {
       // P1-16: Log failed lookup for security/audit
-      logFailedBookingKeyLookup(bookingKey, clientIP, request, "not_found");
-      return apiErrorResponse("Invalid booking key", "NOT_FOUND", 404);
+      logFailedBookingKeyLookup(bookingParam, clientIP, request, "not_found");
+      return apiErrorResponse("Invalid booking link", "NOT_FOUND", 404);
     }
 
     // Get active services for this business

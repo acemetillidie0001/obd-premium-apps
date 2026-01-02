@@ -1,3 +1,9 @@
+// Railway's TCP proxy presents a certificate chain that Node.js doesn't trust by default.
+// This script runs only during Vercel build/CI, not at runtime, so it's safe to accept
+// the proxy's certificate chain here to allow encrypted connections to Railway Postgres.
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+console.log("[resolve-all-failed-migrations] FINGERPRINT=v2-railway-tls0");
+
 /**
  * Resolve ALL Failed Migrations
  * 
@@ -31,9 +37,13 @@ async function resolveAllFailedMigrations() {
     throw new Error("DATABASE_URL or DATABASE_URL_DIRECT must be set");
   }
 
+  console.log("[resolve-all-failed-migrations] TLS_REJECT=", process.env.NODE_TLS_REJECT_UNAUTHORIZED);
+
   const pool = new Pool({
     connectionString: dbUrl,
-    ssl: dbUrl.includes("railway") || dbUrl.includes("rds") ? { rejectUnauthorized: false } : false,
+    ssl: {
+      rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
+    },
   });
 
   try {

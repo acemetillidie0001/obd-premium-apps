@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { CheckCircle2, AlertCircle, Calendar as CalendarIcon } from "lucide-react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -58,7 +59,7 @@ function OBDSchedulerPageContent() {
   };
 
   // P2-10: Helper to migrate old localStorage keys to namespaced keys
-  const migrateStorageKey = (oldKey: string, newKey: string, setter: (value: any) => void, validator?: (value: any) => boolean) => {
+  const migrateStorageKey = (oldKey: string, newKey: string, setter: (value: string) => void, validator?: (value: string) => boolean) => {
     try {
       const oldValue = localStorage.getItem(oldKey);
       const newValue = localStorage.getItem(newKey);
@@ -507,11 +508,47 @@ function OBDSchedulerPageContent() {
     setRequestsError("");
     try {
       const res = await fetch(`/api/obd-scheduler/requests`);
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load requests");
+      
+      // Handle network/fetch errors
+      if (!res.ok && res.status >= 500) {
+        // Only show error for server errors (database connection, etc.)
+        const errorText = await res.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: "Database connection error", code: "DATABASE_ERROR" };
+        }
+        throw new Error(errorData.error || "Database connection error. Please try again.");
       }
-      const loadedRequests = data.data.requests || [];
+      
+      const data = await res.json();
+      
+      // Only show error for actual database failures, not empty states
+      if (!data.ok) {
+        const errorMessage = data.error || "";
+        const errorCode = data.code || "";
+        
+        // Only show error if it's a database/connection issue (500+ status or DATABASE_ERROR code)
+        if (
+          res.status >= 500 ||
+          errorCode === "DATABASE_ERROR" ||
+          errorCode === "DATABASE_CONNECTION_ERROR" ||
+          errorCode === "DATABASE_MODEL_ERROR" ||
+          errorMessage.toLowerCase().includes("database") ||
+          errorMessage.toLowerCase().includes("connection")
+        ) {
+          throw new Error(errorMessage || "Database error. Please try again.");
+        }
+        // For other errors (auth, validation, etc.), log but don't show banner
+        console.warn("[OBD Scheduler] Requests load error (non-database):", errorMessage);
+        // Set empty array as fallback
+        setRequests([]);
+        return;
+      }
+      
+      // Empty array is valid - never treat as error
+      const loadedRequests = data.data?.requests || [];
       setRequests(loadedRequests);
       
       // P2-10: Migrate localStorage keys to namespaced keys after requests load
@@ -590,7 +627,22 @@ function OBDSchedulerPageContent() {
       }
     } catch (error) {
       console.error("Error loading requests:", error);
-      setRequestsError(error instanceof Error ? error.message : "Failed to load requests");
+      const errorMessage = error instanceof Error ? error.message : "Failed to load requests";
+      
+      // Only set error for database-related failures
+      if (
+        errorMessage.toLowerCase().includes("database") ||
+        errorMessage.toLowerCase().includes("connection") ||
+        errorMessage.toLowerCase().includes("prisma")
+      ) {
+        setRequestsError(errorMessage);
+      } else {
+        // For non-database errors, log but don't show banner
+        console.warn("[OBD Scheduler] Requests load error (non-database):", errorMessage);
+        setRequestsError("");
+        // Set empty array as fallback
+        setRequests([]);
+      }
     } finally {
       setRequestsLoading(false);
     }
@@ -621,10 +673,37 @@ function OBDSchedulerPageContent() {
     setSettingsError("");
     try {
       const settingsRes = await fetch("/api/obd-scheduler/settings");
-      const settingsData = await settingsRes.json();
-      if (!settingsRes.ok || !settingsData.ok) {
-        throw new Error(settingsData.error || "Failed to load settings");
+      
+      // Handle network/fetch errors
+      if (!settingsRes.ok && settingsRes.status >= 500) {
+        // Only show error for server errors (database connection, etc.)
+        const errorText = await settingsRes.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: "Database connection error" };
+        }
+        throw new Error(errorData.error || "Database connection error. Please try again.");
       }
+      
+      const settingsData = await settingsRes.json();
+      
+      // Only show error for actual database/connection failures, not missing data
+      // The API should always return valid settings (find-or-create pattern)
+      if (!settingsData.ok) {
+        const errorMessage = settingsData.error || "";
+        // Only show error if it's a database/connection issue, not missing settings
+        if (errorMessage.toLowerCase().includes("database") || 
+            errorMessage.toLowerCase().includes("connection") ||
+            errorMessage.toLowerCase().includes("prisma") ||
+            settingsRes.status >= 500) {
+          throw new Error(errorMessage || "Database error. Please try again.");
+        }
+        // For other errors (auth, validation, etc.), still throw but with generic message
+        throw new Error("Failed to load settings");
+      }
+      
       const loadedSettings = settingsData.data;
       setSettings(loadedSettings);
       setSettingsForm({
@@ -638,7 +717,19 @@ function OBDSchedulerPageContent() {
       });
     } catch (error) {
       console.error("Error loading settings:", error);
-      setSettingsError(error instanceof Error ? error.message : "Failed to load settings");
+      // Only set error for actual database failures
+      const errorMessage = error instanceof Error ? error.message : "Failed to load settings";
+      // Check if it's a database-related error
+      if (errorMessage.toLowerCase().includes("database") || 
+          errorMessage.toLowerCase().includes("connection") ||
+          errorMessage.toLowerCase().includes("prisma")) {
+        setSettingsError(errorMessage);
+      } else {
+        // For non-database errors, log but don't show red banner
+        // (e.g., auth errors, network timeouts that aren't DB-related)
+        console.warn("Settings load error (non-database):", errorMessage);
+        setSettingsError("");
+      }
     } finally {
       setSettingsLoading(false);
     }
@@ -650,10 +741,45 @@ function OBDSchedulerPageContent() {
     setPublicLinkError("");
     try {
       const res = await fetch("/api/obd-scheduler/public-link");
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load public link");
+      
+      // Handle network/fetch errors
+      if (!res.ok && res.status >= 500) {
+        // Only show error for server errors (database connection, etc.)
+        const errorText = await res.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: "Database connection error", code: "DATABASE_ERROR" };
+        }
+        throw new Error(errorData.error || "Database connection error. Please try again.");
       }
+      
+      const data = await res.json();
+      
+      // Only show error for actual database failures, not missing data
+      if (!data.ok) {
+        const errorMessage = data.error || "";
+        const errorCode = data.code || "";
+        
+        // Only show error if it's a database/connection issue (500+ status or DATABASE_ERROR code)
+        if (
+          res.status >= 500 ||
+          errorCode === "DATABASE_ERROR" ||
+          errorCode === "DATABASE_CONNECTION_ERROR" ||
+          errorCode === "DATABASE_MODEL_ERROR" ||
+          errorMessage.toLowerCase().includes("database") ||
+          errorMessage.toLowerCase().includes("connection")
+        ) {
+          throw new Error(errorMessage || "Database error. Please try again.");
+        }
+        // For other errors (auth, validation, etc.), log but don't show banner
+        console.warn("[OBD Scheduler] Public link load error (non-database):", errorMessage);
+        setPublicLinkError("");
+        return;
+      }
+      
+      // Success - set the link data
       setPublicLink({
         code: data.data.code,
         slug: data.data.slug,
@@ -663,7 +789,20 @@ function OBDSchedulerPageContent() {
       setPublicLinkSlug(data.data.slug || "");
     } catch (error) {
       console.error("Error loading public link:", error);
-      setPublicLinkError(error instanceof Error ? error.message : "Failed to load public link");
+      const errorMessage = error instanceof Error ? error.message : "Failed to load public link";
+      
+      // Only set error for database-related failures
+      if (
+        errorMessage.toLowerCase().includes("database") ||
+        errorMessage.toLowerCase().includes("connection") ||
+        errorMessage.toLowerCase().includes("prisma")
+      ) {
+        setPublicLinkError(errorMessage);
+      } else {
+        // For non-database errors, log but don't show banner
+        console.warn("[OBD Scheduler] Public link load error (non-database):", errorMessage);
+        setPublicLinkError("");
+      }
     } finally {
       setPublicLinkLoading(false);
     }
@@ -763,6 +902,12 @@ function OBDSchedulerPageContent() {
       loadPublicLink();
     } else if (activeTab === "metrics") {
       // Metrics are loaded via useEffect when tab is active
+      // No initial load needed here
+    } else if (activeTab === "verification") {
+      // Verification tab loads its own data
+      // No initial load needed here
+    } else if (activeTab === "calendar") {
+      // Calendar tab loads its own data via useEffect
       // No initial load needed here
     } else {
       assertNever(activeTab, "Unhandled tab case");
@@ -1123,6 +1268,28 @@ function OBDSchedulerPageContent() {
     } finally {
       setCalendarLoading(false);
     }
+  };
+
+  // Helper function to determine Google Calendar connection state
+  const getGoogleCalendarState = (): "NOT_CONNECTED" | "CONNECTED_ENABLED" | "CONNECTED_DISABLED" | "ERROR_ATTENTION" => {
+    const googleConnection = calendarConnections.find(c => c.provider === "google");
+    
+    if (!googleConnection) {
+      return "NOT_CONNECTED";
+    }
+    
+    // Check for error conditions (needsReconnect indicates auth/token issues)
+    // Only consider calendarError if there's actually a connection (to avoid false positives)
+    if (googleConnection.needsReconnect || (calendarError && googleConnection)) {
+      return "ERROR_ATTENTION";
+    }
+    
+    // Check if filtering is enabled
+    if (googleConnection.enabled) {
+      return "CONNECTED_ENABLED";
+    }
+    
+    return "CONNECTED_DISABLED";
   };
 
   // Load calendar connections when tab is active
@@ -2896,7 +3063,7 @@ function OBDSchedulerPageContent() {
                               </button>
                             </div>
                             <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                              Use letters, numbers, and hyphens only (e.g., "my-business-name"). Leave empty to remove custom URL.
+                              Use letters, numbers, and hyphens only (e.g., &quot;my-business-name&quot;). Leave empty to remove custom URL.
                             </p>
                           </div>
                         )}
@@ -3208,7 +3375,7 @@ function OBDSchedulerPageContent() {
           ) : (
             <div className="py-8 text-center">
               <p className={themeClasses.mutedText}>
-                Click "Run Checks" to verify your production setup.
+                Click &quot;Run Checks&quot; to verify your production setup.
               </p>
               <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
                 All checks are read-only and will not modify any data.
@@ -3368,126 +3535,228 @@ function OBDSchedulerPageContent() {
       {activeTab === "calendar" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Calendar Integration</OBDHeading>
-          <p className={`text-sm mb-6 ${themeClasses.mutedText}`}>
-            Connect your Google Calendar or Microsoft Outlook to automatically hide unavailable times in booking slots.
-            <br />
-            <span className="text-xs">Read-only access. OBD does not create or modify events in this phase.</span>
-          </p>
-
-          {calendarError && (
-            <div className={getErrorPanelClasses(isDark)}>
-              <p>{calendarError}</p>
-            </div>
-          )}
-
+          
           {calendarLoading ? (
             <div className="py-8 text-center">
               <p className={themeClasses.mutedText}>Loading calendar connections...</p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Google Calendar Card */}
-              <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Google Calendar</h3>
-                    {calendarConnections.find(c => c.provider === "google")?.accountEmail && (
+            <div className="space-y-6">
+              {/* Status Card */}
+              {(() => {
+                const googleState = getGoogleCalendarState();
+                
+                let statusIcon, statusTitle, statusSubtext, statusCardClasses;
+                
+                switch (googleState) {
+                  case "NOT_CONNECTED":
+                    statusIcon = <CalendarIcon className="w-5 h-5" />;
+                    statusTitle = "Not connected";
+                    statusSubtext = "Connect Google Calendar to check availability against busy times.";
+                    statusCardClasses = isDark 
+                      ? "bg-slate-800/50 border-slate-700" 
+                      : "bg-slate-50 border-slate-200";
+                    break;
+                  case "CONNECTED_ENABLED":
+                    statusIcon = <CheckCircle2 className="w-5 h-5 text-green-500" />;
+                    statusTitle = "Connected • Availability filtering enabled";
+                    statusSubtext = "Busy times will be blocked from available booking slots.";
+                    statusCardClasses = isDark 
+                      ? "bg-slate-800/50 border-slate-700 border-green-500/30" 
+                      : "bg-slate-50 border-slate-200 border-green-500/30";
+                    break;
+                  case "CONNECTED_DISABLED":
+                    statusIcon = <CheckCircle2 className="w-5 h-5 text-blue-500" />;
+                    statusTitle = "Connected • Filtering is off";
+                    statusSubtext = "Calendar is connected, but not used to filter availability.";
+                    statusCardClasses = isDark 
+                      ? "bg-slate-800/50 border-slate-700 border-blue-500/30" 
+                      : "bg-slate-50 border-slate-200 border-blue-500/30";
+                    break;
+                  case "ERROR_ATTENTION":
+                    statusIcon = <AlertCircle className="w-5 h-5 text-amber-500" />;
+                    statusTitle = "Needs attention";
+                    statusSubtext = "We can't currently check calendar availability. Booking will still work normally.";
+                    statusCardClasses = isDark 
+                      ? "bg-slate-800/50 border-slate-700 border-amber-500/30" 
+                      : "bg-slate-50 border-slate-200 border-amber-500/30";
+                    break;
+                }
+                
+                return (
+                  <div className={`p-4 rounded border ${statusCardClasses}`}>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex-shrink-0">
+                        {statusIcon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>
+                          {statusTitle}
+                        </h3>
+                        <p className={`text-sm ${themeClasses.mutedText}`}>
+                          {statusSubtext}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Account Section (only show if connected) */}
+              {(() => {
+                const googleConnection = calendarConnections.find(c => c.provider === "google");
+                if (!googleConnection) return null;
+                
+                return (
+                  <div className="space-y-3">
+                    <div>
+                      <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                        Connected Google account
+                      </label>
                       <p className={`text-sm ${themeClasses.mutedText}`}>
-                        {calendarConnections.find(c => c.provider === "google")?.accountEmail}
+                        {googleConnection.accountEmail || (
+                          <span className="italic">(email unavailable)</span>
+                        )}
                       </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        Read-only access
+                      </div>
+                      <p className={`text-xs ${themeClasses.mutedText}`}>
+                        OBD only checks busy/free times. Event titles and details are never accessed.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Google Calendar Controls */}
+              <div className="space-y-4">
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Google Calendar</h3>
+                    </div>
+                    {calendarConnections.find(c => c.provider === "google") ? (
+                      <button
+                        onClick={() => handleCalendarDisconnect("google")}
+                        className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
+                          isDark
+                            ? "bg-red-600 hover:bg-red-700 text-white"
+                            : "bg-red-500 hover:bg-red-600 text-white"
+                        }`}
+                      >
+                        Disconnect
+                      </button>
+                    ) : (
+                      <a
+                        href="/api/obd-scheduler/calendar/connect/google"
+                        className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                      >
+                        Connect
+                      </a>
                     )}
                   </div>
-                  {calendarConnections.find(c => c.provider === "google") ? (
-                    <button
-                      onClick={() => handleCalendarDisconnect("google")}
-                      className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
-                        isDark
-                          ? "bg-red-600 hover:bg-red-700 text-white"
-                          : "bg-red-500 hover:bg-red-600 text-white"
-                      }`}
-                    >
-                      Disconnect
-                    </button>
-                  ) : (
-                    <a
-                      href="/api/obd-scheduler/calendar/connect/google"
-                      className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
-                    >
-                      Connect
-                    </a>
+                  
+                  {(() => {
+                    const googleConnection = calendarConnections.find(c => c.provider === "google");
+                    
+                    if (!googleConnection) {
+                      return (
+                        <p className={`text-sm ${themeClasses.mutedText}`}>
+                          Connect Google Calendar to enable availability filtering.
+                        </p>
+                      );
+                    }
+                    
+                    return (
+                      <div className="space-y-3">
+                        <label className={`flex items-start gap-3 text-sm ${themeClasses.mutedText}`}>
+                          <input
+                            type="checkbox"
+                            checked={googleConnection.enabled || false}
+                            onChange={(e) => handleCalendarToggle("google", e.target.checked)}
+                            className={`mt-0.5 ${getInputClasses(isDark, "w-4 h-4")}`}
+                            disabled={googleConnection.needsReconnect || false}
+                          />
+                          <div className="flex-1">
+                            <span className={themeClasses.labelText}>Use Google Calendar to filter availability</span>
+                            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                              {googleConnection.enabled 
+                                ? "When enabled, OBD hides slots that overlap busy times."
+                                : "Turn this on to hide slots that overlap busy times."}
+                            </p>
+                          </div>
+                        </label>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Microsoft Calendar Card (keep existing for compatibility) */}
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Microsoft Outlook / 365</h3>
+                      {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail && (
+                        <p className={`text-sm ${themeClasses.mutedText}`}>
+                          {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail}
+                        </p>
+                      )}
+                    </div>
+                    {calendarConnections.find(c => c.provider === "microsoft") ? (
+                      <button
+                        onClick={() => handleCalendarDisconnect("microsoft")}
+                        className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
+                          isDark
+                            ? "bg-red-600 hover:bg-red-700 text-white"
+                            : "bg-red-500 hover:bg-red-600 text-white"
+                        }`}
+                      >
+                        Disconnect
+                      </button>
+                    ) : (
+                      <a
+                        href="/api/obd-scheduler/calendar/connect/microsoft"
+                        className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                      >
+                        Connect
+                      </a>
+                    )}
+                  </div>
+                  {calendarConnections.find(c => c.provider === "microsoft") && (
+                    <div className="space-y-2">
+                      {calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect && (
+                        <p className={`text-xs ${isDark ? "text-amber-400" : "text-amber-600"}`}>
+                          ⚠️ Token expired or expiring soon. Please reconnect.
+                        </p>
+                      )}
+                      <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
+                        <input
+                          type="checkbox"
+                          checked={calendarConnections.find(c => c.provider === "microsoft")?.enabled || false}
+                          onChange={(e) => handleCalendarToggle("microsoft", e.target.checked)}
+                          className={getInputClasses(isDark, "w-4 h-4")}
+                          disabled={calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect || false}
+                        />
+                        Hide unavailable times using calendar
+                      </label>
+                    </div>
                   )}
                 </div>
-                {calendarConnections.find(c => c.provider === "google") && (
-                  <div className="space-y-2">
-                    {calendarConnections.find(c => c.provider === "google")?.needsReconnect && (
-                      <p className={`text-xs ${isDark ? "text-amber-400" : "text-amber-600"}`}>
-                        ⚠️ Token expired or expiring soon. Please reconnect.
-                      </p>
-                    )}
-                    <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
-                      <input
-                        type="checkbox"
-                        checked={calendarConnections.find(c => c.provider === "google")?.enabled || false}
-                        onChange={(e) => handleCalendarToggle("google", e.target.checked)}
-                        className={getInputClasses(isDark, "w-4 h-4")}
-                        disabled={calendarConnections.find(c => c.provider === "google")?.needsReconnect || false}
-                      />
-                      Hide unavailable times using calendar
-                    </label>
-                  </div>
-                )}
               </div>
 
-              {/* Microsoft Calendar Card */}
-              <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Microsoft Outlook / 365</h3>
-                    {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail && (
-                      <p className={`text-sm ${themeClasses.mutedText}`}>
-                        {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail}
-                      </p>
-                    )}
-                  </div>
-                  {calendarConnections.find(c => c.provider === "microsoft") ? (
-                    <button
-                      onClick={() => handleCalendarDisconnect("microsoft")}
-                      className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
-                        isDark
-                          ? "bg-red-600 hover:bg-red-700 text-white"
-                          : "bg-red-500 hover:bg-red-600 text-white"
-                      }`}
-                    >
-                      Disconnect
-                    </button>
-                  ) : (
-                    <a
-                      href="/api/obd-scheduler/calendar/connect/microsoft"
-                      className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
-                    >
-                      Connect
-                    </a>
-                  )}
+              {/* How it works section */}
+              <div className={`pt-4 border-t ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+                <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>
+                  How availability filtering works
+                </h4>
+                <div className={`text-sm space-y-1 ${themeClasses.mutedText}`}>
+                  <p>When enabled, OBD checks your Google Calendar for busy times before showing slots.</p>
+                  <p>If Google is unavailable, booking still works normally.</p>
                 </div>
-                {calendarConnections.find(c => c.provider === "microsoft") && (
-                  <div className="space-y-2">
-                    {calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect && (
-                      <p className={`text-xs ${isDark ? "text-amber-400" : "text-amber-600"}`}>
-                        ⚠️ Token expired or expiring soon. Please reconnect.
-                      </p>
-                    )}
-                    <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
-                      <input
-                        type="checkbox"
-                        checked={calendarConnections.find(c => c.provider === "microsoft")?.enabled || false}
-                        onChange={(e) => handleCalendarToggle("microsoft", e.target.checked)}
-                        className={getInputClasses(isDark, "w-4 h-4")}
-                        disabled={calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect || false}
-                      />
-                      Hide unavailable times using calendar
-                    </label>
-                  </div>
-                )}
               </div>
             </div>
           )}

@@ -4,6 +4,31 @@
 
 OBD Scheduler & Booking (V3) is a request-based booking system for OBD Premium Apps. This is **NOT** a real-time calendar sync system. Instead, customers submit booking requests, business owners review and respond (approve/decline/propose time), and the system sends email notifications.
 
+## Recent Improvements (Tiers 5.4-5.7)
+
+### Dashboard Enhancements (Tier 5.7)
+- **Smart Views & Saved Filters**: Filter requests by status (Needs Action, Upcoming, Past Due, Completed, Declined, All). Your selected view is automatically saved and restored when you return.
+- **Sorting Controls**: Sort by newest/oldest, appointment time, or recently updated
+- **Request Detail Layout Polish**: Improved request detail view with status indicators, organized sections, and clearer action buttons
+- **Bulk Actions**: Select multiple requests and decline them at once
+- **Archive/Hide**: Archive completed requests to keep your dashboard clean
+- **CSV Export**: Download all visible requests as a CSV file for reporting
+
+### Public Booking Improvements (Tier 5.6)
+- **Clean Booking URLs**: New `/book/[bookingKey]` format for simpler, shareable links
+- **Service Selection**: Customers can choose from your active services when booking
+- **Time Normalization**: Preferred times automatically round to 15-minute increments
+- **Rate Limiting**: Enhanced spam protection for public booking forms
+
+### CRM Integration (Tier 5.5)
+- **Automatic Contact Sync**: Booking requests automatically create or update CRM contacts
+- **Activity Tracking**: Each booking request generates a CRM activity note with full details
+
+### SMS Notifications (Tier 5.4)
+- **SMS Alerts**: Customers receive SMS confirmations when booking requests are received (if phone number provided)
+- **Quiet Hours**: SMS sending respects quiet hours (9pm-8am by default)
+- **Rate Limiting**: SMS sending is rate-limited to prevent spam
+
 ## V3 Principle
 
 **REQUEST-BASED BOOKING** - This is the core principle of V3:
@@ -16,6 +41,8 @@ OBD Scheduler & Booking (V3) is a request-based booking system for OBD Premium A
 - **NO** payments
 - **NO** SMS
 - **NO** staff scheduling
+
+**Note:** SMS notifications (Tier 5.4) were added after initial V3 release.
 
 ## Data Model
 

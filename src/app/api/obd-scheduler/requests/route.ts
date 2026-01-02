@@ -13,6 +13,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
   BookingRequest,
   BookingStatus,
@@ -28,6 +29,158 @@ import { syncBookingToCrm } from "@/lib/apps/obd-scheduler/integrations/crm";
 import { BookingStatus as PrismaBookingStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
+
+// In-memory rate limiter for public booking requests (anti-spam)
+// Bounded with TTL expiration and max size cap to prevent memory growth
+interface BookingRateLimitEntry {
+  count: number;
+  resetAt: number; // Timestamp when counter resets (TTL expiration)
+  createdAt: number; // Timestamp when entry was created (for oldest-first eviction)
+}
+
+const bookingRateLimitStore = new Map<string, BookingRateLimitEntry>();
+// Max size cap: prevents unbounded memory growth
+const MAX_STORE_SIZE = 10000;
+// TTL: entries expire after rate limit window (10 minutes)
+const MAX_REQUESTS_PER_WINDOW = 5;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Extract client IP from request headers
+ */
+function getClientIP(request: NextRequest): string | null {
+  try {
+    // Check x-forwarded-for header (first value if comma-separated)
+    const forwardedFor = request.headers.get("x-forwarded-for");
+    if (forwardedFor) {
+      const firstIP = forwardedFor.split(",")[0]?.trim();
+      if (firstIP) return firstIP;
+    }
+
+    // Fallback to x-real-ip
+    const realIP = request.headers.get("x-real-ip");
+    if (realIP) return realIP.trim();
+
+    // Last resort: try to get from NextRequest (may not always be available)
+    // Note: request.ip might not be available in all environments
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if booking request is allowed (rate limit check)
+ * Returns true if allowed, false if rate limited
+ * 
+ * Performs lightweight cleanup on each request to prevent unbounded growth.
+ * TTL expiration: entries automatically expire after RATE_LIMIT_WINDOW_MS.
+ * Max size cap: if store exceeds MAX_STORE_SIZE, oldest entries are evicted.
+ */
+function checkBookingRateLimit(bookingKey: string, ip: string | null): boolean {
+  try {
+    // Lightweight cleanup on each request: remove expired entries (TTL-based expiration)
+    // This prevents unbounded growth without significant performance impact
+    if (bookingRateLimitStore.size > 0) {
+      cleanupExpiredEntries();
+    }
+
+    // Build rate limit key: bookingKey:ip or just bookingKey if no IP
+    const rateLimitKey = ip ? `${bookingKey}:${ip}` : bookingKey;
+
+    const now = Date.now();
+    const resetAt = now + RATE_LIMIT_WINDOW_MS;
+
+    const entry = bookingRateLimitStore.get(rateLimitKey);
+
+    if (!entry) {
+      // First request: create entry
+      // Enforce max size cap: if still at max after cleanup, evict oldest entries
+      if (bookingRateLimitStore.size >= MAX_STORE_SIZE) {
+        evictOldestEntries();
+      }
+      bookingRateLimitStore.set(rateLimitKey, { count: 1, resetAt, createdAt: now });
+      return true;
+    }
+
+    // Check if entry has expired (TTL expiration)
+    if (now >= entry.resetAt) {
+      // Reset counter (entry TTL expired, reset for new window)
+      bookingRateLimitStore.set(rateLimitKey, { count: 1, resetAt, createdAt: now });
+      return true;
+    }
+
+    // Check if limit exceeded
+    if (entry.count >= MAX_REQUESTS_PER_WINDOW) {
+      return false;
+    }
+
+    // Increment counter
+    entry.count++;
+    return true;
+  } catch (error) {
+    // If rate limiting fails, fail open (allow request) to avoid blocking legitimate bookings
+    console.warn("[Booking Rate Limit] Error checking rate limit, allowing request:", error);
+    return true;
+  }
+}
+
+/**
+ * Lightweight cleanup: remove expired entries (TTL-based expiration)
+ * Called on each request to prevent unbounded growth.
+ * Only iterates through entries once, removing those past their resetAt timestamp.
+ */
+function cleanupExpiredEntries(): void {
+  try {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [key, entry] of bookingRateLimitStore.entries()) {
+      if (now >= entry.resetAt) {
+        bookingRateLimitStore.delete(key);
+        cleaned++;
+      }
+    }
+
+    if (cleaned > 0) {
+      console.info(`[Booking Rate Limit] Cleaned up ${cleaned} expired entries (TTL expiration)`);
+    }
+  } catch (error) {
+    console.warn("[Booking Rate Limit] Error during cleanup:", error);
+  }
+}
+
+/**
+ * Enforce max size cap: evict oldest entries when store exceeds MAX_STORE_SIZE
+ * Removes entries with oldest createdAt timestamps until under the cap.
+ * This ensures the store never grows unbounded even if cleanup doesn't remove enough.
+ */
+function evictOldestEntries(): void {
+  try {
+    const targetSize = Math.floor(MAX_STORE_SIZE * 0.9); // Evict down to 90% of max
+    const entriesToRemove = bookingRateLimitStore.size - targetSize;
+
+    if (entriesToRemove <= 0) {
+      return;
+    }
+
+    // Convert to array, sort by createdAt (oldest first), remove oldest
+    const entries = Array.from(bookingRateLimitStore.entries())
+      .map(([key, entry]) => ({ key, createdAt: entry.createdAt }))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, entriesToRemove);
+
+    for (const entry of entries) {
+      bookingRateLimitStore.delete(entry.key);
+    }
+
+    if (entries.length > 0) {
+      console.info(`[Booking Rate Limit] Evicted ${entries.length} oldest entries (max size cap enforcement)`);
+    }
+  } catch (error) {
+    console.warn("[Booking Rate Limit] Error during eviction:", error);
+  }
+}
 
 // Validation schemas
 const createRequestSchema = z.object({
@@ -212,6 +365,21 @@ export async function POST(request: NextRequest) {
     let businessId: string;
     
     if (body.bookingKey) {
+      // Public form: check rate limit first (anti-spam protection)
+      try {
+        const clientIP = getClientIP(request);
+        if (!checkBookingRateLimit(body.bookingKey, clientIP)) {
+          return apiErrorResponse(
+            "Too many booking requests. Please wait a few minutes and try again.",
+            "RATE_LIMITED",
+            429
+          );
+        }
+      } catch (error) {
+        // Rate limit check failed - log but allow request to proceed (fail open)
+        console.warn("[Booking Rate Limit] Rate limit check failed, allowing request:", error);
+      }
+
       // Public form: look up business by bookingKey
       const settings = await prisma.bookingSettings.findUnique({
         where: { bookingKey: body.bookingKey },
@@ -256,12 +424,12 @@ export async function POST(request: NextRequest) {
       data: {
         businessId,
         serviceId: body.serviceId || null,
-        customerName: body.customerName.trim(),
-        customerEmail: body.customerEmail.trim().toLowerCase(),
-        customerPhone: body.customerPhone?.trim() || null,
+        customerName: sanitizeSingleLine(body.customerName),
+        customerEmail: sanitizeSingleLine(body.customerEmail).toLowerCase(),
+        customerPhone: body.customerPhone ? sanitizeSingleLine(body.customerPhone) : null,
         preferredStart: body.preferredStart ? new Date(body.preferredStart) : null,
         preferredEnd: null, // Always null for new requests (start-only preferred time)
-        message: body.message?.trim() || null,
+        message: body.message ? sanitizeText(body.message) : null,
         status: PrismaBookingStatus.REQUESTED,
       },
       include: {
@@ -311,6 +479,9 @@ export async function POST(request: NextRequest) {
       console.warn("[OBD Scheduler] Failed to fetch settings/brand profile (non-blocking):", error);
     }
 
+    // Collect email warnings (non-blocking)
+    const warnings: string[] = [];
+
     // Send customer confirmation email (non-blocking)
     try {
       await sendCustomerRequestConfirmationEmail({
@@ -322,6 +493,7 @@ export async function POST(request: NextRequest) {
       // Log but don't fail the booking request
       const errorMessage = emailError instanceof Error ? emailError.message : String(emailError);
       console.warn(`[OBD Scheduler] Customer confirmation email failed (non-blocking) for requestId ${formatted.id}:`, errorMessage);
+      warnings.push("Confirmation email could not be sent.");
     }
 
     // Send business notification email (non-blocking, only if notificationEmail is set)
@@ -339,13 +511,57 @@ export async function POST(request: NextRequest) {
         // Log but don't fail the booking request
         const errorMessage = emailError instanceof Error ? emailError.message : String(emailError);
         console.warn(`[OBD Scheduler] Business notification email failed (non-blocking) for requestId ${formatted.id}, businessId ${businessId}:`, errorMessage);
+        warnings.push("Business notification email could not be sent.");
       }
     } else {
       // Log warning if notification email is not configured
       console.warn(`[OBD Scheduler] Notification email not configured for businessId ${businessId} (requestId: ${formatted.id}). Please set notificationEmail in booking settings.`);
     }
 
-    return apiSuccessResponse(formatted, 201);
+    // Send SMS notification (non-blocking, behind feature flag)
+    if (formatted.customerPhone) {
+      try {
+        // Dynamic import to avoid loading Twilio if SMS is disabled
+        const { sendTransactionalSms } = await import("@/lib/sms/sendSms");
+        const { shouldSendSmsNow } = await import("@/lib/sms/quietHours");
+        const { allowSmsSend } = await import("@/lib/sms/smsRateLimit");
+        const { isSmsEnabled } = await import("@/lib/sms/twilioClient");
+
+        if (isSmsEnabled()) {
+          const quietCheck = shouldSendSmsNow();
+          const rateLimitKey = `${businessId}:${formatted.customerPhone}`;
+          
+          if (quietCheck.ok && allowSmsSend(rateLimitKey)) {
+            await sendTransactionalSms(
+              formatted.customerPhone,
+              "REQUEST_RECEIVED",
+              { businessName }
+            );
+          }
+        }
+      } catch (smsError) {
+        // Log but don't fail the booking request
+        const errorMessage = smsError instanceof Error ? smsError.message : String(smsError);
+        console.warn(`[OBD Scheduler] SMS failed (non-blocking) for requestId ${formatted.id}:`, errorMessage);
+      }
+    }
+
+    // Return response with optional warnings
+    const response = apiSuccessResponse(formatted, 201);
+    const responseData = await response.json();
+    
+    // Add warnings if any exist
+    if (warnings.length > 0) {
+      return NextResponse.json(
+        {
+          ...responseData,
+          warnings,
+        },
+        { status: 201 }
+      );
+    }
+
+    return response;
   } catch (error) {
     return handleApiError(error);
   }

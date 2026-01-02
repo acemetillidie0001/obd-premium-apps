@@ -14,6 +14,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
   BookingRequest,
   BookingStatus,
@@ -228,7 +229,7 @@ export async function PATCH(
     }
 
     if (body.internalNotes !== undefined) {
-      updateData.internalNotes = body.internalNotes?.trim() || null;
+      updateData.internalNotes = body.internalNotes ? sanitizeText(body.internalNotes) : null;
     }
 
     // Update request

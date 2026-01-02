@@ -3,12 +3,23 @@
  * 
  * Email notification functions for booking request lifecycle events.
  * Uses Resend for email delivery with branded HTML templates.
+ * 
+ * Server-only module - all exports are async functions that use Node.js APIs.
  */
 
 import { getResendClient } from "@/lib/email/resendClient";
 import { generateCustomerRequestConfirmationEmail } from "./email/customerRequestConfirmation";
 import { generateBusinessRequestNotificationEmail } from "./email/businessRequestNotification";
 import type { BookingRequest, BookingService } from "./types";
+
+/**
+ * Email content structure returned by email generator functions
+ */
+export type EmailContent = {
+  subject: string;
+  html: string;
+  text: string;
+};
 
 export interface NotificationContext {
   request: BookingRequest;
@@ -35,23 +46,26 @@ export async function sendCustomerRequestConfirmationEmail(
   const { request, service, businessName = "Business" } = context;
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
-    const subject = `Booking Request Received - ${businessName || "Business"}`;
-    const htmlBody = generateCustomerRequestConfirmationEmail({
-      businessName,
-      customerName: request.customerName,
-      serviceName: service?.name || null,
-      preferredStart: request.preferredStart,
-      message: request.message || null,
+    if (!service) {
+      throw new Error("Service is required for customer confirmation email");
+    }
+
+    const emailContent: EmailContent = generateCustomerRequestConfirmationEmail({
+      request,
+      service,
+      brand: { name: businessName },
     });
 
     const result = await resend.emails.send({
       from,
       to: request.customerEmail,
-      subject,
-      html: htmlBody,
+      subject: emailContent.subject,
+      html: emailContent.html,
+      text: emailContent.text,
     });
 
     if (result.error) {
@@ -86,25 +100,26 @@ export async function sendBusinessRequestNotificationEmail(
   const { request, service, businessName = "Business" } = context;
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
-    const subject = `New Booking Request Received - ${businessName || "Business"}`;
-    const htmlBody = generateBusinessRequestNotificationEmail({
-      businessName,
-      customerName: request.customerName,
-      customerEmail: request.customerEmail,
-      customerPhone: request.customerPhone || null,
-      serviceName: service?.name || null,
-      preferredStart: request.preferredStart,
-      message: request.message || null,
+    if (!service) {
+      throw new Error("Service is required for business notification email");
+    }
+
+    const emailContent: EmailContent = generateBusinessRequestNotificationEmail({
+      request,
+      service,
+      brand: { name: businessName },
     });
 
     const result = await resend.emails.send({
       from,
       to: notificationEmail,
-      subject,
-      html: htmlBody,
+      subject: emailContent.subject,
+      html: emailContent.html,
+      text: emailContent.text,
     });
 
     if (result.error) {
@@ -136,6 +151,7 @@ export async function sendRequestApprovedEmail(
   const { request, service, businessName = "Business" } = context;
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
@@ -192,6 +208,7 @@ export async function sendRequestDeclinedEmail(
   const { request, service, businessName = "Business" } = context;
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
@@ -254,6 +271,7 @@ export async function sendProposedTimeEmail(
   }
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
@@ -316,6 +334,7 @@ export async function sendBookingCompletedEmail(
   const { request, service, businessName = "Business" } = context;
 
   try {
+    // Lazy-load Resend client (only called when function is invoked)
     const resend = getResendClient();
     const from = getEmailFrom();
 
@@ -357,10 +376,13 @@ export async function sendBookingCompletedEmail(
   }
 }
 
-// Helper functions (for other email functions that still use inline templates)
+// Helper functions (for inline email templates in functions above)
 
+/**
+ * Escape HTML special characters to prevent XSS
+ * Server-side only - used for inline email templates
+ */
 function escapeHtml(text: string): string {
-  // Server-side HTML escaping
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -369,6 +391,10 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#039;");
 }
 
+/**
+ * Format date/time ISO string for display
+ * Server-side only - uses Node.js Date API
+ */
 function formatDateTime(isoString: string): string {
   try {
     const date = new Date(isoString);
@@ -385,5 +411,3 @@ function formatDateTime(isoString: string): string {
     return isoString;
   }
 }
-
-

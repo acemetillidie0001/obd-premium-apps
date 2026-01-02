@@ -1,7 +1,7 @@
 /**
- * Business Request Notification Email Template
+ * Customer Request Confirmation Email Template
  * 
- * Email sent to business when a new booking request is received.
+ * Email sent to customer when their booking request is received.
  */
 
 import type { BookingRequest, BookingService } from "../types";
@@ -58,9 +58,9 @@ function htmlToText(html: string): string {
 }
 
 /**
- * Generate business request notification email
+ * Generate customer request confirmation email
  */
-export function generateBusinessRequestNotificationEmail(args: {
+export function generateCustomerRequestConfirmationEmail(args: {
   request: BookingRequest;
   service: BookingService;
   brand?: { name?: string; phone?: string; email?: string; };
@@ -69,66 +69,54 @@ export function generateBusinessRequestNotificationEmail(args: {
   const businessName = brand?.name || "Business";
 
   const safeCustomerName = escapeHtml(request.customerName);
-  const safeCustomerEmail = escapeHtml(request.customerEmail);
-  const safeCustomerPhone = request.customerPhone ? escapeHtml(request.customerPhone) : null;
   const safeServiceName = service ? escapeHtml(service.name) : null;
   const formattedTime = formatDateTime(request.preferredStart);
   const safeMessage = request.message ? escapeHtml(request.message) : null;
 
   const bodyContent = `
     <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 20px; font-weight: 600;">
-      New Booking Request
+      Booking Request Received
     </h2>
     
     <p style="margin: 0 0 20px 0; color: #333333; font-size: 16px; line-height: 1.5;">
-      You have received a new booking request:
+      Thank you, ${safeCustomerName}! We have received your booking request.
     </p>
     
     <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-      <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; line-height: 1.5;">
-        <strong style="color: #29c4a9;">Customer:</strong> ${safeCustomerName}
-      </p>
-      <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; line-height: 1.5;">
-        <strong style="color: #29c4a9;">Email:</strong> <a href="mailto:${safeCustomerEmail}" style="color: #29c4a9; text-decoration: none;">${safeCustomerEmail}</a>
-      </p>
-      ${safeCustomerPhone ? `
-        <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; line-height: 1.5;">
-          <strong style="color: #29c4a9;">Phone:</strong> <a href="tel:${safeCustomerPhone}" style="color: #29c4a9; text-decoration: none;">${safeCustomerPhone}</a>
-        </p>
-      ` : ""}
       ${safeServiceName ? `
         <p style="margin: 0 0 12px 0; color: #333333; font-size: 14px; line-height: 1.5;">
           <strong style="color: #29c4a9;">Service:</strong> ${safeServiceName}
         </p>
       ` : ""}
       <p style="margin: 0; color: #333333; font-size: 14px; line-height: 1.5;">
-        <strong style="color: #29c4a9;">Preferred Start:</strong> ${escapeHtml(formattedTime)}
+        <strong style="color: #29c4a9;">Tentative Start Time:</strong> ${escapeHtml(formattedTime)}
       </p>
-      ${safeMessage ? `
-        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e5e5;">
-          <p style="margin: 0 0 8px 0; color: #333333; font-size: 14px; font-weight: 600;">
-            Message:
-          </p>
-          <p style="margin: 0; color: #666666; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">
-            ${safeMessage}
-          </p>
-        </div>
-      ` : ""}
     </div>
     
-    <div style="background-color: #e7f3ff; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 3px solid #29c4a9;">
-      <p style="margin: 0; color: #004085; font-size: 14px; line-height: 1.5; font-weight: 600;">
-        Review this request in your dashboard
+    ${safeMessage ? `
+      <div style="background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 3px solid #29c4a9;">
+        <p style="margin: 0 0 8px 0; color: #333333; font-size: 14px; font-weight: 600;">
+          Your Message:
+        </p>
+        <p style="margin: 0; color: #666666; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">
+          ${safeMessage}
+        </p>
+      </div>
+    ` : ""}
+    
+    <div style="background-color: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 3px solid #ffc107;">
+      <p style="margin: 0; color: #856404; font-size: 14px; line-height: 1.5;">
+        <strong>Note:</strong> This is a booking request. The business may confirm or propose a new time.
       </p>
     </div>
     
     <p style="margin: 20px 0 0 0; color: #666666; font-size: 14px; line-height: 1.5;">
-      Please log in to your OBD dashboard to review and respond to this request.
+      We will review your request and get back to you shortly.
     </p>
   `;
 
   const html = generateEmailLayout(businessName, bodyContent);
-  const subject = `New Booking Request Received - ${businessName}`;
+  const subject = `Booking Request Received - ${businessName}`;
   const text = htmlToText(html);
 
   return { subject, html, text };

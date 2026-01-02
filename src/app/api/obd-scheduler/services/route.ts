@@ -13,6 +13,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
   BookingService,
   CreateServiceRequest,
@@ -122,9 +123,9 @@ export async function POST(request: NextRequest) {
     const service = await prisma.bookingService.create({
       data: {
         businessId,
-        name: body.name.trim(),
+        name: sanitizeSingleLine(body.name),
         durationMinutes: body.durationMinutes,
-        description: body.description?.trim() || null,
+        description: body.description ? sanitizeText(body.description) : null,
         active: body.active ?? true,
       },
     });

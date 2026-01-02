@@ -13,6 +13,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
   BookingService,
   UpdateServiceRequest,
@@ -98,7 +99,7 @@ export async function PATCH(
     const updateData: any = {};
 
     if (body.name !== undefined) {
-      updateData.name = body.name.trim();
+      updateData.name = sanitizeSingleLine(body.name);
     }
 
     if (body.durationMinutes !== undefined) {
@@ -106,7 +107,7 @@ export async function PATCH(
     }
 
     if (body.description !== undefined) {
-      updateData.description = body.description?.trim() || null;
+      updateData.description = body.description ? sanitizeText(body.description) : null;
     }
 
     if (body.active !== undefined) {

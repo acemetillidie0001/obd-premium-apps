@@ -47,7 +47,7 @@ export async function sendCustomerRequestConfirmationEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     if (!service) {
@@ -101,7 +101,7 @@ export async function sendBusinessRequestNotificationEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     if (!service) {
@@ -152,7 +152,7 @@ export async function sendRequestApprovedEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     const subject = `Booking Approved - ${businessName || "Business"}`;
@@ -209,7 +209,7 @@ export async function sendRequestDeclinedEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     const subject = `Booking Request Update - ${businessName || "Business"}`;
@@ -272,7 +272,7 @@ export async function sendProposedTimeEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     const subject = `New Time Proposed for Your Booking - ${businessName || "Business"}`;
@@ -335,7 +335,7 @@ export async function sendBookingCompletedEmail(
 
   try {
     // Lazy-load Resend client (only called when function is invoked)
-    const resend = getResendClient();
+    const resend = await getResendClient();
     const from = getEmailFrom();
 
     const subject = `Thank You for Your Booking - ${businessName || "Business"}`;

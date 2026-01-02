@@ -92,6 +92,7 @@ export default function PublicBookingPage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
+  const [calendarWarning, setCalendarWarning] = useState<string | null>(null);
 
   // Load business context
   useEffect(() => {

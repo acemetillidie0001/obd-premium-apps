@@ -4,11 +4,12 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
+import { ErrorBoundary } from "@/components/obd/ErrorBoundary";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import type { BookingService, CreateBookingRequestRequest } from "@/lib/apps/obd-scheduler/types";
 
-export default function OBDSchedulerPublicPage() {
+function OBDSchedulerPublicPageContent() {
   const searchParams = useSearchParams();
   const bookingKey = searchParams.get("key");
 
@@ -461,6 +462,18 @@ export default function OBDSchedulerPublicPage() {
         </form>
       </OBDPanel>
     </OBDPageContainer>
+  );
+}
+
+export default function OBDSchedulerPublicPage() {
+  return (
+    <ErrorBoundary
+      fallbackTitle="Something went wrong"
+      fallbackMessage="We encountered an error loading the booking form. Please try again or contact the business directly."
+      showHomeLink={false}
+    >
+      <OBDSchedulerPublicPageContent />
+    </ErrorBoundary>
   );
 }
 

@@ -5,6 +5,7 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDToast from "@/components/obd/OBDToast";
+import type { OBDToastItem, OBDToastType } from "@/components/obd/toastTypes";
 import { ErrorBoundary } from "@/components/obd/ErrorBoundary";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -20,11 +21,14 @@ import type {
   AvailabilityData,
   BookingTheme,
   UpdateBookingThemeRequest,
+  BookingRequestAuditLog,
+  SchedulerMetrics,
+  MetricsRange,
 } from "@/lib/apps/obd-scheduler/types";
 import { BookingStatus, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { assertNever } from "@/lib/dev/assertNever";
 
-type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings";
+type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings" | "metrics";
 type RequestView = "needs-action" | "upcoming" | "past-due" | "completed" | "declined" | "all";
 type RequestSort = "newest-first" | "oldest-first" | "soonest-appointment" | "recently-updated";
 
@@ -39,7 +43,55 @@ function OBDSchedulerPageContent() {
   // Will be updated from localStorage in useEffect after hydration
   const [activeTab, setActiveTab] = useState<SchedulerTab>("requests");
 
+  // Requests tab state (needed for storage key prefix)
+  const [requests, setRequests] = useState<BookingRequest[]>([]);
+  
+  // P2-10: Generate storage key prefix from businessId (extracted from requests)
+  // Since all requests belong to the same business, we use the first request's businessId
+  const getStorageKeyPrefix = (): string => {
+    if (requests.length > 0 && requests[0].businessId) {
+      // Use businessId as namespace prefix
+      return `obd:scheduler:${requests[0].businessId}:`;
+    }
+    // Fallback to default prefix if no requests loaded yet (migration will happen on first load)
+    return "obd:scheduler:";
+  };
+
+  // P2-10: Helper to migrate old localStorage keys to namespaced keys
+  const migrateStorageKey = (oldKey: string, newKey: string, setter: (value: any) => void, validator?: (value: any) => boolean) => {
+    try {
+      const oldValue = localStorage.getItem(oldKey);
+      const newValue = localStorage.getItem(newKey);
+      
+      // If new key exists, use it
+      if (newValue !== null) {
+        if (validator && validator(newValue)) {
+          setter(newValue);
+        } else if (!validator) {
+          setter(newValue);
+        }
+        return;
+      }
+      
+      // If old key exists and new key doesn't, migrate it
+      if (oldValue !== null) {
+        if (validator && validator(oldValue)) {
+          localStorage.setItem(newKey, oldValue);
+          setter(oldValue);
+          // Optionally remove old key after migration (commented out for safety)
+          // localStorage.removeItem(oldKey);
+        } else if (!validator) {
+          localStorage.setItem(newKey, oldValue);
+          setter(oldValue);
+        }
+      }
+    } catch (error) {
+      console.warn(`[Storage Migration] Error migrating ${oldKey} to ${newKey}:`, error);
+    }
+  };
+
   // Load theme, activeTab, and activeView from localStorage after hydration
+  // P2-10: These keys will be migrated to namespaced keys when requests load
   useEffect(() => {
     const savedTheme = localStorage.getItem("obd:scheduler:theme");
     if (savedTheme === "dark" || savedTheme === "light") {
@@ -47,7 +99,7 @@ function OBDSchedulerPageContent() {
     }
     
     const savedTab = localStorage.getItem("obd:scheduler:activeTab");
-    if (savedTab === "requests" || savedTab === "services" || savedTab === "availability" || savedTab === "branding" || savedTab === "settings") {
+    if (savedTab === "requests" || savedTab === "services" || savedTab === "availability" || savedTab === "branding" || savedTab === "settings" || savedTab === "metrics") {
       setActiveTab(savedTab as SchedulerTab);
     }
     
@@ -57,18 +109,26 @@ function OBDSchedulerPageContent() {
     }
   }, []);
 
-  // Save activeTab to localStorage when it changes
+  // P2-10: Save activeTab to namespaced localStorage key
   useEffect(() => {
-    localStorage.setItem("obd:scheduler:activeTab", activeTab);
-  }, [activeTab]);
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}activeTab`, activeTab);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [activeTab, requests]);
 
-  // Save theme to localStorage when it changes
+  // P2-10: Save theme to namespaced localStorage key
   useEffect(() => {
-    localStorage.setItem("obd:scheduler:theme", theme);
-  }, [theme]);
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}theme`, theme);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [theme, requests]);
 
-  // Requests tab state
-  const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
   const [showRequestDetail, setShowRequestDetail] = useState(false);
   const [requestsLoading, setRequestsLoading] = useState(false);
@@ -83,20 +143,48 @@ function OBDSchedulerPageContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 25;
 
-  // Save activeView to localStorage when it changes
+  // P2-4: Load sortBy from localStorage after hydration
   useEffect(() => {
-    localStorage.setItem("obd:scheduler:activeView", activeView);
-  }, [activeView]);
+    try {
+      const savedSortBy = localStorage.getItem("obd:scheduler:sortBy");
+      if (savedSortBy && ["newest-first", "oldest-first", "soonest-appointment", "recently-updated"].includes(savedSortBy)) {
+        setSortBy(savedSortBy as RequestSort);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }, []);
+
+  // P2-10: Save activeView to namespaced localStorage key
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}activeView`, activeView);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [activeView, requests]);
+
+  // P2-4/P2-10: Save sortBy to namespaced localStorage key
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}sortBy`, sortBy);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [sortBy, requests]);
 
   // Reset to page 1 when filters/sort/showArchived changes
   useEffect(() => {
     setCurrentPage(1);
   }, [activeView, showArchived, sortBy]);
 
-  // Load archived IDs from localStorage after hydration
+  // P2-10: Load archived IDs from namespaced localStorage key
   useEffect(() => {
+    const prefix = getStorageKeyPrefix();
     try {
-      const savedArchived = localStorage.getItem("obd:scheduler:archivedIds");
+      const savedArchived = localStorage.getItem(`${prefix}archivedIds`);
       if (savedArchived) {
         const ids = JSON.parse(savedArchived) as string[];
         if (Array.isArray(ids)) {
@@ -106,16 +194,49 @@ function OBDSchedulerPageContent() {
     } catch {
       // Ignore parse errors
     }
-  }, []);
+  }, [requests]);
 
-  // Save archived IDs to localStorage when they change
+  // P2-10: Save archived IDs to namespaced localStorage key
   useEffect(() => {
+    const prefix = getStorageKeyPrefix();
     try {
-      localStorage.setItem("obd:scheduler:archivedIds", JSON.stringify(Array.from(archivedIds)));
+      localStorage.setItem(`${prefix}archivedIds`, JSON.stringify(Array.from(archivedIds)));
     } catch {
       // Ignore storage errors
     }
-  }, [archivedIds]);
+  }, [archivedIds, requests]);
+
+  // P1-6/P2-10: Cross-tab sync for archive state and activeView/sortBy (using namespaced keys)
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    
+    const handleStorageChange = (e: StorageEvent) => {
+      // Only react to changes from other tabs/windows for namespaced keys
+      if (e.key === `${prefix}archivedIds` && e.newValue) {
+        try {
+          const ids = JSON.parse(e.newValue) as string[];
+          if (Array.isArray(ids)) {
+            setArchivedIds(new Set(ids));
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      } else if (e.key === `${prefix}activeView` && e.newValue) {
+        if (["needs-action", "upcoming", "past-due", "completed", "declined", "all"].includes(e.newValue)) {
+          setActiveView(e.newValue as RequestView);
+        }
+      } else if (e.key === `${prefix}sortBy` && e.newValue) {
+        if (["newest-first", "oldest-first", "soonest-appointment", "recently-updated"].includes(e.newValue)) {
+          setSortBy(e.newValue as RequestSort);
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [requests]);
 
   // Archive/unarchive functions (Archive/Hide - Tier 5.7F)
   const archiveRequest = (requestId: string) => {
@@ -143,9 +264,13 @@ function OBDSchedulerPageContent() {
   });
   const [proposeErrors, setProposeErrors] = useState<Record<string, string>>({});
   const [showDeclineConfirm, setShowDeclineConfirm] = useState<string | null>(null);
+  const [showReactivateConfirm, setShowReactivateConfirm] = useState<string | null>(null);
   const [showCompleteModal, setShowCompleteModal] = useState<string | null>(null);
   const [completeNotes, setCompleteNotes] = useState("");
   const [completeErrors, setCompleteErrors] = useState<Record<string, string>>({});
+  const [showHistoryModal, setShowHistoryModal] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<BookingRequestAuditLog[]>([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   // Bulk actions state (Bulk Actions - Tier 5.7E)
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
   const [showBulkDeclineConfirm, setShowBulkDeclineConfirm] = useState(false);
@@ -191,6 +316,12 @@ function OBDSchedulerPageContent() {
   const [bookingTheme, setBookingTheme] = useState<BookingTheme | null>(null);
   const [themeLoading, setThemeLoading] = useState(false);
   const [themeError, setThemeError] = useState("");
+
+  // Metrics tab state
+  const [metrics, setMetrics] = useState<SchedulerMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState("");
+  const [metricsRange, setMetricsRange] = useState<MetricsRange>("30d");
   const [themeForm, setThemeForm] = useState<UpdateBookingThemeRequest>({
     logoUrl: "",
     primaryColor: "#29c4a9",
@@ -205,8 +336,8 @@ function OBDSchedulerPageContent() {
   const [savingTheme, setSavingTheme] = useState(false);
   const [savingService, setSavingService] = useState(false);
 
-  // Toast queue state
-  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: "success" | "error" }>>([]);
+  // Toast queue state - P1-23: Standardized toast structure
+  const [toasts, setToasts] = useState<OBDToastItem[]>([]);
 
   // Validation state
   const [settingsErrors, setSettingsErrors] = useState<Record<string, string>>({});
@@ -220,11 +351,13 @@ function OBDSchedulerPageContent() {
     bulkDecline: useRef<HTMLDivElement>(null),
     complete: useRef<HTMLDivElement>(null),
     decline: useRef<HTMLDivElement>(null),
+    reactivate: useRef<HTMLDivElement>(null),
+    history: useRef<HTMLDivElement>(null),
   };
 
   // Focus trap and restoration for modals
   useEffect(() => {
-    const anyModalOpen = showProposeModal || showServiceModal || showBulkDeclineConfirm || showCompleteModal || showDeclineConfirm;
+    const anyModalOpen = showProposeModal || showServiceModal || showBulkDeclineConfirm || showCompleteModal || showDeclineConfirm || showReactivateConfirm || showHistoryModal;
     
     if (anyModalOpen) {
       // Store the previously focused element
@@ -237,7 +370,9 @@ function OBDSchedulerPageContent() {
           (showServiceModal && modalRefs.service.current) ||
           (showBulkDeclineConfirm && modalRefs.bulkDecline.current) ||
           (showCompleteModal && modalRefs.complete.current) ||
-          (showDeclineConfirm && modalRefs.decline.current);
+          (showDeclineConfirm && modalRefs.decline.current) ||
+          (showReactivateConfirm && modalRefs.reactivate.current) ||
+          (showHistoryModal && modalRefs.history.current);
         
         if (modalContainer) {
           const firstFocusable = modalContainer.querySelector(
@@ -251,7 +386,7 @@ function OBDSchedulerPageContent() {
       previousActiveElement.focus();
       setPreviousActiveElement(null);
     }
-  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm]);
+  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm, showReactivateConfirm, showHistoryModal]);
 
   // Handle Escape key to close modals
   useEffect(() => {
@@ -273,27 +408,42 @@ function OBDSchedulerPageContent() {
           setCompleteErrors({});
         } else if (showDeclineConfirm) {
           setShowDeclineConfirm(null);
+        } else if (showReactivateConfirm) {
+          setShowReactivateConfirm(null);
+        } else if (showHistoryModal) {
+          setShowHistoryModal(null);
+          setAuditLogs([]);
         }
       }
     };
 
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm]);
+  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm, showReactivateConfirm, showHistoryModal]);
 
-  // Persist theme to localStorage
+  // P2-10: Persist theme to namespaced localStorage key (duplicate for backward compat, will be removed)
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("obd:scheduler:theme", theme);
+      const prefix = getStorageKeyPrefix();
+      try {
+        localStorage.setItem(`${prefix}theme`, theme);
+      } catch {
+        // Ignore storage errors
+      }
     }
-  }, [theme]);
+  }, [theme, requests]);
 
-  // Persist activeTab to localStorage
+  // P2-10: Persist activeTab to namespaced localStorage key (duplicate for backward compat, will be removed)
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("obd:scheduler:activeTab", activeTab);
+      const prefix = getStorageKeyPrefix();
+      try {
+        localStorage.setItem(`${prefix}activeTab`, activeTab);
+      } catch {
+        // Ignore storage errors
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, requests]);
 
   // Load requests (fetch all, filtering done client-side)
   const loadRequests = useCallback(async () => {
@@ -305,7 +455,83 @@ function OBDSchedulerPageContent() {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Failed to load requests");
       }
-      setRequests(data.data.requests || []);
+      const loadedRequests = data.data.requests || [];
+      setRequests(loadedRequests);
+      
+      // P2-10: Migrate localStorage keys to namespaced keys after requests load
+      if (loadedRequests.length > 0 && loadedRequests[0].businessId) {
+        const prefix = `obd:scheduler:${loadedRequests[0].businessId}:`;
+        
+        // Migrate theme
+        migrateStorageKey(
+          "obd:scheduler:theme",
+          `${prefix}theme`,
+          (value) => {
+            if (value === "dark" || value === "light") setTheme(value);
+          },
+          (value) => value === "dark" || value === "light"
+        );
+        
+        // Migrate activeTab
+        migrateStorageKey(
+          "obd:scheduler:activeTab",
+          `${prefix}activeTab`,
+          (value) => {
+            if (["requests", "services", "availability", "branding", "settings"].includes(value)) {
+              setActiveTab(value as SchedulerTab);
+            }
+          },
+          (value) => ["requests", "services", "availability", "branding", "settings"].includes(value)
+        );
+        
+        // Migrate activeView
+        migrateStorageKey(
+          "obd:scheduler:activeView",
+          `${prefix}activeView`,
+          (value) => {
+            if (["needs-action", "upcoming", "past-due", "completed", "declined", "all"].includes(value)) {
+              setActiveView(value as RequestView);
+            }
+          },
+          (value) => ["needs-action", "upcoming", "past-due", "completed", "declined", "all"].includes(value)
+        );
+        
+        // Migrate sortBy
+        migrateStorageKey(
+          "obd:scheduler:sortBy",
+          `${prefix}sortBy`,
+          (value) => {
+            if (["newest-first", "oldest-first", "soonest-appointment", "recently-updated"].includes(value)) {
+              setSortBy(value as RequestSort);
+            }
+          },
+          (value) => ["newest-first", "oldest-first", "soonest-appointment", "recently-updated"].includes(value)
+        );
+        
+        // Migrate archivedIds
+        migrateStorageKey(
+          "obd:scheduler:archivedIds",
+          `${prefix}archivedIds`,
+          (value) => {
+            try {
+              const ids = JSON.parse(value) as string[];
+              if (Array.isArray(ids)) {
+                setArchivedIds(new Set(ids));
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          },
+          (value) => {
+            try {
+              JSON.parse(value);
+              return true;
+            } catch {
+              return false;
+            }
+          }
+        );
+      }
     } catch (error) {
       console.error("Error loading requests:", error);
       setRequestsError(error instanceof Error ? error.message : "Failed to load requests");
@@ -453,21 +679,26 @@ function OBDSchedulerPageContent() {
       loadTheme();
     } else if (activeTab === "settings") {
       loadSettings();
+    } else if (activeTab === "metrics") {
+      // Metrics are loaded via useEffect when tab is active
+      // No initial load needed here
     } else {
       assertNever(activeTab, "Unhandled tab case");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, loadRequests]);
 
-  // Notification helper - adds to toast queue
-  const showNotification = (message: string, type: "success" | "error" = "success") => {
+  // P1-23: Notification helper - adds to toast queue with standardized structure
+  const showNotification = (message: string, type: OBDToastType = "success") => {
     const id = `${Date.now()}-${Math.random()}`;
-    setToasts((prev) => [...prev.slice(-2), { id, message, type }]); // Keep max 3 toasts
+    const createdAt = Date.now();
+    setToasts((prev) => [...prev.slice(-2), { id, message, type, createdAt }]); // Keep max 3 toasts
     
-    // Auto-dismiss after 3 seconds
+    // Auto-dismiss after 3 seconds (or 5 seconds for info/warning)
+    const dismissDelay = type === "info" || type === "warning" ? 5000 : 3000;
     setTimeout(() => {
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 3000);
+    }, dismissDelay);
   };
 
   // Validation functions
@@ -525,13 +756,48 @@ function OBDSchedulerPageContent() {
   // Perform action on booking request (Tier 5.3B)
   const performRequestAction = async (
     requestId: string,
-    action: "approve" | "propose" | "decline" | "complete",
+    action: "approve" | "propose" | "decline" | "complete" | "reactivate",
     actionData?: { proposedStart?: string; proposedEnd?: string; internalNotes?: string | null }
   ) => {
     // Prevent double submits
     if (actionLoading[requestId]) return;
     
     setActionLoading((prev) => ({ ...prev, [requestId]: true }));
+
+    // P1-5: Optimistic update - store previous state for rollback
+    const previousRequest = requests.find((r) => r.id === requestId);
+    if (!previousRequest) {
+      setActionLoading((prev) => {
+        const next = { ...prev };
+        delete next[requestId];
+        return next;
+      });
+      return;
+    }
+
+    // P1-5: Optimistically update state based on action (only for status-changing actions)
+    if (action !== "propose") {
+      let optimisticStatus: BookingStatus;
+      if (action === "approve") {
+        optimisticStatus = BookingStatus.APPROVED;
+      } else if (action === "decline") {
+        optimisticStatus = BookingStatus.DECLINED;
+      } else if (action === "reactivate") {
+        optimisticStatus = BookingStatus.REQUESTED;
+      } else {
+        optimisticStatus = BookingStatus.COMPLETED; // complete
+      }
+
+      const optimisticRequest: BookingRequest = {
+        ...previousRequest,
+        status: optimisticStatus,
+        updatedAt: new Date().toISOString(),
+      };
+      setRequests((prev) => prev.map((r) => (r.id === requestId ? optimisticRequest : r)));
+      if (selectedRequest?.id === requestId) {
+        setSelectedRequest(optimisticRequest);
+      }
+    }
 
     try {
       const res = await fetch(`/api/obd-scheduler/requests/${requestId}/action`, {
@@ -549,7 +815,7 @@ function OBDSchedulerPageContent() {
         throw new Error(data.error || `Failed to ${action} request`);
       }
 
-      // Update request in local state
+      // Update request in local state with server response
       const updatedRequest = data.data as BookingRequest;
       setRequests((prev) =>
         prev.map((r) => (r.id === requestId ? updatedRequest : r))
@@ -569,6 +835,8 @@ function OBDSchedulerPageContent() {
         showNotification("Booking declined", "success");
       } else if (action === "complete") {
         showNotification("Booking marked as complete", "success");
+      } else if (action === "reactivate") {
+        showNotification("Request reactivated", "success");
       }
 
       // Close modals
@@ -578,6 +846,12 @@ function OBDSchedulerPageContent() {
       setProposeErrors({});
       setShowDeclineConfirm(null);
     } catch (error) {
+      // P1-5: Revert optimistic update on error
+      setRequests((prev) => prev.map((r) => (r.id === requestId ? previousRequest : r)));
+      if (selectedRequest?.id === requestId) {
+        setSelectedRequest(previousRequest);
+      }
+
       console.error(`Error performing ${action} action:`, error);
       const errorMessage = error instanceof Error ? error.message : `Failed to ${action} request`;
       showNotification(errorMessage, "error");
@@ -647,6 +921,70 @@ function OBDSchedulerPageContent() {
     await performRequestAction(requestId, "decline");
   };
 
+  // Handle reactivate action
+  const handleReactivate = async (requestId: string) => {
+    await performRequestAction(requestId, "reactivate");
+    setShowReactivateConfirm(null);
+  };
+
+  // Fetch audit log for a request
+  const fetchAuditLog = async (requestId: string) => {
+    setAuditLogsLoading(true);
+    try {
+      const res = await fetch(`/api/obd-scheduler/requests/${requestId}/audit`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to fetch audit log");
+      }
+      setAuditLogs(data.data as BookingRequestAuditLog[]);
+    } catch (error) {
+      console.error("Error fetching audit log:", error);
+      showNotification(
+        error instanceof Error ? error.message : "Failed to fetch audit log",
+        "error"
+      );
+      setAuditLogs([]);
+    } finally {
+      setAuditLogsLoading(false);
+    }
+  };
+
+  // Handle history button click
+  const handleHistoryClick = (requestId: string) => {
+    setShowHistoryModal(requestId);
+    fetchAuditLog(requestId);
+  };
+
+  // Fetch metrics
+  const fetchMetrics = async (range: MetricsRange) => {
+    setMetricsLoading(true);
+    setMetricsError("");
+    try {
+      const res = await fetch(`/api/obd-scheduler/metrics?range=${range}`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to fetch metrics");
+      }
+      setMetrics(data.data as SchedulerMetrics);
+    } catch (error) {
+      console.error("Error fetching metrics:", error);
+      setMetricsError(
+        error instanceof Error ? error.message : "Failed to fetch metrics"
+      );
+      setMetrics(null);
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
+  // Load metrics when tab is active or range changes
+  useEffect(() => {
+    if (activeTab === "metrics") {
+      fetchMetrics(metricsRange);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, metricsRange]);
+
   // Bulk actions (Bulk Actions - Tier 5.7E)
   const toggleRequestSelection = (requestId: string) => {
     setSelectedRequestIds((prev) => {
@@ -694,6 +1032,8 @@ function OBDSchedulerPageContent() {
     setBulkDeclineLoading(true);
     let declinedCount = 0;
     let errorCount = 0;
+    // P1-4: Collect failed requests with error details
+    const failedRequests: Array<{ id: string; customerName: string; error: string }> = [];
 
     try {
       // Decline each request sequentially using existing single-decline logic
@@ -704,11 +1044,16 @@ function OBDSchedulerPageContent() {
         } catch (error) {
           console.error(`Error declining request ${requestId}:`, error);
           errorCount++;
+          // P1-4: Collect failed request details
+          const request = requests.find((r) => r.id === requestId);
+          const customerName = request?.customerName || "Unknown";
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          failedRequests.push({ id: requestId, customerName, error: errorMessage });
           // Continue with next request even if one fails
         }
       }
 
-      // Show notification with counts
+      // P1-4: Show detailed notification with failed request info
       const parts: string[] = [];
       if (declinedCount > 0) {
         parts.push(`Declined ${declinedCount} request${declinedCount !== 1 ? "s" : ""}`);
@@ -718,12 +1063,22 @@ function OBDSchedulerPageContent() {
       }
       if (errorCount > 0) {
         parts.push(`${errorCount} failed`);
+        // P1-4: Add details about failed requests (compact format)
+        if (failedRequests.length > 0) {
+          const failedDetails = failedRequests.slice(0, 3).map((f) => {
+            // Show customer name and short error (truncate if needed)
+            const shortError = f.error.length > 30 ? f.error.substring(0, 27) + "..." : f.error;
+            return `${f.customerName}: ${shortError}`;
+          }).join("; ");
+          const moreText = failedRequests.length > 3 ? ` (and ${failedRequests.length - 3} more)` : "";
+          parts.push(`Failed: ${failedDetails}${moreText}`);
+        }
       }
 
       if (declinedCount > 0) {
-        showNotification(parts.join(", "), "success");
+        showNotification(parts.join(". "), errorCount > 0 ? "error" : "success");
       } else {
-        showNotification(parts.join(", "), "error");
+        showNotification(parts.join(". "), "error");
       }
 
       // Clear selection after success (even if some failed, we still clear)
@@ -894,12 +1249,16 @@ function OBDSchedulerPageContent() {
     }
   };
 
-  // CSV Export (Tier 5.7I)
-  const exportToCSV = () => {
+  // P1-18/P2-3: CSV Export (non-blocking with chunked processing)
+  const exportToCSV = async () => {
     if (sortedRequests.length === 0) {
       showNotification("No requests to export", "error");
       return;
     }
+
+    // Show progress notification
+    const progressToastId = `csv-export-${Date.now()}`;
+    showNotification("Preparing CSV...", "info");
 
     // CSV escaping helper - wraps field in quotes if needed and escapes quotes
     const escapeCSVField = (field: string | null | undefined): string => {
@@ -934,45 +1293,67 @@ function OBDSchedulerPageContent() {
       "createdAt",
     ];
 
-    // Build CSV rows
-    const rows = sortedRequests.map((request) => {
-      return [
-        escapeCSVField(request.customerName),
-        escapeCSVField(request.customerEmail),
-        escapeCSVField(request.customerPhone),
-        escapeCSVField(request.service?.name || ""),
-        escapeCSVField(request.status),
-        formatDateForCSV(request.preferredStart),
-        formatDateForCSV(request.proposedStart),
-        formatDateForCSV(request.createdAt),
-      ];
-    });
+    try {
+      // P1-18/P2-3: Process rows in chunks to avoid blocking UI
+      const CHUNK_SIZE = 100; // Process 100 rows at a time
+      const totalRows = sortedRequests.length;
+      const rows: string[] = [];
 
-    // Combine header and rows
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((row) => row.join(",")),
-    ].join("\n");
+      // Process chunks asynchronously
+      for (let i = 0; i < totalRows; i += CHUNK_SIZE) {
+        const chunk = sortedRequests.slice(i, i + CHUNK_SIZE);
+        
+        // Process chunk
+        const chunkRows = chunk.map((request) => {
+          return [
+            escapeCSVField(request.customerName),
+            escapeCSVField(request.customerEmail),
+            escapeCSVField(request.customerPhone),
+            escapeCSVField(request.service?.name || ""),
+            escapeCSVField(request.status),
+            formatDateForCSV(request.preferredStart),
+            formatDateForCSV(request.proposedStart),
+            formatDateForCSV(request.createdAt),
+          ].join(",");
+        });
+        
+        rows.push(...chunkRows);
 
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    
-    // Generate filename with current date
-    const today = new Date();
-    const dateStr = today.toISOString().split("T")[0]; // YYYY-MM-DD
-    const filename = `obd-booking-requests-${dateStr}.csv`;
-    
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+        // Yield to browser between chunks
+        if (i + CHUNK_SIZE < totalRows) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
 
-    showNotification(`Exported ${sortedRequests.length} request(s) to CSV`);
+      // Combine header and rows
+      const csvContent = [
+        headers.join(","),
+        ...rows,
+      ].join("\n");
+
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      
+      // Generate filename with current date
+      const today = new Date();
+      const dateStr = today.toISOString().split("T")[0]; // YYYY-MM-DD
+      const filename = `obd-booking-requests-${dateStr}.csv`;
+      
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showNotification(`Exported ${totalRows} request(s) to CSV`, "success");
+    } catch (error) {
+      console.error("Error exporting CSV:", error);
+      showNotification("Export failed. Please try again.", "error");
+    }
   };
 
   // Get status badge color (updated per requirements)
@@ -1132,13 +1513,22 @@ function OBDSchedulerPageContent() {
     }
   };
 
-  // Check if all visible selectable requests on current page are selected
-  const visibleSelectableRequests = paginatedRequests.filter((r) => r.status !== "DECLINED");
-  const selectedVisibleCount = visibleSelectableRequests.filter((r) =>
-    selectedRequestIds.has(r.id)
-  ).length;
-  const allVisibleSelected = visibleSelectableRequests.length > 0 && selectedVisibleCount === visibleSelectableRequests.length;
-  const someVisibleSelected = selectedVisibleCount > 0 && selectedVisibleCount < visibleSelectableRequests.length;
+  // P2-11: Memoize computed selection values to avoid unnecessary re-renders
+  const visibleSelectableRequests = useMemo(() => {
+    return paginatedRequests.filter((r) => r.status !== "DECLINED");
+  }, [paginatedRequests]);
+
+  const selectedVisibleCount = useMemo(() => {
+    return visibleSelectableRequests.filter((r) => selectedRequestIds.has(r.id)).length;
+  }, [visibleSelectableRequests, selectedRequestIds]);
+
+  const allVisibleSelected = useMemo(() => {
+    return visibleSelectableRequests.length > 0 && selectedVisibleCount === visibleSelectableRequests.length;
+  }, [visibleSelectableRequests.length, selectedVisibleCount]);
+
+  const someVisibleSelected = useMemo(() => {
+    return selectedVisibleCount > 0 && selectedVisibleCount < visibleSelectableRequests.length;
+  }, [selectedVisibleCount, visibleSelectableRequests.length]);
 
   // Calculate eligible IDs for bulk decline (Tier 5.7E step 4 - guardrail)
   const eligibleSelectedIds = Array.from(selectedRequestIds).filter((id) => {
@@ -1166,7 +1556,7 @@ function OBDSchedulerPageContent() {
         ))}
       </div>
       {/* Tabs */}
-      <OBDPanel isDark={isDark} className="mb-6" variant="toolbar">
+      <OBDPanel isDark={isDark} className="mb-6">
         <div
           role="tablist"
           aria-label="Scheduler sections"
@@ -1178,6 +1568,7 @@ function OBDSchedulerPageContent() {
             { id: "availability" as SchedulerTab, label: "Availability" },
             { id: "branding" as SchedulerTab, label: "Branding" },
             { id: "settings" as SchedulerTab, label: "Settings" },
+            { id: "metrics" as SchedulerTab, label: "Metrics" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -2084,6 +2475,188 @@ function OBDSchedulerPageContent() {
       )}
       {/* ===== TAB: SETTINGS (end) ===== */}
 
+      {/* ===== TAB: METRICS (start) ===== */}
+      {activeTab === "metrics" && (
+        <OBDPanel isDark={isDark}>
+          <div className="flex items-center justify-between mb-6" data-testid="metrics-container">
+            <OBDHeading level={2} isDark={isDark}>Business Metrics</OBDHeading>
+            <div className="flex items-center gap-2">
+              <label className={`text-sm ${themeClasses.mutedText}`}>Range:</label>
+              <select
+                value={metricsRange}
+                onChange={(e) => setMetricsRange(e.target.value as MetricsRange)}
+                className={getInputClasses(isDark, "text-sm")}
+              >
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+              </select>
+            </div>
+          </div>
+
+          {metricsError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{metricsError}</p>
+            </div>
+          )}
+
+          {metricsLoading ? (
+            <div className="py-8 text-center">
+              <p className={themeClasses.mutedText}>Loading metrics...</p>
+            </div>
+          ) : metrics ? (
+            <div className="space-y-6">
+              {/* Headline Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm ${themeClasses.mutedText} mb-1`}>Total Requests</p>
+                  <p className={`text-2xl font-bold ${themeClasses.headingText}`}>{metrics.totalRequests}</p>
+                </div>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm ${themeClasses.mutedText} mb-1`}>Conversion Rate</p>
+                  <p className={`text-2xl font-bold ${themeClasses.headingText}`}>{metrics.conversionRate.toFixed(1)}%</p>
+                </div>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm ${themeClasses.mutedText} mb-1`}>Approved</p>
+                  <p className={`text-2xl font-bold ${themeClasses.headingText}`}>{metrics.requestsByStatus.APPROVED || 0}</p>
+                </div>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm ${themeClasses.mutedText} mb-1`}>Declined</p>
+                  <p className={`text-2xl font-bold ${themeClasses.headingText}`}>{metrics.requestsByStatus.DECLINED || 0}</p>
+                </div>
+              </div>
+
+              {/* Response Times */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm font-medium mb-2 ${themeClasses.headingText}`}>Median Time to First Response</p>
+                  <p className={`text-xl ${themeClasses.mutedText}`}>
+                    {metrics.medianTimeToFirstResponse !== null 
+                      ? `${metrics.medianTimeToFirstResponse} minutes`
+                      : "N/A"}
+                  </p>
+                </div>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm font-medium mb-2 ${themeClasses.headingText}`}>Median Time to Approval</p>
+                  <p className={`text-xl ${themeClasses.mutedText}`}>
+                    {metrics.medianTimeToApproval !== null 
+                      ? `${metrics.medianTimeToApproval} minutes`
+                      : "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Breakdown */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Requests by Status</h3>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="space-y-2">
+                    {Object.entries(metrics.requestsByStatus).map(([status, count]) => (
+                      <div key={status} className="flex items-center justify-between">
+                        <span className={`text-sm ${themeClasses.mutedText}`}>{status}</span>
+                        <span className={`text-sm font-medium ${themeClasses.headingText}`}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Service Popularity */}
+              {metrics.servicePopularity.length > 0 && (
+                <div>
+                  <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Service Popularity</h3>
+                  <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    <div className="space-y-2">
+                      {metrics.servicePopularity.slice(0, 5).map((service: { serviceId: string; serviceName: string; count: number }) => {
+                        const maxCount = metrics.servicePopularity[0]?.count || 1;
+                        const percentage = (service.count / maxCount) * 100;
+                        return (
+                          <div key={service.serviceId}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-sm ${themeClasses.mutedText}`}>{service.serviceName}</span>
+                              <span className={`text-sm font-medium ${themeClasses.headingText}`}>{service.count}</span>
+                            </div>
+                            <div className={`h-2 rounded-full ${isDark ? "bg-slate-700" : "bg-slate-200"}`}>
+                              <div
+                                className={`h-full rounded-full ${isDark ? "bg-[#29c4a9]" : "bg-[#29c4a9]"}`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Peak Hours Chart */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Peak Hours</h3>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="grid grid-cols-12 gap-1">
+                    {metrics.peakHours.map(({ hour, count }: { hour: number; count: number }) => {
+                      const maxCount = Math.max(...metrics.peakHours.map((h: { hour: number; count: number }) => h.count), 1);
+                      const height = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                      return (
+                        <div key={hour} className="flex flex-col items-center">
+                          <div className={`w-full rounded-t ${isDark ? "bg-[#29c4a9]" : "bg-[#29c4a9]"}`} style={{ height: `${Math.max(height, 5)}%`, minHeight: "4px" }} />
+                          <span className={`text-xs mt-1 ${themeClasses.mutedText}`}>{hour}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Peak Days Chart */}
+              <div>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Peak Days</h3>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="space-y-2">
+                    {metrics.peakDays.map(({ day, dayName, count }: { day: number; dayName: string; count: number }) => {
+                      const maxCount = Math.max(...metrics.peakDays.map((d: { day: number; dayName: string; count: number }) => d.count), 1);
+                      const percentage = (count / maxCount) * 100;
+                      return (
+                        <div key={day}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-sm ${themeClasses.mutedText}`}>{dayName}</span>
+                            <span className={`text-sm font-medium ${themeClasses.headingText}`}>{count}</span>
+                          </div>
+                          <div className={`h-2 rounded-full ${isDark ? "bg-slate-700" : "bg-slate-200"}`}>
+                            <div
+                              className={`h-full rounded-full ${isDark ? "bg-[#29c4a9]" : "bg-[#29c4a9]"}`}
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Additional Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm font-medium mb-1 ${themeClasses.headingText}`}>Cancellations</p>
+                  <p className={`text-2xl font-bold ${themeClasses.mutedText}`}>{metrics.cancellationCount}</p>
+                </div>
+                <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-sm font-medium mb-1 ${themeClasses.headingText}`}>Reactivations</p>
+                  <p className={`text-2xl font-bold ${themeClasses.mutedText}`}>{metrics.reactivateCount}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center">
+              <p className={themeClasses.mutedText}>No metrics available for this period.</p>
+            </div>
+          )}
+        </OBDPanel>
+      )}
+      {/* ===== TAB: METRICS (end) ===== */}
+
       {/* Request Detail Modal */}
       {showRequestDetail && selectedRequest && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -2374,7 +2947,41 @@ function OBDSchedulerPageContent() {
                     )}
                   </>
                 )}
-                {(selectedRequest.status === "COMPLETED" || selectedRequest.status === "DECLINED") && (
+                {selectedRequest.status === "DECLINED" && (
+                  <>
+                    <button
+                      onClick={() => setShowReactivateConfirm(selectedRequest.id)}
+                      disabled={actionLoading[selectedRequest.id]}
+                      className={`px-4 py-2 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isDark ? "bg-green-600 hover:bg-green-700 text-white" : "bg-green-500 hover:bg-green-600 text-white"
+                      }`}
+                    >
+                      {actionLoading[selectedRequest.id] ? "..." : "Reactivate"}
+                    </button>
+                    {archivedIds.has(selectedRequest.id) ? (
+                      <button
+                        onClick={() => unarchiveRequest(selectedRequest.id)}
+                        className={`px-4 py-2 rounded text-sm font-medium ${
+                          isDark ? "bg-slate-600 hover:bg-slate-500 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                        }`}
+                        aria-label="Unarchive request"
+                      >
+                        Unarchive
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => archiveRequest(selectedRequest.id)}
+                        className={`px-4 py-2 rounded text-sm font-medium ${
+                          isDark ? "bg-slate-600 hover:bg-slate-500 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-700"
+                        }`}
+                        aria-label="Archive request"
+                      >
+                        Archive
+                      </button>
+                    )}
+                  </>
+                )}
+                {selectedRequest.status === "COMPLETED" && (
                   <>
                     {archivedIds.has(selectedRequest.id) ? (
                       <button
@@ -2410,6 +3017,14 @@ function OBDSchedulerPageContent() {
                   }`}
                 >
                   Save Notes
+                </button>
+                <button
+                  onClick={() => handleHistoryClick(selectedRequest.id)}
+                  className={`px-4 py-2 rounded text-sm font-medium ${
+                    isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                  }`}
+                >
+                  History
                 </button>
               </div>
           </div>
@@ -2837,6 +3452,131 @@ function OBDSchedulerPageContent() {
                 {actionLoading[showCompleteModal] ? "Submitting..." : "Confirm"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reactivate Confirmation Dialog */}
+      {showReactivateConfirm && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reactivate-modal-title"
+        >
+          <div
+            ref={modalRefs.reactivate}
+            className={`rounded-xl border p-6 max-w-md w-full ${
+              isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <h3 id="reactivate-modal-title" className={`text-lg font-semibold mb-4 ${themeClasses.headingText}`}>
+              Confirm Reactivate
+            </h3>
+            <p className={`mb-6 ${themeClasses.mutedText}`}>
+              Reactivate this request and return it to Pending?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowReactivateConfirm(null)}
+                className={`flex-1 px-4 py-2 rounded font-medium ${
+                  isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  await handleReactivate(showReactivateConfirm);
+                }}
+                disabled={actionLoading[showReactivateConfirm] || false}
+                className={`flex-1 px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isDark ? "bg-green-600 hover:bg-green-700 text-white" : "bg-green-500 hover:bg-green-600 text-white"
+                }`}
+              >
+                {actionLoading[showReactivateConfirm] ? "Reactivating..." : "Yes, Reactivate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-modal-title"
+        >
+          <div
+            ref={modalRefs.history}
+            className={`rounded-xl border p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto ${
+              isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 id="history-modal-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Request History
+              </h3>
+              <button
+                onClick={() => {
+                  setShowHistoryModal(null);
+                  setAuditLogs([]);
+                }}
+                className={themeClasses.mutedText}
+                aria-label="Close history modal"
+              >
+                ✕
+              </button>
+            </div>
+            {auditLogsLoading ? (
+              <div className={`py-8 text-center ${themeClasses.mutedText}`}>Loading history...</div>
+            ) : auditLogs.length === 0 ? (
+              <div className={`py-8 text-center ${themeClasses.mutedText}`}>No history available</div>
+            ) : (
+              <div className="space-y-3">
+                {auditLogs.map((log) => {
+                  const date = new Date(log.createdAt);
+                  const formattedDate = date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+                  const formattedTime = date.toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  });
+                  const actorName = log.actorUserId ? "Staff" : "System";
+                  const actionLabel = log.action.charAt(0).toUpperCase() + log.action.slice(1);
+                  return (
+                    <div
+                      key={log.id}
+                      className={`p-3 rounded border ${
+                        isDark ? "bg-slate-800 border-slate-700" : "bg-gray-50 border-gray-200"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className={`text-sm font-medium ${themeClasses.headingText}`}>
+                            {actionLabel}
+                          </p>
+                          <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                            {formattedDate} {formattedTime} — {actorName}
+                          </p>
+                          {log.fromStatus !== log.toStatus && (
+                            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                              {log.fromStatus} → {log.toStatus}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

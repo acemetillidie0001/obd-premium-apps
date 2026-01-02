@@ -53,7 +53,14 @@ export default function OBDPageContainer({
     : CONTAINER_WIDTH;
 
   return (
-    <main className={`${getPageBackground(effectiveIsDark)} transition-colors`}>
+    <main className={`${getPageBackground(effectiveIsDark)} transition-colors`} id="main-content">
+      {/* P2-13: Skip to main content link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#29c4a9] focus:text-white focus:rounded focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#29c4a9] focus:ring-offset-2"
+      >
+        Skip to main content
+      </a>
       <div className={containerClass}>
         <div className="flex flex-col lg:flex-row gap-8 min-w-0">
           {/* Sidebar */}

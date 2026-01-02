@@ -58,6 +58,7 @@ export function getInputClasses(
   additionalClasses?: string
 ): string {
   const theme = getThemeClasses(isDark);
-  return `w-full px-4 py-2 border ${theme.inputBorder} ${theme.inputBg} ${theme.inputText} rounded-xl focus:ring-2 focus:ring-[#29c4a9] focus:border-transparent outline-none ${additionalClasses || ""}`;
+  // P2-12: Enhanced focus indicators with focus-visible for keyboard navigation
+  return `w-full px-4 py-2 border ${theme.inputBorder} ${theme.inputBg} ${theme.inputText} rounded-xl focus-visible:ring-2 focus-visible:ring-[#29c4a9] focus-visible:border-transparent outline-none ${additionalClasses || ""}`;
 }
 

@@ -77,7 +77,7 @@ function getClientIP(request: NextRequest): string | null {
  * TTL expiration: entries automatically expire after RATE_LIMIT_WINDOW_MS.
  * Max size cap: if store exceeds MAX_STORE_SIZE, oldest entries are evicted.
  */
-function checkBookingRateLimit(bookingKey: string, ip: string | null): boolean {
+function checkBookingRateLimit(bookingKey: string, ip: string | null, request: NextRequest): boolean {
   try {
     // Lightweight cleanup on each request: remove expired entries (TTL-based expiration)
     // This prevents unbounded growth without significant performance impact
@@ -85,8 +85,24 @@ function checkBookingRateLimit(bookingKey: string, ip: string | null): boolean {
       cleanupExpiredEntries();
     }
 
-    // Build rate limit key: bookingKey:ip or just bookingKey if no IP
-    const rateLimitKey = ip ? `${bookingKey}:${ip}` : bookingKey;
+    // Build rate limit key: bookingKey:ip with fallback if IP is null
+    // P1-7: If IP extraction fails, use user agent hash as fallback to avoid collision risk
+    let rateLimitKey: string;
+    if (ip) {
+      rateLimitKey = `${bookingKey}:${ip}`;
+    } else {
+      // Fallback: use user agent hash to differentiate users when IP is unavailable
+      const userAgent = request.headers.get("user-agent") || "unknown";
+      // Simple hash function for user agent (djb2 algorithm)
+      let hash = 5381;
+      for (let i = 0; i < userAgent.length; i++) {
+        hash = ((hash << 5) + hash) + userAgent.charCodeAt(i);
+      }
+      const uaHash = Math.abs(hash).toString(36).substring(0, 8);
+      rateLimitKey = `${bookingKey}:ua:${uaHash}`;
+      // Log when IP extraction fails for monitoring (P1-7)
+      console.warn(`[Booking Rate Limit] IP extraction failed, using user agent hash fallback for bookingKey: ${bookingKey.substring(0, 8)}...`);
+    }
 
     const now = Date.now();
     const resetAt = now + RATE_LIMIT_WINDOW_MS;
@@ -187,7 +203,26 @@ const createRequestSchema = z.object({
   serviceId: z.string().optional().nullable(),
   customerName: z.string().min(1, "Customer name is required").max(200),
   customerEmail: z.string().email("Invalid email format"),
-  customerPhone: z.string().max(50).optional().nullable(),
+  customerPhone: z
+    .string()
+    .max(50)
+    .optional()
+    .nullable()
+    .refine(
+      (val) => {
+        // P1-13: Validate phone format if provided (US-friendly, E.164 compatible)
+        if (!val || !val.trim()) return true; // Optional field
+        const trimmed = val.trim();
+        const digitsOnly = trimmed.replace(/\D/g, "");
+        // Require at least 10 digits, max 15 digits (E.164)
+        if (digitsOnly.length < 10 || digitsOnly.length > 15) return false;
+        // Allow only valid formatting characters
+        return /^[\d\s()+\-\.]+$/.test(trimmed);
+      },
+      {
+        message: "Phone number must contain 10-15 digits and use only valid formatting characters (spaces, parentheses, dashes, plus, periods)",
+      }
+    ),
   preferredStart: z.string().datetime().optional().nullable(),
   preferredEnd: z.string().datetime().optional().nullable(), // Ignored for backward compatibility
   message: z.string().max(2000).optional().nullable(),
@@ -312,7 +347,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   // Check rate limit
-  const rateLimitCheck = await checkRateLimit(request);
+  const rateLimitCheck = await checkRateLimit(request, "obd-scheduler:requests");
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
@@ -368,7 +403,7 @@ export async function POST(request: NextRequest) {
       // Public form: check rate limit first (anti-spam protection)
       try {
         const clientIP = getClientIP(request);
-        if (!checkBookingRateLimit(body.bookingKey, clientIP)) {
+        if (!checkBookingRateLimit(body.bookingKey, clientIP, request)) {
           return apiErrorResponse(
             "Too many booking requests. Please wait a few minutes and try again.",
             "RATE_LIMITED",
@@ -419,6 +454,71 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // P2-5: Check for duplicate submission (idempotency)
+    // Normalize fields for duplicate detection (matches what we'll store)
+    const normalizedPayload = {
+      customerName: (body.customerName || "").trim(),
+      customerEmail: (body.customerEmail || "").trim().toLowerCase(),
+      customerPhone: body.customerPhone ? (body.customerPhone || "").trim() : null,
+      preferredStart: body.preferredStart ? new Date(body.preferredStart) : null,
+      serviceId: body.serviceId || null,
+    };
+
+    // Check for existing request with same key fields within last 30 minutes
+    const idempotencyWindowMs = 30 * 60 * 1000; // 30 minutes
+    const windowStart = new Date(Date.now() - idempotencyWindowMs);
+
+    const existingRequest = await prisma.bookingRequest.findFirst({
+      where: {
+        businessId,
+        customerEmail: normalizedPayload.customerEmail,
+        preferredStart: normalizedPayload.preferredStart ? new Date(normalizedPayload.preferredStart) : null,
+        createdAt: {
+          gte: windowStart,
+        },
+        // Additional matching criteria to reduce false positives
+        customerName: normalizedPayload.customerName,
+        serviceId: normalizedPayload.serviceId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        service: true,
+      },
+    });
+
+    // If duplicate found, return existing request with warning
+    if (existingRequest) {
+      // Verify it's actually a duplicate by comparing key fields
+      const isDuplicate =
+        existingRequest.customerEmail === normalizedPayload.customerEmail &&
+        existingRequest.customerName === normalizedPayload.customerName &&
+        ((!existingRequest.preferredStart && !normalizedPayload.preferredStart) ||
+          (existingRequest.preferredStart &&
+            normalizedPayload.preferredStart &&
+            Math.abs(
+              new Date(existingRequest.preferredStart).getTime() -
+                new Date(normalizedPayload.preferredStart).getTime()
+            ) < 60000)) && // Within 1 minute
+        existingRequest.serviceId === normalizedPayload.serviceId;
+
+      if (isDuplicate) {
+        const formatted = formatRequest(existingRequest);
+        const response = apiSuccessResponse(formatted, 200);
+
+        // Return with warning
+        const responseData = await response.json();
+        return NextResponse.json(
+          {
+            ...responseData,
+            warnings: ["Duplicate submission detected — using existing request."],
+          },
+          { status: 200 }
+        );
+      }
+    }
+
     // Create request
     const bookingRequest = await prisma.bookingRequest.create({
       data: {
@@ -438,18 +538,6 @@ export async function POST(request: NextRequest) {
     });
 
     const formatted = formatRequest(bookingRequest);
-
-    // Sync to CRM (non-blocking, fails gracefully)
-    try {
-      await syncBookingToCrm({
-        businessId,
-        request: formatted,
-        service: formatted.service,
-      });
-    } catch (crmError) {
-      // Log but don't fail the booking request
-      console.warn("[OBD Scheduler] CRM sync failed (non-blocking):", crmError);
-    }
 
     // Get business name and notification email from settings
     let businessName = "Business";
@@ -479,8 +567,21 @@ export async function POST(request: NextRequest) {
       console.warn("[OBD Scheduler] Failed to fetch settings/brand profile (non-blocking):", error);
     }
 
-    // Collect email warnings (non-blocking)
+    // Collect warnings (non-blocking) - P1-9: Include CRM sync failures
     const warnings: string[] = [];
+
+    // P1-9: Sync to CRM (non-blocking, fails gracefully) and add to warnings if it fails
+    try {
+      await syncBookingToCrm({
+        businessId,
+        request: formatted,
+        service: formatted.service,
+      });
+    } catch (crmError) {
+      const errorMessage = crmError instanceof Error ? crmError.message : String(crmError);
+      console.warn("[OBD Scheduler] CRM sync failed (non-blocking):", errorMessage);
+      warnings.push("CRM sync failed — request was saved, but may not appear in CRM automatically.");
+    }
 
     // Send customer confirmation email (non-blocking)
     try {

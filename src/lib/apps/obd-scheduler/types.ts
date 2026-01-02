@@ -185,3 +185,44 @@ export interface BookingRequestListResponse {
   totalPages: number;
 }
 
+export interface BookingRequestAuditLog {
+  id: string;
+  action: string; // "approve", "propose", "decline", "complete", "archive", "reactivate"
+  fromStatus: BookingStatus;
+  toStatus: BookingStatus;
+  actorUserId: string | null;
+  createdAt: string;
+  metadata: Record<string, any> | null;
+}
+
+export type MetricsRange = "7d" | "30d" | "90d";
+
+export interface SchedulerMetrics {
+  range: MetricsRange;
+  period: {
+    start: string;
+    end: string;
+  };
+  totalRequests: number;
+  requestsByStatus: Record<string, number>;
+  conversionRate: number;
+  medianTimeToFirstResponse: number | null; // minutes
+  medianTimeToApproval: number | null; // minutes
+  servicePopularity: Array<{
+    serviceId: string;
+    serviceName: string;
+    count: number;
+  }>;
+  peakHours: Array<{
+    hour: number;
+    count: number;
+  }>;
+  peakDays: Array<{
+    day: number;
+    dayName: string;
+    count: number;
+  }>;
+  cancellationCount: number;
+  reactivateCount: number;
+}
+

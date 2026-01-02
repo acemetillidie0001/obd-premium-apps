@@ -783,11 +783,48 @@ model BookingRequest {
   updatedAt      DateTime      @updatedAt
 
   service BookingService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  auditLogs BookingRequestAuditLog[]
 
   @@index([businessId])
   @@index([businessId, status])
   @@index([businessId, createdAt])
   @@index([status])
+}
+
+model BookingRequestAuditLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  requestId   String
+  actorUserId String?  // Nullable if unavailable (e.g., system actions)
+  action      String   // "approve", "propose", "decline", "complete", "archive", "reactivate"
+  fromStatus  BookingStatus
+  toStatus    BookingStatus
+  metadata    Json?    // Optional additional data
+  createdAt   DateTime @default(now())
+
+  request BookingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([requestId])
+  @@index([requestId, createdAt])
+  @@index([businessId, createdAt])
+}
+
+model RateLimitEvent {
+  id         String   @id @default(cuid())
+  businessId String
+  routeKey   String   // e.g., "obd-scheduler:requests" or "obd-scheduler:action"
+  day        DateTime @db.Date // Date for aggregation (YYYY-MM-DD)
+  violationCount Int  @default(0) // Count of 429 responses
+  successCount    Int  @default(0) // Count of successful requests (optional)
+  hashedKey  String?  // Hashed rate limit key (no raw IPs)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, routeKey, day])
+  @@index([businessId])
+  @@index([businessId, day])
+  @@index([routeKey, day])
 }
 
 model AvailabilityWindow {

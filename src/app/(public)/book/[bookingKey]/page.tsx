@@ -4,11 +4,26 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import type { CreateBookingRequestRequest, BookingService, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { BookingMode as BookingModeEnum } from "@/lib/apps/obd-scheduler/types";
+import { validateEmail, validatePhone, validatePreferredStart } from "@/lib/apps/obd-scheduler/validation";
+
+/**
+ * P1-22: Style Isolation Documentation
+ * 
+ * This page uses hardcoded light-mode CSS classes instead of the OBD framework theme system
+ * to maintain complete isolation from the dashboard. This ensures:
+ * 1. Public booking pages don't depend on dashboard theme tokens/styles
+ * 2. Public pages remain functional even if dashboard styling changes
+ * 3. Prevents accidental coupling between public and authenticated pages
+ * 
+ * If theme support is needed in the future, implement a separate theme system
+ * that doesn't rely on dashboard context or shared theme utilities.
+ */
 
 // Hardcoded light mode classes (fully isolated from OBD framework)
 const PANEL_CLASSES = "w-full rounded-3xl border border-slate-200 bg-white shadow-md shadow-slate-300/60 hover:shadow-lg hover:shadow-slate-400/70 px-6 py-6 md:px-8 md:py-7 transition-shadow";
-const INPUT_CLASSES = "w-full px-4 py-2 border border-slate-300 bg-white text-slate-900 rounded-xl focus:ring-2 focus:ring-[#29c4a9] focus:border-transparent outline-none";
-const SUBMIT_BUTTON_CLASSES = "w-full px-6 py-3 bg-[#29c4a9] text-white font-medium rounded-full hover:bg-[#22ad93] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed";
+// P2-12: Enhanced focus indicators with focus-visible for keyboard navigation
+const INPUT_CLASSES = "w-full px-4 py-2 border border-slate-300 bg-white text-slate-900 rounded-xl focus-visible:ring-2 focus-visible:ring-[#29c4a9] focus-visible:border-transparent outline-none disabled:opacity-50 disabled:cursor-not-allowed";
+const SUBMIT_BUTTON_CLASSES = "w-full px-6 py-3 bg-[#29c4a9] text-white font-medium rounded-full hover:bg-[#22ad93] transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-[#29c4a9] focus-visible:ring-offset-2 outline-none";
 const ERROR_PANEL_CLASSES = "rounded-xl border border-red-200 bg-red-50 text-red-600 p-3";
 
 interface BusinessContext {
@@ -276,6 +291,11 @@ export default function PublicBookingPage() {
   // Handle instant booking submission
   const handleInstantBooking = async (e: React.FormEvent) => {
     e.preventDefault();
+    // P2-1: Block submission if context failed to load
+    if (contextError) {
+      setError("Cannot submit booking request. Please refresh the page or contact the business.");
+      return;
+    }
     setSubmitting(true);
     setError("");
 
@@ -297,9 +317,17 @@ export default function PublicBookingPage() {
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.customerEmail)) {
+    // P1-12: Use shared validation helpers
+    // P1-1: Validate email format
+    if (!validateEmail(formData.customerEmail)) {
       setError("Please enter a valid email address");
+      setSubmitting(false);
+      return;
+    }
+
+    // P1-13: Validate phone format (if provided) - for instant booking too
+    if (!validatePhone(formData.customerPhone)) {
+      setError("Phone number must contain 10-15 digits and use only valid formatting characters");
       setSubmitting(false);
       return;
     }
@@ -349,6 +377,11 @@ export default function PublicBookingPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // P2-1: Block submission if context failed to load
+    if (contextError) {
+      setError("Cannot submit booking request. Please refresh the page or contact the business.");
+      return;
+    }
     setSubmitting(true);
     setError("");
 
@@ -381,14 +414,49 @@ export default function PublicBookingPage() {
       return;
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.customerEmail)) {
+    // P1-12: Use shared validation helpers
+    // P1-1: Validate email format
+    if (!validateEmail(formData.customerEmail)) {
       setError("Please enter a valid email address");
       setSubmitting(false);
       return;
     }
 
+    // P1-13: Validate phone format (if provided)
+    if (!validatePhone(formData.customerPhone)) {
+      setError("Phone number must contain 10-15 digits and use only valid formatting characters");
+      setSubmitting(false);
+      return;
+    }
+
+    // P1-3: Validate service selection (if provided)
+    if (formData.serviceId) {
+      const selectedService = context.services.find((s) => s.id === formData.serviceId);
+      if (!selectedService) {
+        setError("Selected service is not available. Please select a different service.");
+        setSubmitting(false);
+        return;
+      }
+      // Note: context.services only includes active services, but double-check for safety
+      if (!selectedService.active) {
+        setError("Selected service is not available. Please select a different service.");
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    // P1-2: Validate preferredStart time constraints (if provided) - using shared helper
+    if (formData.preferredStart) {
+      const timeValidation = validatePreferredStart(formData.preferredStart, {
+        minNoticeHours: context.minNoticeHours ?? 24,
+        maxDaysOut: context.maxDaysOut ?? 90,
+      });
+      if (!timeValidation.ok) {
+        setError(timeValidation.message);
+        setSubmitting(false);
+        return;
+      }
+    }
 
     try {
       const payload: CreateBookingRequestRequest = {
@@ -457,7 +525,14 @@ export default function PublicBookingPage() {
   // Handle missing bookingKey in JSX instead of early return
   return (
     <main className="min-h-screen bg-slate-50 py-12 px-4">
-      <div className="max-w-2xl mx-auto">
+      {/* P2-13: Skip to main content link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#29c4a9] focus:text-white focus:rounded focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#29c4a9] focus:ring-offset-2"
+      >
+        Skip to main content
+      </a>
+      <div className="max-w-2xl mx-auto" id="main-content">
         {!bookingKey ? (
           <>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Booking Request</h1>
@@ -478,6 +553,10 @@ export default function PublicBookingPage() {
                     src={logoUrl}
                     alt={businessName || "Business logo"}
                     className="mx-auto mb-3 max-h-12 object-contain"
+                    width={200}
+                    height={48}
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
                       // Hide image if it fails to load
                       e.currentTarget.style.display = "none";
@@ -495,13 +574,13 @@ export default function PublicBookingPage() {
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
             <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
             
-            {/* Context Error Warning Banner */}
+            {/* P2-1: Context Error Warning Banner - blocks form submission */}
             {contextError && (
               <div className="mb-6">
                 <div className={PANEL_CLASSES}>
                   <div className={ERROR_PANEL_CLASSES}>
-                    <h2 className="text-lg font-semibold mb-2">This booking link isn't available</h2>
-                    <p>Please contact the business for a new booking link.</p>
+                    <h2 className="text-lg font-semibold mb-2">We couldn't load booking details</h2>
+                    <p>Please refresh the page or contact the business for assistance.</p>
                   </div>
                 </div>
               </div>
@@ -564,17 +643,19 @@ export default function PublicBookingPage() {
             )}
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="select-date" className="block text-sm font-medium mb-2 text-slate-700">
                 Select Date <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
+                id="select-date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 min={minDate}
                 max={maxDate}
                 className={INPUT_CLASSES}
                 required
+                disabled={contextError}
               />
               <p className="mt-1 text-xs text-slate-600">
                 Select a date to see available times.
@@ -583,7 +664,7 @@ export default function PublicBookingPage() {
 
             {selectedDate && (
               <div>
-                <label className="block text-sm font-medium mb-2 text-slate-700">
+                <label htmlFor="time-slot-selector" className="block text-sm font-medium mb-2 text-slate-700">
                   Select Time <span className="text-red-500">*</span>
                 </label>
                 {slotsLoading ? (
@@ -630,53 +711,61 @@ export default function PublicBookingPage() {
             )}
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="customer-name-instant" className="block text-sm font-medium mb-2 text-slate-700">
                 Your Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
+                id="customer-name-instant"
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                 className={INPUT_CLASSES}
                 required
+                disabled={contextError}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="customer-email-instant" className="block text-sm font-medium mb-2 text-slate-700">
                 Email <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
+                id="customer-email-instant"
                 value={formData.customerEmail}
                 onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
                 className={INPUT_CLASSES}
                 required
+                disabled={contextError}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="customer-phone-instant" className="block text-sm font-medium mb-2 text-slate-700">
                 Phone (Optional)
               </label>
               <input
                 type="tel"
+                id="customer-phone-instant"
                 value={formData.customerPhone || ""}
                 onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
                 className={INPUT_CLASSES}
+                disabled={contextError}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="customer-message-instant" className="block text-sm font-medium mb-2 text-slate-700">
                 Message (Optional)
               </label>
               <textarea
+                id="customer-message-instant"
                 value={formData.message || ""}
                 onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                 rows={4}
                 className={`${INPUT_CLASSES} resize-none`}
                 placeholder="Any additional information or special requests..."
+                disabled={contextError}
               />
             </div>
 
@@ -688,7 +777,7 @@ export default function PublicBookingPage() {
 
             <button
               type="submit"
-              disabled={submitting || !selectedSlot || !selectedDate}
+              disabled={submitting || !selectedSlot || !selectedDate || contextError}
               className={SUBMIT_BUTTON_CLASSES}
             >
               {submitting ? "Booking..." : "Book Now"}
@@ -716,13 +805,15 @@ export default function PublicBookingPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
           {context && context.services.length > 0 && (
             <div>
-              <label className="block text-sm font-medium mb-2 text-slate-700">
+              <label htmlFor="service-select" className="block text-sm font-medium mb-2 text-slate-700">
                 Service (Optional)
               </label>
               <select
+                id="service-select"
                 value={formData.serviceId || ""}
                 onChange={(e) => setFormData({ ...formData, serviceId: e.target.value || null })}
                 className={INPUT_CLASSES}
+                disabled={contextError}
               >
                 <option value="">Select a service...</option>
                 {context.services.map((service) => (
@@ -746,49 +837,56 @@ export default function PublicBookingPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-2 text-slate-700">
+            <label htmlFor="customer-name" className="block text-sm font-medium mb-2 text-slate-700">
               Your Name <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
+              id="customer-name"
               value={formData.customerName}
               onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
               className={INPUT_CLASSES}
               required
+              disabled={contextError}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2 text-slate-700">
+            <label htmlFor="customer-email" className="block text-sm font-medium mb-2 text-slate-700">
               Email <span className="text-red-500">*</span>
             </label>
             <input
               type="email"
+              id="customer-email"
               value={formData.customerEmail}
               onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
               className={INPUT_CLASSES}
               required
+              disabled={contextError}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2 text-slate-700">
+            <label htmlFor="customer-phone" className="block text-sm font-medium mb-2 text-slate-700">
               Phone (Optional)
             </label>
             <input
               type="tel"
+              id="customer-phone"
               value={formData.customerPhone || ""}
               onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
               className={INPUT_CLASSES}
+              disabled={contextError}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2 text-slate-700">
+            <label htmlFor="preferred-start" className="block text-sm font-medium mb-2 text-slate-700">
               Preferred Start Time (Optional)
             </label>
             <input
               type="datetime-local"
+              id="preferred-start"
               step={900}
               value={formData.preferredStart ? new Date(formData.preferredStart).toISOString().slice(0, 16) : ""}
               onChange={(e) => {
@@ -829,6 +927,7 @@ export default function PublicBookingPage() {
                 }
               }}
               className={INPUT_CLASSES}
+              disabled={contextError}
             />
             <p className="mt-1 text-xs text-slate-600">
               Optional — pick your preferred start time. The service duration is handled automatically.

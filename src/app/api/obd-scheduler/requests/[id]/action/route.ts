@@ -23,13 +23,13 @@ import {
   sendRequestDeclinedEmail,
   sendProposedTimeEmail,
 } from "@/lib/apps/obd-scheduler/notifications";
-import { BookingStatus as PrismaBookingStatus } from "@prisma/client";
+import { BookingStatus as PrismaBookingStatus, Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
 // Validation schema
 const actionRequestSchema = z.object({
-  action: z.enum(["approve", "propose", "decline", "complete"]),
+  action: z.enum(["approve", "propose", "decline", "complete", "reactivate"]),
   proposedStart: z.string().datetime().optional(),
   proposedEnd: z.string().datetime().optional(),
   internalNotes: z.string().max(5000).optional().nullable(),
@@ -70,6 +70,43 @@ function formatRequest(request: any): BookingRequest {
 }
 
 /**
+ * Helper: Log status change to audit trail (non-blocking)
+ * P2-7 / P2-16: Status Change Audit Trail
+ */
+async function logStatusChange(
+  businessId: string,
+  requestId: string,
+  actorUserId: string | null,
+  action: string,
+  fromStatus: PrismaBookingStatus,
+  toStatus: PrismaBookingStatus,
+  metadata?: Record<string, any>
+): Promise<string | null> {
+  try {
+    await prisma.bookingRequestAuditLog.create({
+      data: {
+        businessId,
+        requestId,
+        actorUserId,
+        action,
+        fromStatus,
+        toStatus,
+        metadata: metadata ? metadata : Prisma.JsonNull,
+      },
+    });
+    return null; // Success, no warning
+  } catch (error) {
+    // Log error but don't throw - audit logging must never block main action
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(
+      `[OBD Scheduler] Failed to log audit trail for request ${requestId}, action ${action}:`,
+      errorMessage
+    );
+    return `Audit logging failed: ${errorMessage}`;
+  }
+}
+
+/**
  * POST /api/obd-scheduler/requests/[id]/action
  * Perform approve/propose/decline action on booking request
  */
@@ -81,7 +118,7 @@ export async function POST(
   if (guard) return guard;
 
   // Check rate limit
-  const rateLimitCheck = await checkRateLimit(request);
+  const rateLimitCheck = await checkRateLimit(request, "obd-scheduler:action");
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
@@ -124,8 +161,17 @@ export async function POST(
     // Validate that request is in a state that can be acted on
     const currentStatus = existing.status as PrismaBookingStatus;
     
-    // Complete action can only be performed on APPROVED requests
-    if (body.action === "complete") {
+    // Reactivate action can only be performed on DECLINED requests
+    if (body.action === "reactivate") {
+      if (currentStatus !== PrismaBookingStatus.DECLINED) {
+        return apiErrorResponse(
+          `Cannot reactivate request with status ${currentStatus}. Only DECLINED requests can be reactivated.`,
+          "VALIDATION_ERROR",
+          400
+        );
+      }
+    } else if (body.action === "complete") {
+      // Complete action can only be performed on APPROVED requests
       if (currentStatus !== PrismaBookingStatus.APPROVED) {
         return apiErrorResponse(
           `Cannot complete request with status ${currentStatus}. Only APPROVED requests can be marked as complete.`,
@@ -149,8 +195,9 @@ export async function POST(
     if (body.action === "approve") {
       // Approve requires either preferredStart OR proposedStart
       if (!existing.preferredStart && !body.proposedStart) {
+        // P2-9: User-friendly error message
         return apiErrorResponse(
-          "Approve action requires either preferredStart (from request) or proposedStart (in body)",
+          "Cannot approve booking without a preferred or proposed start time.",
           "VALIDATION_ERROR",
           400
         );
@@ -158,8 +205,9 @@ export async function POST(
     } else if (body.action === "propose") {
       // Propose requires both proposedStart and proposedEnd
       if (!body.proposedStart || !body.proposedEnd) {
+        // P2-9: User-friendly error message
         return apiErrorResponse(
-          "Propose action requires both proposedStart and proposedEnd",
+          "Both start time and end time are required when proposing a new time.",
           "VALIDATION_ERROR",
           400
         );
@@ -169,8 +217,9 @@ export async function POST(
       const start = new Date(body.proposedStart);
       const end = new Date(body.proposedEnd);
       if (end <= start) {
+        // P2-9: User-friendly error message
         return apiErrorResponse(
-          "Proposed end time must be after proposed start time",
+          "End time must be after start time.",
           "VALIDATION_ERROR",
           400
         );
@@ -183,15 +232,44 @@ export async function POST(
       updatedAt: new Date(),
     };
 
+    // P2-6: Service validation on update - re-fetch service to ensure it's still active
+    if (existing.serviceId) {
+      const currentService = await prisma.bookingService.findFirst({
+        where: {
+          id: existing.serviceId,
+          businessId,
+          active: true,
+        },
+      });
+
+      if (!currentService) {
+        // Service was deleted or deactivated after request creation
+        console.warn(`[OBD Scheduler] Request ${existing.id} references inactive/missing service ${existing.serviceId}`);
+        return apiErrorResponse(
+          "The service for this booking request is no longer available. Please contact support.",
+          "INVALID_SERVICE",
+          400
+        );
+      }
+    }
+
     // Set status based on action
+    let newStatus: PrismaBookingStatus;
     if (body.action === "approve") {
-      updateData.status = PrismaBookingStatus.APPROVED;
+      newStatus = PrismaBookingStatus.APPROVED;
+      updateData.status = newStatus;
       // For approve: use proposedStart if provided, otherwise use preferredStart
       if (body.proposedStart) {
         updateData.proposedStart = new Date(body.proposedStart);
         // Calculate proposedEnd if not provided (use service duration or default 30 min)
         if (!body.proposedEnd) {
-          const durationMinutes = existing.service?.durationMinutes || 30;
+          // P2-6: Use re-fetched service if available, otherwise fallback
+          const currentService = existing.serviceId
+            ? await prisma.bookingService.findFirst({
+                where: { id: existing.serviceId, businessId, active: true },
+              })
+            : null;
+          const durationMinutes = currentService?.durationMinutes || existing.service?.durationMinutes || 30;
           updateData.proposedEnd = new Date(
             new Date(body.proposedStart).getTime() + durationMinutes * 60 * 1000
           );
@@ -199,21 +277,45 @@ export async function POST(
           updateData.proposedEnd = new Date(body.proposedEnd);
         }
       } else if (existing.preferredStart) {
+        // P1-10: Validate preferredStart is in the future when approving without proposedStart
+        const now = new Date();
+        if (existing.preferredStart < now) {
+          // Allow past dates for historical bookings but warn (non-blocking)
+          console.warn(`[OBD Scheduler] Approving request ${existing.id} with preferredStart in the past: ${existing.preferredStart.toISOString()}`);
+        }
+        
         // Use preferredStart and calculate end
         updateData.proposedStart = existing.preferredStart;
         const durationMinutes = existing.service?.durationMinutes || 30;
+        if (!existing.service || !existing.service.durationMinutes) {
+          // P1-10: Warn if using default 30-minute duration when service is missing
+          console.warn(`[OBD Scheduler] Approving request ${existing.id} without service duration, using default 30 minutes`);
+        }
         updateData.proposedEnd = new Date(
           existing.preferredStart.getTime() + durationMinutes * 60 * 1000
         );
       }
     } else if (body.action === "propose") {
-      updateData.status = PrismaBookingStatus.PROPOSED_TIME;
+      newStatus = PrismaBookingStatus.PROPOSED_TIME;
+      updateData.status = newStatus;
       updateData.proposedStart = new Date(body.proposedStart!);
       updateData.proposedEnd = new Date(body.proposedEnd!);
     } else if (body.action === "decline") {
-      updateData.status = PrismaBookingStatus.DECLINED;
+      newStatus = PrismaBookingStatus.DECLINED;
+      updateData.status = newStatus;
     } else if (body.action === "complete") {
-      updateData.status = PrismaBookingStatus.COMPLETED;
+      newStatus = PrismaBookingStatus.COMPLETED;
+      updateData.status = newStatus;
+    } else if (body.action === "reactivate") {
+      // P1-11: Reactivate sets status to REQUESTED and clears proposed times
+      newStatus = PrismaBookingStatus.REQUESTED;
+      updateData.status = newStatus;
+      updateData.proposedStart = null;
+      updateData.proposedEnd = null;
+    } else {
+      // TypeScript exhaustiveness check
+      const _exhaustive: never = body.action;
+      throw new Error(`Unknown action: ${_exhaustive}`);
     }
 
     // Update internalNotes if provided
@@ -232,6 +334,23 @@ export async function POST(
         service: true,
       },
     });
+
+    // P2-7 / P2-16: Log status change to audit trail (non-blocking)
+    const warnings: string[] = [];
+    if (currentStatus !== newStatus) {
+      const auditWarning = await logStatusChange(
+        businessId,
+        id,
+        businessId, // actorUserId (using businessId as userId in V3)
+        body.action,
+        currentStatus,
+        newStatus,
+        body.internalNotes ? { hasInternalNotes: true } : undefined
+      );
+      if (auditWarning) {
+        warnings.push(auditWarning);
+      }
+    }
 
     // Format response
     const formatted = formatRequest(updated);
@@ -258,8 +377,8 @@ export async function POST(
       businessName,
     };
 
-    // Send appropriate notification email (non-blocking, skip for complete action)
-    if (body.action !== "complete") {
+    // Send appropriate notification email (non-blocking, skip for complete and reactivate actions)
+    if (body.action !== "complete" && body.action !== "reactivate") {
       try {
         if (body.action === "approve") {
           await sendRequestApprovedEmail(emailContext);
@@ -278,8 +397,8 @@ export async function POST(
       }
     }
 
-    // Send SMS notification (non-blocking, behind feature flag, skip for complete action)
-    if (body.action !== "complete" && formatted.customerPhone) {
+    // Send SMS notification (non-blocking, behind feature flag, skip for complete and reactivate actions)
+    if (body.action !== "complete" && body.action !== "reactivate" && formatted.customerPhone) {
       try {
         // Dynamic import to avoid loading Twilio if SMS is disabled
         const { sendTransactionalSms } = await import("@/lib/sms/sendSms");
@@ -316,7 +435,11 @@ export async function POST(
       }
     }
 
-    return apiSuccessResponse(formatted);
+    // Return response with warnings if any (non-blocking, included in response)
+    return apiSuccessResponse({
+      ...formatted,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   } catch (error) {
     return handleApiError(error);
   }

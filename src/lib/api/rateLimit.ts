@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/premium";
+import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
 
 /**
  * Rate Limit Utility
@@ -70,6 +72,83 @@ function checkRateLimitForKey(key: string): boolean {
 }
 
 /**
+ * Hash a rate limit key for storage (privacy-safe, no raw IPs)
+ */
+function hashRateLimitKey(key: string): string {
+  return crypto.createHash("sha256").update(key).digest("hex").substring(0, 16);
+}
+
+/**
+ * Track rate limit event (non-blocking)
+ * P1-25: Rate Limit Monitoring
+ */
+async function trackRateLimitEvent(
+  businessId: string | null,
+  routeKey: string,
+  isViolation: boolean,
+  hashedKey: string
+): Promise<void> {
+  if (!businessId) return; // Skip if no businessId available
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const day = today;
+
+    if (isViolation) {
+      // Increment violation count
+      await prisma.rateLimitEvent.upsert({
+        where: {
+          businessId_routeKey_day: {
+            businessId,
+            routeKey,
+            day,
+          },
+        },
+        create: {
+          businessId,
+          routeKey,
+          day,
+          violationCount: 1,
+          hashedKey,
+        },
+        update: {
+          violationCount: {
+            increment: 1,
+          },
+        },
+      });
+    } else {
+      // Track success (optional, for completeness)
+      await prisma.rateLimitEvent.upsert({
+        where: {
+          businessId_routeKey_day: {
+            businessId,
+            routeKey,
+            day,
+          },
+        },
+        create: {
+          businessId,
+          routeKey,
+          day,
+          successCount: 1,
+          hashedKey,
+        },
+        update: {
+          successCount: {
+            increment: 1,
+          },
+        },
+      });
+    }
+  } catch (error) {
+    // Log but never block - metrics tracking is best effort
+    console.warn("[Rate Limit] Failed to track rate limit event (non-blocking):", error);
+  }
+}
+
+/**
  * Check rate limit for a request.
  * 
  * Prefers userId (from authenticated session) when available.
@@ -79,16 +158,21 @@ function checkRateLimitForKey(key: string): boolean {
  * - null if request is allowed (continue processing)
  * - NextResponse with 429 status if rate limit exceeded
  */
-export async function checkRateLimit(req: Request): Promise<NextResponse | null> {
+export async function checkRateLimit(
+  req: Request,
+  routeKey?: string
+): Promise<NextResponse | null> {
   // Try to get userId from authenticated session (preferred)
   // Note: This should be called AFTER premium guard, so user should be authenticated
   let rateLimitKey: string;
+  let businessId: string | null = null;
   
   try {
     const user = await getCurrentUser();
     if (user?.id) {
       // Use userId for rate limiting (preferred - per-user limits)
       rateLimitKey = `user:${user.id}`;
+      businessId = user.id; // V3: userId = businessId
     } else {
       // Fallback to IP if userId unavailable
       rateLimitKey = `ip:${getClientIP(req)}`;
@@ -99,7 +183,17 @@ export async function checkRateLimit(req: Request): Promise<NextResponse | null>
   }
 
   // Check rate limit
-  if (!checkRateLimitForKey(rateLimitKey)) {
+  const isAllowed = checkRateLimitForKey(rateLimitKey);
+  
+  if (!isAllowed) {
+    // Track violation (non-blocking)
+    if (routeKey) {
+      const hashedKey = hashRateLimitKey(rateLimitKey);
+      trackRateLimitEvent(businessId, routeKey, true, hashedKey).catch(() => {
+        // Ignore errors - tracking is best effort
+      });
+    }
+
     return NextResponse.json(
       {
         ok: false,
@@ -108,6 +202,14 @@ export async function checkRateLimit(req: Request): Promise<NextResponse | null>
       },
       { status: 429 }
     );
+  }
+
+  // Track success (non-blocking, optional)
+  if (routeKey && businessId) {
+    const hashedKey = hashRateLimitKey(rateLimitKey);
+    trackRateLimitEvent(businessId, routeKey, false, hashedKey).catch(() => {
+      // Ignore errors - tracking is best effort
+    });
   }
 
   // Rate limit check passed

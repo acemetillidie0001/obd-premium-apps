@@ -34,6 +34,8 @@ export type ApiErrorCode =
   | "DATABASE_MODEL_ERROR"
   | "PRISMA_CLIENT_OUTDATED"
   | "INTERNAL_ERROR"
+  | "OAUTH_ERROR"
+  | "NOT_ENABLED"
   | "UNKNOWN_ERROR";
 
 export interface ApiErrorResponse {

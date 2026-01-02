@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
     }));
 
     // Generate slots
-    const slots = generateSlots({
+    let slots = generateSlots({
       businessTimezone: settings.timezone,
       minNoticeHours: settings.minNoticeHours,
       maxDaysOut: settings.maxDaysOut,
@@ -217,9 +217,70 @@ export async function GET(request: NextRequest) {
       targetDate,
     });
 
+    // Optional: Filter slots by calendar free/busy if enabled
+    // Fail open: if calendar check fails, show all slots
+    let calendarWarning: string | null = null;
+    try {
+      const calendarConnection = await prisma.schedulerCalendarConnection.findFirst({
+        where: {
+          businessId: settings.businessId,
+          enabled: true,
+        },
+        orderBy: {
+          updatedAt: "desc", // Use most recently updated connection
+        },
+      });
+
+      if (calendarConnection) {
+        try {
+          // Import calendar services dynamically to avoid circular dependencies
+          const { getGoogleAccessToken, getGoogleFreeBusy } = await import("@/lib/apps/obd-scheduler/calendar/google");
+          const { getMicrosoftAccessToken, getMicrosoftFreeBusy } = await import("@/lib/apps/obd-scheduler/calendar/microsoft");
+
+          const timeMin = new Date(`${targetDate}T00:00:00Z`).toISOString();
+          const timeMax = new Date(`${targetDate}T23:59:59Z`).toISOString();
+
+          let busyIntervals: Array<{ start: string; end: string }> = [];
+          
+          if (calendarConnection.provider === "google") {
+            const accessToken = await getGoogleAccessToken(settings.businessId);
+            busyIntervals = await getGoogleFreeBusy(accessToken, timeMin, timeMax);
+          } else if (calendarConnection.provider === "microsoft") {
+            const accessToken = await getMicrosoftAccessToken(settings.businessId);
+            busyIntervals = await getMicrosoftFreeBusy(accessToken, timeMin, timeMax);
+          }
+
+          // Filter out slots that overlap with busy intervals
+          if (busyIntervals.length > 0) {
+            slots = slots.filter((slot) => {
+              const slotStart = new Date(slot.startTime);
+              const slotEnd = new Date(slotStart.getTime() + (serviceDurationMinutes || 60) * 60 * 1000);
+
+              // Check if slot overlaps with any busy interval
+              return !busyIntervals.some((busy) => {
+                const busyStart = new Date(busy.start);
+                const busyEnd = new Date(busy.end);
+                
+                // Overlap check: slot overlaps if it starts before busy ends and ends after busy starts
+                return slotStart < busyEnd && slotEnd > busyStart;
+              });
+            });
+          }
+        } catch (calendarError) {
+          // Fail open: log error but don't block slots
+          console.error("Calendar freebusy check failed:", calendarError);
+          calendarWarning = "Calendar availability temporarily unavailable";
+        }
+      }
+    } catch (error) {
+      // Fail open: ignore calendar errors
+      console.error("Calendar connection check failed:", error);
+    }
+
     return apiSuccessResponse({
       date: targetDate,
       slots,
+      calendarWarning, // Include warning if calendar check failed
     });
   } catch (error) {
     return handleApiError(error);

@@ -5,7 +5,7 @@ CREATE TYPE "CrmContactStatus" AS ENUM ('Lead', 'Active', 'Past', 'DoNotContact'
 CREATE TYPE "CrmContactSource" AS ENUM ('manual', 'scheduler', 'reviews', 'helpdesk', 'import');
 
 -- CreateTable
-CREATE TABLE "CrmContact" (
+CREATE TABLE IF NOT EXISTS "CrmContact" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE "CrmContact" (
 );
 
 -- CreateTable
-CREATE TABLE "CrmTag" (
+CREATE TABLE IF NOT EXISTS "CrmTag" (
     "id" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE "CrmTag" (
 );
 
 -- CreateTable
-CREATE TABLE "CrmContactTag" (
+CREATE TABLE IF NOT EXISTS "CrmContactTag" (
     "id" TEXT NOT NULL,
     "contactId" TEXT NOT NULL,
     "tagId" TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE "CrmContactTag" (
 );
 
 -- CreateTable
-CREATE TABLE "CrmContactActivity" (
+CREATE TABLE IF NOT EXISTS "CrmContactActivity" (
     "id" TEXT NOT NULL,
     "contactId" TEXT NOT NULL,
     "businessId" TEXT NOT NULL,
@@ -60,54 +60,63 @@ CREATE TABLE "CrmContactActivity" (
     CONSTRAINT "CrmContactActivity_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "CrmContact_businessId_idx" ON "CrmContact"("businessId");
+-- CreateIndex (with IF NOT EXISTS for idempotency)
+CREATE INDEX IF NOT EXISTS "CrmContact_businessId_idx" ON "CrmContact"("businessId");
 
--- CreateIndex
-CREATE INDEX "CrmContact_businessId_status_idx" ON "CrmContact"("businessId", "status");
+CREATE INDEX IF NOT EXISTS "CrmContact_businessId_status_idx" ON "CrmContact"("businessId", "status");
 
--- CreateIndex
-CREATE INDEX "CrmContact_businessId_updatedAt_idx" ON "CrmContact"("businessId", "updatedAt");
+CREATE INDEX IF NOT EXISTS "CrmContact_businessId_updatedAt_idx" ON "CrmContact"("businessId", "updatedAt");
 
--- CreateIndex
-CREATE INDEX "CrmContact_businessId_name_idx" ON "CrmContact"("businessId", "name");
+CREATE INDEX IF NOT EXISTS "CrmContact_businessId_name_idx" ON "CrmContact"("businessId", "name");
 
--- CreateIndex
-CREATE INDEX "CrmContact_businessId_nextFollowUpAt_idx" ON "CrmContact"("businessId", "nextFollowUpAt");
+CREATE INDEX IF NOT EXISTS "CrmContact_businessId_nextFollowUpAt_idx" ON "CrmContact"("businessId", "nextFollowUpAt");
 
--- CreateIndex
-CREATE UNIQUE INDEX "CrmTag_businessId_name_key" ON "CrmTag"("businessId", "name");
+CREATE UNIQUE INDEX IF NOT EXISTS "CrmTag_businessId_name_key" ON "CrmTag"("businessId", "name");
 
--- CreateIndex
-CREATE INDEX "CrmTag_businessId_idx" ON "CrmTag"("businessId");
+CREATE INDEX IF NOT EXISTS "CrmTag_businessId_idx" ON "CrmTag"("businessId");
 
--- CreateIndex
-CREATE UNIQUE INDEX "CrmContactTag_contactId_tagId_key" ON "CrmContactTag"("contactId", "tagId");
+CREATE UNIQUE INDEX IF NOT EXISTS "CrmContactTag_contactId_tagId_key" ON "CrmContactTag"("contactId", "tagId");
 
--- CreateIndex
-CREATE INDEX "CrmContactTag_contactId_idx" ON "CrmContactTag"("contactId");
+CREATE INDEX IF NOT EXISTS "CrmContactTag_contactId_idx" ON "CrmContactTag"("contactId");
 
--- CreateIndex
-CREATE INDEX "CrmContactTag_tagId_idx" ON "CrmContactTag"("tagId");
+CREATE INDEX IF NOT EXISTS "CrmContactTag_tagId_idx" ON "CrmContactTag"("tagId");
 
--- CreateIndex
-CREATE INDEX "CrmContactActivity_contactId_idx" ON "CrmContactActivity"("contactId");
+CREATE INDEX IF NOT EXISTS "CrmContactActivity_contactId_idx" ON "CrmContactActivity"("contactId");
 
--- CreateIndex
-CREATE INDEX "CrmContactActivity_businessId_idx" ON "CrmContactActivity"("businessId");
+CREATE INDEX IF NOT EXISTS "CrmContactActivity_businessId_idx" ON "CrmContactActivity"("businessId");
 
--- CreateIndex
-CREATE INDEX "CrmContactActivity_businessId_createdAt_idx" ON "CrmContactActivity"("businessId", "createdAt");
+CREATE INDEX IF NOT EXISTS "CrmContactActivity_businessId_createdAt_idx" ON "CrmContactActivity"("businessId", "createdAt");
 
--- CreateIndex
-CREATE INDEX "CrmContactActivity_businessId_occurredAt_idx" ON "CrmContactActivity"("businessId", "occurredAt");
+CREATE INDEX IF NOT EXISTS "CrmContactActivity_businessId_occurredAt_idx" ON "CrmContactActivity"("businessId", "occurredAt");
 
--- AddForeignKey
-ALTER TABLE "CrmContactTag" ADD CONSTRAINT "CrmContactTag_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "CrmContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (these reference tables created in this migration, so they're safe)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'CrmContactTag_contactId_fkey'
+  ) THEN
+    ALTER TABLE "CrmContactTag" 
+    ADD CONSTRAINT "CrmContactTag_contactId_fkey" 
+    FOREIGN KEY ("contactId") REFERENCES "CrmContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
 
--- AddForeignKey
-ALTER TABLE "CrmContactTag" ADD CONSTRAINT "CrmContactTag_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "CrmTag"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'CrmContactTag_tagId_fkey'
+  ) THEN
+    ALTER TABLE "CrmContactTag" 
+    ADD CONSTRAINT "CrmContactTag_tagId_fkey" 
+    FOREIGN KEY ("tagId") REFERENCES "CrmTag"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
 
--- AddForeignKey
-ALTER TABLE "CrmContactActivity" ADD CONSTRAINT "CrmContactActivity_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "CrmContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'CrmContactActivity_contactId_fkey'
+  ) THEN
+    ALTER TABLE "CrmContactActivity" 
+    ADD CONSTRAINT "CrmContactActivity_contactId_fkey" 
+    FOREIGN KEY ("contactId") REFERENCES "CrmContact"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 

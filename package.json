@@ -36,7 +36,9 @@
     "postinstall": "prisma generate || echo 'Warning: prisma generate failed (DATABASE_URL may be missing). This is OK for local dev without DB connection.'",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma generate && prisma migrate deploy && prisma generate",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:predeploy": "node tools/resolve-all-failed-migrations.cjs",
+    "prisma:migrate:deploy": "pnpm run prisma:predeploy && prisma migrate deploy",
+    "db:resolve:all": "node tools/resolve-all-failed-migrations.cjs",
     "migrate:resolve": "tsx scripts/resolve-failed-migration.ts",
     "verify:db": "tsx scripts/verify-db.ts",
     "check:deploy": "tsx scripts/check-deployment-status.ts",
@@ -46,6 +48,8 @@
     "db:status": "prisma migrate status",
     "db:studio": "prisma studio",
     "db:exec": "prisma db execute --file",
+    "db:resolve:review": "prisma migrate resolve --rolled-back 20251225045724_add_review_request_automation_tables",
+    "db:check": "node tools/check-migrations.cjs",
     "crm:db:fix": "powershell -ExecutionPolicy Bypass -File scripts/obd-crm-db-fix.ps1"
   },
   "dependencies": {

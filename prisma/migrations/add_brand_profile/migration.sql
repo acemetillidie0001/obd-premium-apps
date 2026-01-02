@@ -1,5 +1,5 @@
 -- CreateTable
-CREATE TABLE "BrandProfile" (
+CREATE TABLE IF NOT EXISTS "BrandProfile" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -45,12 +45,27 @@ CREATE TABLE "BrandProfile" (
     CONSTRAINT "BrandProfile_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "BrandProfile_userId_key" ON "BrandProfile"("userId");
+-- CreateIndex (with IF NOT EXISTS for idempotency)
+CREATE UNIQUE INDEX IF NOT EXISTS "BrandProfile_userId_key" ON "BrandProfile"("userId");
 
--- CreateIndex
-CREATE INDEX "BrandProfile_userId_idx" ON "BrandProfile"("userId");
+CREATE INDEX IF NOT EXISTS "BrandProfile_userId_idx" ON "BrandProfile"("userId");
 
--- AddForeignKey
-ALTER TABLE "BrandProfile" ADD CONSTRAINT "BrandProfile_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Conditionally add foreign key only if User table exists
+-- This prevents hard failures when User table hasn't been created yet
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='User'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint 
+      WHERE conname = 'BrandProfile_userId_fkey'
+    ) THEN
+      ALTER TABLE "BrandProfile" 
+      ADD CONSTRAINT "BrandProfile_userId_fkey" 
+      FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+  END IF;
+END $$;
 

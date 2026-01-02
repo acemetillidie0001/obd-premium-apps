@@ -47,6 +47,7 @@ interface Slot {
 interface SlotsResponse {
   date: string;
   slots: Slot[];
+  calendarWarning?: string | null;
 }
 
 // Default context object - ensures context is never null (prevents React #310)
@@ -276,6 +277,20 @@ export default function PublicBookingPage() {
 
           const slotsData: SlotsResponse = data.data;
           setSlots(slotsData.slots);
+          
+          // Show calendar warning if present (non-blocking)
+          if (data.data.calendarWarning) {
+            setCalendarWarning(data.data.calendarWarning);
+          } else {
+            setCalendarWarning(null);
+          }
+          
+          // Show calendar warning if present (non-blocking)
+          if (data.data.calendarWarning) {
+            setCalendarWarning(data.data.calendarWarning);
+          } else {
+            setCalendarWarning(null);
+          }
         } catch (error) {
           console.error("Error loading slots:", error);
           setSlotsError(error instanceof Error ? error.message : "Failed to load available times");
@@ -690,22 +705,29 @@ export default function PublicBookingPage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                    {slots.map((slot) => (
-                      <button
-                        key={slot.startTime}
-                        type="button"
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`p-3 rounded border text-sm transition-colors ${
-                          selectedSlot?.startTime === slot.startTime
-                            ? "bg-teal-500 border-teal-600 text-white"
-                            : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        {slot.displayTime}
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    {calendarWarning && (
+                      <div className="mb-3 p-2 rounded border border-amber-200 bg-amber-50 text-amber-700 text-xs">
+                        {calendarWarning}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                      {slots.map((slot) => (
+                        <button
+                          key={slot.startTime}
+                          type="button"
+                          onClick={() => setSelectedSlot(slot)}
+                          className={`p-3 rounded border text-sm transition-colors ${
+                            selectedSlot?.startTime === slot.startTime
+                              ? "bg-teal-500 border-teal-600 text-white"
+                              : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {slot.displayTime}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             )}

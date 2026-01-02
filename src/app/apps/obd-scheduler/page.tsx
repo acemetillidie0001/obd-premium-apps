@@ -28,7 +28,7 @@ import type {
 import { BookingStatus, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { assertNever } from "@/lib/dev/assertNever";
 
-type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings" | "metrics";
+type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings" | "metrics" | "verification" | "calendar";
 type RequestView = "needs-action" | "upcoming" | "past-due" | "completed" | "declined" | "all";
 type RequestSort = "newest-first" | "oldest-first" | "soonest-appointment" | "recently-updated";
 
@@ -90,6 +90,15 @@ function OBDSchedulerPageContent() {
     }
   };
 
+  // Load verification auto-run preference from localStorage
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    const savedAutoRun = localStorage.getItem(`${prefix}verification:autoRun`);
+    if (savedAutoRun === "true") {
+      setVerificationAutoRun(true);
+    }
+  }, [requests]);
+
   // Load theme, activeTab, and activeView from localStorage after hydration
   // P2-10: These keys will be migrated to namespaced keys when requests load
   useEffect(() => {
@@ -99,7 +108,7 @@ function OBDSchedulerPageContent() {
     }
     
     const savedTab = localStorage.getItem("obd:scheduler:activeTab");
-    if (savedTab === "requests" || savedTab === "services" || savedTab === "availability" || savedTab === "branding" || savedTab === "settings" || savedTab === "metrics") {
+    if (savedTab === "requests" || savedTab === "services" || savedTab === "availability" || savedTab === "branding" || savedTab === "settings" || savedTab === "metrics" || savedTab === "verification" || savedTab === "calendar") {
       setActiveTab(savedTab as SchedulerTab);
     }
     
@@ -333,6 +342,42 @@ function OBDSchedulerPageContent() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsError, setMetricsError] = useState("");
   const [metricsRange, setMetricsRange] = useState<MetricsRange>("30d");
+
+  // Verification tab state
+  const [verificationChecks, setVerificationChecks] = useState<Array<{
+    name: string;
+    status: "pass" | "fail";
+    message: string;
+    details?: string;
+    timestamp: string;
+  }>>([]);
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationTimestamp, setVerificationTimestamp] = useState<string>("");
+  const [verificationAutoRun, setVerificationAutoRun] = useState(false);
+
+  // Calendar tab state
+  const [calendarConnections, setCalendarConnections] = useState<Array<{
+    provider: string;
+    accountEmail: string | null;
+    enabled: boolean;
+    expiresAt: string;
+    isExpired: boolean;
+    expiresSoon: boolean;
+    needsReconnect: boolean;
+  }>>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
+  
+  // Golden Flow checklist state (client-only, not persisted)
+  const [goldenFlowChecklist, setGoldenFlowChecklist] = useState<Record<string, boolean>>({
+    "submit-booking-request": false,
+    "approve-request-email": false,
+    "decline-request-email": false,
+    "reactivate-request": false,
+    "history-modal-audit": false,
+    "metrics-reflect-activity": false,
+  });
   const [themeForm, setThemeForm] = useState<UpdateBookingThemeRequest>({
     logoUrl: "",
     primaryColor: "#29c4a9",
@@ -1022,6 +1067,179 @@ function OBDSchedulerPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, metricsRange]);
 
+  // Run verification checks function (extracted for reuse)
+  const runVerificationChecks = async () => {
+    setVerificationLoading(true);
+    setVerificationError("");
+    setVerificationChecks([]);
+    try {
+      const res = await fetch("/api/obd-scheduler/verification");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to run verification checks");
+      }
+      setVerificationChecks(data.data.checks || []);
+      setVerificationTimestamp(data.data.timestamp || "");
+    } catch (error) {
+      console.error("Error running verification:", error);
+      setVerificationError(error instanceof Error ? error.message : "Failed to run verification checks");
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  // Auto-run verification checks when tab opens (if enabled)
+  useEffect(() => {
+    if (activeTab === "verification" && verificationAutoRun && verificationChecks.length === 0 && !verificationLoading) {
+      runVerificationChecks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, verificationAutoRun]);
+
+  // Save verification auto-run preference to localStorage
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}verification:autoRun`, verificationAutoRun ? "true" : "false");
+    } catch {
+      // Ignore storage errors
+    }
+  }, [verificationAutoRun, requests]);
+
+  // Calendar tab handlers
+  const loadCalendarConnections = async () => {
+    setCalendarLoading(true);
+    setCalendarError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/calendar/status");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load calendar connections");
+      }
+      setCalendarConnections(data.data.connections || []);
+    } catch (error) {
+      console.error("Error loading calendar connections:", error);
+      setCalendarError(error instanceof Error ? error.message : "Failed to load calendar connections");
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  // Load calendar connections when tab is active
+  useEffect(() => {
+    if (activeTab === "calendar") {
+      loadCalendarConnections();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Handle OAuth callback URL parameters
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const calendarParam = params.get("calendar");
+      const providerParam = params.get("provider");
+      const messageParam = params.get("message");
+
+      if (calendarParam === "connected" && providerParam) {
+        showNotification(`${providerParam === "google" ? "Google" : "Microsoft"} calendar connected successfully`, "success");
+        // Clean URL
+        window.history.replaceState({}, "", window.location.pathname);
+        // Reload connections
+        if (activeTab === "calendar") {
+          loadCalendarConnections();
+        }
+      } else if (calendarParam === "error" && messageParam) {
+        showNotification(`Calendar connection error: ${decodeURIComponent(messageParam)}`, "error");
+        // Clean URL
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle calendar toggle
+  const handleCalendarToggle = async (provider: "google" | "microsoft", enabled: boolean) => {
+    try {
+      const res = await fetch("/api/obd-scheduler/calendar/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to toggle calendar");
+      }
+      await loadCalendarConnections();
+      showNotification(`${provider === "google" ? "Google" : "Microsoft"} calendar ${enabled ? "enabled" : "disabled"}`, "success");
+    } catch (error) {
+      console.error("Error toggling calendar:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to toggle calendar", "error");
+    }
+  };
+
+  // Handle calendar disconnect
+  const handleCalendarDisconnect = async (provider: "google" | "microsoft") => {
+    if (!confirm(`Are you sure you want to disconnect your ${provider === "google" ? "Google" : "Microsoft"} calendar?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/obd-scheduler/calendar/disconnect?provider=${provider}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to disconnect calendar");
+      }
+      await loadCalendarConnections();
+      showNotification(`${provider === "google" ? "Google" : "Microsoft"} calendar disconnected`, "success");
+    } catch (error) {
+      console.error("Error disconnecting calendar:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to disconnect calendar", "error");
+    }
+  };
+
+  // Copy debug bundle to clipboard
+  const copyDebugBundle = async () => {
+    try {
+      const debugInfo = {
+        timestamp: new Date().toISOString(),
+        route: typeof window !== "undefined" ? window.location.href : "unknown",
+        verificationResults: verificationChecks.map(check => ({
+          name: check.name,
+          status: check.status,
+          message: check.message,
+          details: check.details,
+          timestamp: check.timestamp,
+        })),
+        failingChecks: verificationChecks
+          .filter(check => check.status === "fail")
+          .map(check => ({
+            name: check.name,
+            endpoint: `/api/obd-scheduler/verification`,
+            status: "fail",
+            message: check.message,
+            details: check.details,
+          })),
+        tenantIdentifier: requests.length > 0 && requests[0].businessId 
+          ? `businessId:${requests[0].businessId.substring(0, 8)}...` 
+          : "unknown",
+        buildInfo: {
+          commitSha: (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA as string | undefined)
+            ? (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA as string).substring(0, 7)
+            : "unknown",
+        },
+      };
+
+      const debugText = JSON.stringify(debugInfo, null, 2);
+      await navigator.clipboard.writeText(debugText);
+      showNotification("Debug bundle copied to clipboard", "success");
+    } catch (error) {
+      console.error("Error copying debug bundle:", error);
+      showNotification("Failed to copy debug bundle", "error");
+    }
+  };
+
   // Bulk actions (Bulk Actions - Tier 5.7E)
   const toggleRequestSelection = (requestId: string) => {
     setSelectedRequestIds((prev) => {
@@ -1642,6 +1860,8 @@ function OBDSchedulerPageContent() {
             { id: "branding" as SchedulerTab, label: "Branding" },
             { id: "settings" as SchedulerTab, label: "Settings" },
             { id: "metrics" as SchedulerTab, label: "Metrics" },
+            { id: "verification" as SchedulerTab, label: "Verification" },
+            { id: "calendar" as SchedulerTab, label: "Calendar" },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -2423,20 +2643,26 @@ function OBDSchedulerPageContent() {
                     <label htmlFor="instant-allowed" className={themeClasses.labelText}>
                       <span className="font-medium">Instant Allowed</span>
                       <p className={`text-sm ${themeClasses.mutedText}`}>
-                        Customers can book instantly when slots are available (requires calendar sync - coming soon).
+                        Customers can book instantly when slots are available. Connect Google Calendar in the Calendar tab to hide unavailable times.
                       </p>
                     </label>
                   </div>
                 </div>
               </div>
 
-              {/* Connected Calendars Placeholder */}
+              {/* Calendar Integration Info */}
               <div>
-                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Connected Calendars</h3>
+                <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>Calendar Integration</h3>
                 <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-                  <p className={`text-sm ${themeClasses.mutedText}`}>
-                    Calendar connections will be available in a future update. Connect your Google Calendar, Outlook, or other calendars to enable instant booking.
+                  <p className={`text-sm mb-2 ${themeClasses.mutedText}`}>
+                    Connect your Google Calendar to automatically hide unavailable times in booking slots.
                   </p>
+                  <button
+                    onClick={() => setActiveTab("calendar")}
+                    className={`text-sm underline ${isDark ? "text-[#29c4a9] hover:text-[#22ad93]" : "text-[#29c4a9] hover:text-[#22ad93]"}`}
+                  >
+                    Go to Calendar tab to connect →
+                  </button>
                 </div>
               </div>
 
@@ -2874,6 +3100,400 @@ function OBDSchedulerPageContent() {
         </OBDPanel>
       )}
       {/* ===== TAB: METRICS (end) ===== */}
+
+      {/* ===== TAB: VERIFICATION (start) ===== */}
+      {activeTab === "verification" && (
+        <>
+          <OBDPanel isDark={isDark} className="mb-6">
+            <div className="flex items-center justify-between mb-6">
+              <OBDHeading level={2} isDark={isDark}>Production Verification</OBDHeading>
+              <div className="flex items-center gap-3">
+                <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
+                  <input
+                    type="checkbox"
+                    checked={verificationAutoRun}
+                    onChange={(e) => setVerificationAutoRun(e.target.checked)}
+                    className={getInputClasses(isDark, "w-4 h-4")}
+                  />
+                  Auto-run on open
+                </label>
+                <button
+                  onClick={runVerificationChecks}
+                  disabled={verificationLoading}
+                  className={SUBMIT_BUTTON_CLASSES}
+                >
+                  {verificationLoading ? "Running Checks..." : "Run Checks"}
+                </button>
+              </div>
+            </div>
+
+          {verificationError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{verificationError}</p>
+            </div>
+          )}
+
+          {verificationLoading ? (
+            <div className="py-8 text-center">
+              <p className={themeClasses.mutedText}>Running verification checks...</p>
+            </div>
+          ) : verificationChecks.length > 0 ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                {verificationTimestamp && (
+                  <p className={`text-sm ${themeClasses.mutedText}`}>
+                    Last run: {new Date(verificationTimestamp).toLocaleString()}
+                  </p>
+                )}
+                <button
+                  onClick={copyDebugBundle}
+                  className={`px-4 py-2 text-sm rounded font-medium transition-colors ${
+                    isDark
+                      ? "bg-slate-700 hover:bg-slate-600 text-white"
+                      : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                  }`}
+                >
+                  Copy Debug Bundle
+                </button>
+              </div>
+              {verificationChecks.map((check, index) => (
+                <div
+                  key={index}
+                  className={`p-4 rounded border ${
+                    check.status === "pass"
+                      ? isDark
+                        ? "bg-green-900/20 border-green-700"
+                        : "bg-green-50 border-green-200"
+                      : isDark
+                      ? "bg-red-900/20 border-red-700"
+                      : "bg-red-50 border-red-200"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
+                      check.status === "pass"
+                        ? "bg-green-500 text-white"
+                        : "bg-red-500 text-white"
+                    }`}>
+                      {check.status === "pass" ? "✓" : "✗"}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className={`font-semibold mb-1 ${
+                        check.status === "pass"
+                          ? isDark ? "text-green-300" : "text-green-700"
+                          : isDark ? "text-red-300" : "text-red-700"
+                      }`}>
+                        {check.name}
+                      </h3>
+                      <p className={`text-sm mb-1 ${
+                        check.status === "pass"
+                          ? isDark ? "text-green-200" : "text-green-600"
+                          : isDark ? "text-red-200" : "text-red-600"
+                      }`}>
+                        {check.message}
+                      </p>
+                      {check.details && (
+                        <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                          {check.details}
+                        </p>
+                      )}
+                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                        {new Date(check.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 text-center">
+              <p className={themeClasses.mutedText}>
+                Click "Run Checks" to verify your production setup.
+              </p>
+              <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                All checks are read-only and will not modify any data.
+              </p>
+            </div>
+          )}
+        </OBDPanel>
+
+        {/* Golden Flow (Manual) Checklist */}
+        <OBDPanel isDark={isDark} className="mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <OBDHeading level={2} isDark={isDark}>Golden Flow (Manual)</OBDHeading>
+            <button
+              onClick={() => {
+                setGoldenFlowChecklist({
+                  "submit-booking-request": false,
+                  "approve-request-email": false,
+                  "decline-request-email": false,
+                  "reactivate-request": false,
+                  "history-modal-audit": false,
+                  "metrics-reflect-activity": false,
+                });
+              }}
+              className={`px-4 py-2 text-sm rounded font-medium transition-colors ${
+                isDark
+                  ? "bg-slate-700 hover:bg-slate-600 text-white"
+                  : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+              }`}
+            >
+              Reset Checklist
+            </button>
+          </div>
+          <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+            Manually verify the complete booking flow. Check off each step as you complete it.
+          </p>
+          <div className="space-y-3">
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["submit-booking-request"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["submit-booking-request"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "submit-booking-request": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>Submit booking request (public)</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Submit a booking request through the public booking page
+                </p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["approve-request-email"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["approve-request-email"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "approve-request-email": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>Approve request → confirmation email received</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Approve a request and verify the customer receives a confirmation email
+                </p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["decline-request-email"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["decline-request-email"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "decline-request-email": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>Decline request → decline email received</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Decline a request and verify the customer receives a decline email
+                </p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["reactivate-request"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["reactivate-request"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "reactivate-request": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>Reactivate request</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Reactivate a declined request and verify it returns to pending status
+                </p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["history-modal-audit"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["history-modal-audit"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "history-modal-audit": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>History modal shows audit trail entries</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Open the history modal for a request and verify audit trail entries are displayed
+                </p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${
+              goldenFlowChecklist["metrics-reflect-activity"]
+                ? isDark ? "bg-green-900/20 border-green-700" : "bg-green-50 border-green-200"
+                : isDark ? "bg-slate-800/50 border-slate-700 hover:bg-slate-800" : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+            }`}>
+              <input
+                type="checkbox"
+                checked={goldenFlowChecklist["metrics-reflect-activity"]}
+                onChange={(e) => setGoldenFlowChecklist({ ...goldenFlowChecklist, "metrics-reflect-activity": e.target.checked })}
+                className={getInputClasses(isDark, "w-5 h-5 mt-0.5")}
+              />
+              <div className="flex-1">
+                <p className={`font-medium ${themeClasses.headingText}`}>Metrics tab reflects the test activity</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Navigate to the Metrics tab and verify the test activity is reflected in the metrics
+                </p>
+              </div>
+            </label>
+          </div>
+        </OBDPanel>
+        </>
+      )}
+      {/* ===== TAB: VERIFICATION (end) ===== */}
+
+      {/* ===== TAB: CALENDAR (start) ===== */}
+      {activeTab === "calendar" && (
+        <OBDPanel isDark={isDark}>
+          <OBDHeading level={2} isDark={isDark}>Calendar Integration</OBDHeading>
+          <p className={`text-sm mb-6 ${themeClasses.mutedText}`}>
+            Connect your Google Calendar or Microsoft Outlook to automatically hide unavailable times in booking slots.
+            <br />
+            <span className="text-xs">Read-only access. OBD does not create or modify events in this phase.</span>
+          </p>
+
+          {calendarError && (
+            <div className={getErrorPanelClasses(isDark)}>
+              <p>{calendarError}</p>
+            </div>
+          )}
+
+          {calendarLoading ? (
+            <div className="py-8 text-center">
+              <p className={themeClasses.mutedText}>Loading calendar connections...</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Google Calendar Card */}
+              <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Google Calendar</h3>
+                    {calendarConnections.find(c => c.provider === "google")?.accountEmail && (
+                      <p className={`text-sm ${themeClasses.mutedText}`}>
+                        {calendarConnections.find(c => c.provider === "google")?.accountEmail}
+                      </p>
+                    )}
+                  </div>
+                  {calendarConnections.find(c => c.provider === "google") ? (
+                    <button
+                      onClick={() => handleCalendarDisconnect("google")}
+                      className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
+                        isDark
+                          ? "bg-red-600 hover:bg-red-700 text-white"
+                          : "bg-red-500 hover:bg-red-600 text-white"
+                      }`}
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <a
+                      href="/api/obd-scheduler/calendar/connect/google"
+                      className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                    >
+                      Connect
+                    </a>
+                  )}
+                </div>
+                {calendarConnections.find(c => c.provider === "google") && (
+                  <div className="space-y-2">
+                    {calendarConnections.find(c => c.provider === "google")?.needsReconnect && (
+                      <p className={`text-xs ${isDark ? "text-amber-400" : "text-amber-600"}`}>
+                        ⚠️ Token expired or expiring soon. Please reconnect.
+                      </p>
+                    )}
+                    <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
+                      <input
+                        type="checkbox"
+                        checked={calendarConnections.find(c => c.provider === "google")?.enabled || false}
+                        onChange={(e) => handleCalendarToggle("google", e.target.checked)}
+                        className={getInputClasses(isDark, "w-4 h-4")}
+                        disabled={calendarConnections.find(c => c.provider === "google")?.needsReconnect || false}
+                      />
+                      Hide unavailable times using calendar
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Microsoft Calendar Card */}
+              <div className={`p-4 rounded border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>Microsoft Outlook / 365</h3>
+                    {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail && (
+                      <p className={`text-sm ${themeClasses.mutedText}`}>
+                        {calendarConnections.find(c => c.provider === "microsoft")?.accountEmail}
+                      </p>
+                    )}
+                  </div>
+                  {calendarConnections.find(c => c.provider === "microsoft") ? (
+                    <button
+                      onClick={() => handleCalendarDisconnect("microsoft")}
+                      className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
+                        isDark
+                          ? "bg-red-600 hover:bg-red-700 text-white"
+                          : "bg-red-500 hover:bg-red-600 text-white"
+                      }`}
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <a
+                      href="/api/obd-scheduler/calendar/connect/microsoft"
+                      className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                    >
+                      Connect
+                    </a>
+                  )}
+                </div>
+                {calendarConnections.find(c => c.provider === "microsoft") && (
+                  <div className="space-y-2">
+                    {calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect && (
+                      <p className={`text-xs ${isDark ? "text-amber-400" : "text-amber-600"}`}>
+                        ⚠️ Token expired or expiring soon. Please reconnect.
+                      </p>
+                    )}
+                    <label className={`flex items-center gap-2 text-sm ${themeClasses.mutedText}`}>
+                      <input
+                        type="checkbox"
+                        checked={calendarConnections.find(c => c.provider === "microsoft")?.enabled || false}
+                        onChange={(e) => handleCalendarToggle("microsoft", e.target.checked)}
+                        className={getInputClasses(isDark, "w-4 h-4")}
+                        disabled={calendarConnections.find(c => c.provider === "microsoft")?.needsReconnect || false}
+                      />
+                      Hide unavailable times using calendar
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </OBDPanel>
+      )}
+      {/* ===== TAB: CALENDAR (end) ===== */}
 
       {/* Request Detail Modal */}
       {showRequestDetail && selectedRequest && (

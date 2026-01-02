@@ -14,7 +14,7 @@ CREATE TYPE "ImageProvider" AS ENUM ('nanoBananaFlash', 'stub');
 CREATE TYPE "ImageStorage" AS ENUM ('localDev', 'vercelBlob');
 
 -- CreateTable
-CREATE TABLE "ImageRequest" (
+CREATE TABLE IF NOT EXISTS "ImageRequest" (
     "requestId" TEXT NOT NULL,
     "status" "ImageStatus" NOT NULL DEFAULT 'queued',
     "platform" "ImagePlatform" NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE "ImageRequest" (
 );
 
 -- CreateTable
-CREATE TABLE "ImageEvent" (
+CREATE TABLE IF NOT EXISTS "ImageEvent" (
     "id" TEXT NOT NULL,
     "requestId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -52,24 +52,48 @@ CREATE TABLE "ImageEvent" (
     CONSTRAINT "ImageEvent_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "ImageRequest_status_idx" ON "ImageRequest"("status");
+-- CreateIndex (with IF NOT EXISTS for idempotency)
+CREATE INDEX IF NOT EXISTS "ImageRequest_status_idx" ON "ImageRequest"("status");
 
--- CreateIndex
-CREATE INDEX "ImageRequest_platform_category_idx" ON "ImageRequest"("platform", "category");
+CREATE INDEX IF NOT EXISTS "ImageRequest_platform_category_idx" ON "ImageRequest"("platform", "category");
 
--- CreateIndex
-CREATE INDEX "ImageRequest_createdAt_idx" ON "ImageRequest"("createdAt");
+CREATE INDEX IF NOT EXISTS "ImageRequest_createdAt_idx" ON "ImageRequest"("createdAt");
 
--- CreateIndex
-CREATE INDEX "ImageEvent_requestId_idx" ON "ImageEvent"("requestId");
+CREATE INDEX IF NOT EXISTS "ImageEvent_requestId_idx" ON "ImageEvent"("requestId");
 
--- CreateIndex
-CREATE INDEX "ImageEvent_createdAt_idx" ON "ImageEvent"("createdAt");
+CREATE INDEX IF NOT EXISTS "ImageEvent_createdAt_idx" ON "ImageEvent"("createdAt");
 
--- AddForeignKey
-ALTER TABLE "ImageEvent" ADD CONSTRAINT "ImageEvent_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "ImageRequest"("requestId") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (these reference tables created in this migration, so they're safe)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 'ImageEvent_requestId_fkey'
+  ) THEN
+    ALTER TABLE "ImageEvent" 
+    ADD CONSTRAINT "ImageEvent_requestId_fkey" 
+    FOREIGN KEY ("requestId") REFERENCES "ImageRequest"("requestId") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
 
--- AddForeignKey
-ALTER TABLE "SocialQueueItem" ADD CONSTRAINT "SocialQueueItem_imageRequestId_fkey" FOREIGN KEY ("imageRequestId") REFERENCES "ImageRequest"("requestId") ON DELETE SET NULL ON UPDATE CASCADE;
+  -- Check if SocialQueueItem table exists AND imageRequestId column exists before adding foreign key
+  -- The imageRequestId column is added in a later migration, so we must check for it
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='SocialQueueItem'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' 
+      AND table_name='SocialQueueItem' 
+      AND column_name='imageRequestId'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint 
+      WHERE conname = 'SocialQueueItem_imageRequestId_fkey'
+    ) THEN
+      ALTER TABLE "SocialQueueItem" 
+      ADD CONSTRAINT "SocialQueueItem_imageRequestId_fkey" 
+      FOREIGN KEY ("imageRequestId") REFERENCES "ImageRequest"("requestId") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+  END IF;
+END $$;
 

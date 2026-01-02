@@ -883,3 +883,20 @@ model BookingTheme {
 
   @@index([businessId])
 }
+
+model SchedulerCalendarConnection {
+  id              String   @id @default(cuid())
+  businessId      String
+  provider        String   // "google" | "microsoft"
+  accountEmail    String?
+  accessTokenEnc  String   @db.Text // Encrypted access token
+  refreshTokenEnc String?  @db.Text // Encrypted refresh token (optional)
+  expiresAt       DateTime
+  enabled         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([businessId, provider])
+  @@index([businessId])
+  @@index([businessId, provider])
+}

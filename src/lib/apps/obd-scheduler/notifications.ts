@@ -2,16 +2,28 @@
  * OBD Scheduler & Booking Notifications (V3)
  * 
  * Email notification functions for booking request lifecycle events.
- * Uses existing Resend email utility.
+ * Uses Resend for email delivery with branded HTML templates.
  */
 
-import { sendReviewRequestEmail } from "@/lib/email/resend";
+import { getResendClient } from "@/lib/email/resendClient";
+import { generateCustomerRequestConfirmationEmail } from "./email/customerRequestConfirmation";
+import { generateBusinessRequestNotificationEmail } from "./email/businessRequestNotification";
 import type { BookingRequest, BookingService } from "./types";
 
 export interface NotificationContext {
   request: BookingRequest;
   service?: BookingService | null;
   businessName?: string;
+}
+
+/**
+ * Get the email "from" address with fallback
+ */
+function getEmailFrom(): string {
+  return (
+    process.env.RESEND_FROM ||
+    "Ocala Business Directory <support@ocalabusinessdirectory.com>"
+  );
 }
 
 /**
@@ -22,30 +34,44 @@ export async function sendCustomerRequestConfirmationEmail(
 ): Promise<void> {
   const { request, service, businessName = "Business" } = context;
 
-  const subject = `Booking Request Received - ${businessName}`;
-  const htmlBody = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #29c4a9;">Booking Request Received</h2>
-      <p>Thank you, ${escapeHtml(request.customerName)}! We have received your booking request.</p>
-      
-      <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
-        ${service ? `<p><strong>Service:</strong> ${escapeHtml(service.name)}</p>` : ""}
-        ${request.preferredStart ? `<p><strong>Preferred Start:</strong> ${formatDateTime(request.preferredStart)}</p>` : "<p><strong>Preferred Start:</strong> No preference</p>"}
-      </div>
-      
-      <p>We will review your request and get back to you shortly.</p>
-      
-      <p style="color: #666; font-size: 12px; margin-top: 30px;">
-        This is an automated confirmation from ${businessName}.
-      </p>
-    </div>
-  `;
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
 
-  await sendReviewRequestEmail({
-    to: request.customerEmail,
-    subject,
-    htmlBody,
-  });
+    const subject = `Booking Request Received - ${businessName || "Business"}`;
+    const htmlBody = generateCustomerRequestConfirmationEmail({
+      businessName,
+      customerName: request.customerName,
+      serviceName: service?.name || null,
+      preferredStart: request.preferredStart,
+      message: request.message || null,
+    });
+
+    const result = await resend.emails.send({
+      from,
+      to: request.customerEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send customer confirmation email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for customer confirmation");
+    }
+  } catch (error) {
+    // Re-throw as meaningful Error object
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(
+      `Failed to send customer confirmation email: ${String(error)}`
+    );
+  }
 }
 
 /**
@@ -59,34 +85,46 @@ export async function sendBusinessRequestNotificationEmail(
 ): Promise<void> {
   const { request, service, businessName = "Business" } = context;
 
-  const subject = `New Booking Request Received - ${businessName}`;
-  const htmlBody = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #29c4a9;">New Booking Request</h2>
-      <p>You have received a new booking request:</p>
-      
-      <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 20px 0;">
-        <p><strong>Customer:</strong> ${escapeHtml(request.customerName)}</p>
-        <p><strong>Email:</strong> ${escapeHtml(request.customerEmail)}</p>
-        ${request.customerPhone ? `<p><strong>Phone:</strong> ${escapeHtml(request.customerPhone)}</p>` : ""}
-        ${service ? `<p><strong>Service:</strong> ${escapeHtml(service.name)}</p>` : ""}
-        <p><strong>Preferred Start:</strong> ${request.preferredStart ? formatDateTime(request.preferredStart) : "No preference"}</p>
-        ${request.message ? `<p><strong>Message:</strong><br>${escapeHtml(request.message)}</p>` : ""}
-      </div>
-      
-      <p>Please log in to your OBD dashboard to review and respond to this request.</p>
-      
-      <p style="color: #666; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from OBD Scheduler & Booking.
-      </p>
-    </div>
-  `;
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
 
-  await sendReviewRequestEmail({
-    to: notificationEmail,
-    subject,
-    htmlBody,
-  });
+    const subject = `New Booking Request Received - ${businessName || "Business"}`;
+    const htmlBody = generateBusinessRequestNotificationEmail({
+      businessName,
+      customerName: request.customerName,
+      customerEmail: request.customerEmail,
+      customerPhone: request.customerPhone || null,
+      serviceName: service?.name || null,
+      preferredStart: request.preferredStart,
+      message: request.message || null,
+    });
+
+    const result = await resend.emails.send({
+      from,
+      to: notificationEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send business notification email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for business notification");
+    }
+  } catch (error) {
+    // Re-throw as meaningful Error object
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(
+      `Failed to send business notification email: ${String(error)}`
+    );
+  }
 }
 
 /**
@@ -97,8 +135,12 @@ export async function sendRequestApprovedEmail(
 ): Promise<void> {
   const { request, service, businessName = "Business" } = context;
 
-  const subject = `Booking Approved - ${businessName}`;
-  const htmlBody = `
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
+
+    const subject = `Booking Approved - ${businessName || "Business"}`;
+    const htmlBody = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #29c4a9;">Booking Approved</h2>
       <p>Great news! Your booking request has been approved.</p>
@@ -112,16 +154,33 @@ export async function sendRequestApprovedEmail(
       <p>We look forward to serving you!</p>
       
       <p style="color: #666; font-size: 12px; margin-top: 30px;">
-        If you need to make changes, please contact ${businessName} directly.
+        If you need to make changes, please contact ${escapeHtml(businessName || "Business")} directly.
       </p>
     </div>
   `;
 
-  await sendReviewRequestEmail({
-    to: request.customerEmail,
-    subject,
-    htmlBody,
-  });
+    const result = await resend.emails.send({
+      from,
+      to: request.customerEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send approval email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for approval email");
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to send approval email: ${String(error)}`);
+  }
 }
 
 /**
@@ -132,11 +191,15 @@ export async function sendRequestDeclinedEmail(
 ): Promise<void> {
   const { request, service, businessName = "Business" } = context;
 
-  const subject = `Booking Request Update - ${businessName}`;
-  const htmlBody = `
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
+
+    const subject = `Booking Request Update - ${businessName || "Business"}`;
+    const htmlBody = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #666;">Booking Request Update</h2>
-      <p>Thank you for your interest in booking with ${businessName}.</p>
+      <p>Thank you for your interest in booking with ${escapeHtml(businessName || "Business")}.</p>
       
       <p>Unfortunately, we are unable to accommodate your booking request at this time.</p>
       
@@ -154,11 +217,28 @@ export async function sendRequestDeclinedEmail(
     </div>
   `;
 
-  await sendReviewRequestEmail({
-    to: request.customerEmail,
-    subject,
-    htmlBody,
-  });
+    const result = await resend.emails.send({
+      from,
+      to: request.customerEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send declined email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for declined email");
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to send declined email: ${String(error)}`);
+  }
 }
 
 /**
@@ -173,8 +253,12 @@ export async function sendProposedTimeEmail(
     throw new Error("Proposed start and end times are required");
   }
 
-  const subject = `New Time Proposed for Your Booking - ${businessName}`;
-  const htmlBody = `
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
+
+    const subject = `New Time Proposed for Your Booking - ${businessName || "Business"}`;
+    const htmlBody = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #29c4a9;">New Time Proposed</h2>
       <p>We've proposed a new time for your booking request:</p>
@@ -194,16 +278,33 @@ export async function sendProposedTimeEmail(
       ` : ""}
       
       <p style="color: #666; font-size: 12px; margin-top: 30px;">
-        If you need to make changes, please contact ${businessName} directly.
+        If you need to make changes, please contact ${escapeHtml(businessName || "Business")} directly.
       </p>
     </div>
   `;
 
-  await sendReviewRequestEmail({
-    to: request.customerEmail,
-    subject,
-    htmlBody,
-  });
+    const result = await resend.emails.send({
+      from,
+      to: request.customerEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send proposed time email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for proposed time email");
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to send proposed time email: ${String(error)}`);
+  }
 }
 
 /**
@@ -214,28 +315,49 @@ export async function sendBookingCompletedEmail(
 ): Promise<void> {
   const { request, service, businessName = "Business" } = context;
 
-  const subject = `Thank You for Your Booking - ${businessName}`;
-  const htmlBody = `
+  try {
+    const resend = getResendClient();
+    const from = getEmailFrom();
+
+    const subject = `Thank You for Your Booking - ${businessName || "Business"}`;
+    const htmlBody = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #29c4a9;">Booking Completed</h2>
-      <p>Thank you for booking with ${businessName}!</p>
+      <p>Thank you for booking with ${escapeHtml(businessName || "Business")}!</p>
       
       <p>We hope you had a great experience. We'd love to hear your feedback.</p>
       
       <p style="color: #666; font-size: 12px; margin-top: 30px;">
-        Thank you for choosing ${businessName}.
+        Thank you for choosing ${escapeHtml(businessName || "Business")}.
       </p>
     </div>
   `;
 
-  await sendReviewRequestEmail({
-    to: request.customerEmail,
-    subject,
-    htmlBody,
-  });
+    const result = await resend.emails.send({
+      from,
+      to: request.customerEmail,
+      subject,
+      html: htmlBody,
+    });
+
+    if (result.error) {
+      throw new Error(
+        `Failed to send completion email: ${result.error.message || "Unknown Resend error"}`
+      );
+    }
+
+    if (!result.data?.id) {
+      throw new Error("Resend API returned no email ID for completion email");
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Failed to send completion email: ${String(error)}`);
+  }
 }
 
-// Helper functions
+// Helper functions (for other email functions that still use inline templates)
 
 function escapeHtml(text: string): string {
   // Server-side HTML escaping
@@ -263,4 +385,5 @@ function formatDateTime(isoString: string): string {
     return isoString;
   }
 }
+
 

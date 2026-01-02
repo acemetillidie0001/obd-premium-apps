@@ -342,6 +342,9 @@ export async function POST(request: NextRequest) {
       console.warn("[OBD Scheduler] Failed to fetch settings/brand profile (non-blocking):", error);
     }
 
+    // Collect email warnings (non-blocking)
+    const warnings: string[] = [];
+
     // Send customer confirmation email (non-blocking)
     // Note: For instant bookings, we might want a different email template
     // For now, we'll use the same confirmation email
@@ -360,6 +363,7 @@ export async function POST(request: NextRequest) {
         `[OBD Scheduler] Customer confirmation email failed (non-blocking) for bookingId ${formatted.id}:`,
         errorMessage
       );
+      warnings.push("Confirmation email could not be sent.");
     }
 
     // Send business notification email (non-blocking)
@@ -382,12 +386,29 @@ export async function POST(request: NextRequest) {
           `[OBD Scheduler] Business notification email failed (non-blocking) for bookingId ${formatted.id}, businessId ${settings.businessId}:`,
           errorMessage
         );
+        warnings.push("Business notification email could not be sent.");
       }
     }
 
-    return apiSuccessResponse(formatted, 201);
+    // Return response with optional warnings
+    const response = apiSuccessResponse(formatted, 201);
+    const responseData = await response.json();
+    
+    // Add warnings if any exist
+    if (warnings.length > 0) {
+      return NextResponse.json(
+        {
+          ...responseData,
+          warnings,
+        },
+        { status: 201 }
+      );
+    }
+
+    return response;
   } catch (error) {
     return handleApiError(error);
   }
 }
+
 

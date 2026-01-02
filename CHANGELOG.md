@@ -120,6 +120,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BookingRequestAuditLog Migration**: New table for audit log tracking
 - **RateLimitEvent Migration**: New table for rate limit event tracking
 
+## OBD Scheduler & Booking — Short Booking Links & UI Polish (2026-01-XX)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Added
+
+- **Short Public Booking Links**: Base62 short codes (8-10 characters) for shareable booking URLs
+  - New `BookingPublicLink` model with unique code and optional slug
+  - Short URL format: `/book/{code}`
+  - Pretty URL format: `/book/{slug}-{code}` (when slug is set)
+  - Automatic code generation with collision handling
+- **Public Link API Endpoint**: `/api/obd-scheduler/public-link` (GET/PUT) for managing booking links
+  - Auto-creates links when first accessed
+  - Slug validation and management
+- **Settings UI for Booking Links**: Public booking link section restored in Settings tab
+  - Displays short URL and optional pretty URL
+  - Copy and test link buttons
+  - Custom slug input with validation
+  - Loading and error states with fallback to legacy bookingKey
+
+### Changed
+
+- **Public Booking Route Resolution**: Enhanced `/book/{param}` route to support multiple formats
+  - Short code: `/book/{code}`
+  - Pretty URL: `/book/{slug}-{code}`
+  - Legacy bookingKey: `/book/{bookingKey}` (backward compatible)
+- **Public Context Endpoint**: Updated to resolve short codes, slug-codes, and legacy bookingKeys
+- **Services Tab CTA Button**: Improved layout and styling
+  - Reduced button height (~25%) with medium border radius
+  - Responsive layout (stacks on mobile, aligned right on desktop)
+  - Updated CTA text to "Add a Service"
+  - Better spacing between heading and action button
+
+### Fixed
+
+- **Settings Tab Booking Link Section**: Restored visibility after BookingPublicLink implementation
+  - Section now always visible when settings exist
+  - Graceful handling of loading and error states
+  - Fallback to legacy bookingKey when publicLink unavailable
+
+### Database Migrations
+
+- **BookingPublicLink Migration**: New table for short booking link codes and slugs
+
 ## OBD CRM — V3.1 (Hub + Premium UX + Notes/Activities + Follow-Ups + Queue View)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

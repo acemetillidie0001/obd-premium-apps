@@ -5,6 +5,51 @@ All notable changes to the OBD Scheduler & Booking app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Tier 5.9 — Short Booking Links & UI Polish
+
+### Added
+- **Short Public Booking Links**: Base62 short codes (8-10 characters) for shareable booking URLs
+  - New `BookingPublicLink` model with unique code and optional slug
+  - Short URL format: `/book/{code}` (e.g., `/book/abc12345`)
+  - Pretty URL format: `/book/{slug}-{code}` (e.g., `/book/my-business-abc12345`) when slug is set
+  - Automatic code generation with collision handling
+  - Location: Database schema + `src/lib/apps/obd-scheduler/bookingPublicLink.ts`
+- **Public Link API Endpoint**: `/api/obd-scheduler/public-link` (GET/PUT) for managing booking links
+  - GET: Fetches or auto-creates BookingPublicLink for current business
+  - PUT: Updates slug for BookingPublicLink
+  - Auto-creates link if it doesn't exist (no manual setup required)
+  - Location: `src/app/api/obd-scheduler/public-link/route.ts`
+- **Settings UI for Booking Links**: Public booking link section in Settings tab
+  - Displays short URL with copy and test buttons
+  - Shows pretty URL when slug exists
+  - Custom slug input field with validation
+  - Loading states and error handling with fallback to legacy bookingKey
+  - Location: Dashboard (Settings tab)
+
+### Changed
+- **Public Booking Route Resolution**: Enhanced `/book/{param}` route to support multiple formats
+  - Resolves short codes (8-10 char base62)
+  - Resolves pretty URLs (slug-code format)
+  - Maintains backward compatibility with legacy 64-char bookingKey
+  - Location: `src/lib/apps/obd-scheduler/bookingPublicLink.ts` (`resolveBookingLink` function)
+- **Public Context Endpoint**: Updated to resolve short codes, slug-codes, and legacy bookingKeys
+  - Unified resolution logic handles all three formats
+  - Location: `/api/obd-scheduler/public/context` endpoint
+- **Services Tab CTA Button**: Improved layout and styling
+  - Reduced button height (~25% reduction from previous)
+  - Medium border radius (rounded-lg instead of rounded-full)
+  - Responsive layout: stacks below heading on mobile, aligned right on desktop
+  - Updated CTA text from "Add Service" to "Add a Service"
+  - Better spacing (mb-6 instead of mb-4) between heading row and service list
+  - Location: Dashboard (Services tab)
+
+### Fixed
+- **Settings Tab Booking Link Section**: Restored visibility after BookingPublicLink implementation
+  - Section now always visible when settings exist (removed conditional that hid it)
+  - Graceful handling of loading and error states
+  - Fallback to legacy bookingKey display when publicLink unavailable
+  - Location: Dashboard (Settings tab)
+
 ## Tier 5.8 — P1/P2 Audit Completion
 
 ### Added

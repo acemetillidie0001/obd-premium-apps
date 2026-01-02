@@ -277,7 +277,11 @@ export async function GET(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
+    // Validate businessId
     const businessId = user.id; // V3: userId = businessId
+    if (!businessId || typeof businessId !== "string") {
+      return apiErrorResponse("Invalid business ID", "UNAUTHORIZED", 401);
+    }
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") as BookingStatus | null;
@@ -310,23 +314,49 @@ export async function GET(request: NextRequest) {
       ];
     }
 
+    // Get total count (returns 0 if none exist - this is expected for first-run)
+    // Empty state is valid - never return error for empty results
+    let total = 0;
+    let requests: any[] = [];
 
-    // Get total count
-    const total = await prisma.bookingRequest.count({ where });
+    try {
+      total = await prisma.bookingRequest.count({ where });
+      
+      // Get requests (returns empty array if none exist - this is expected for first-run)
+      requests = await prisma.bookingRequest.findMany({
+        where,
+        include: {
+          service: true,
+        },
+        orderBy: {
+          [sort]: order,
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      });
+    } catch (prismaError) {
+      // Check if this is a real database error (connection, table missing, etc.)
+      const errorMessage = prismaError instanceof Error ? prismaError.message.toLowerCase() : String(prismaError).toLowerCase();
+      
+      // If it's a connection/table error, return DATABASE_ERROR
+      if (
+        errorMessage.includes("connection") ||
+        errorMessage.includes("relation") ||
+        errorMessage.includes("does not exist") ||
+        errorMessage.includes("p1001") ||
+        errorMessage.includes("p2025")
+      ) {
+        console.error("[OBD Scheduler Requests] Database error:", prismaError);
+        return handleApiError(prismaError);
+      }
+      
+      // For other Prisma errors, log and return empty array (fail gracefully)
+      console.warn("[OBD Scheduler Requests] Prisma error (returning empty array):", prismaError);
+      total = 0;
+      requests = [];
+    }
 
-    // Get requests
-    const requests = await prisma.bookingRequest.findMany({
-      where,
-      include: {
-        service: true,
-      },
-      orderBy: {
-        [sort]: order,
-      },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-
+    // Empty array is a valid response - never return error for empty state
     const response: BookingRequestListResponse = {
       requests: requests.map(formatRequest),
       total,
@@ -337,6 +367,11 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(response);
   } catch (error) {
+    // Log server-side for debugging
+    console.error("[OBD Scheduler Requests] Unexpected error:", error);
+    
+    // Only return 500 for real Prisma/database errors
+    // Empty results are handled above (returns empty array, not error)
     return handleApiError(error);
   }
 }

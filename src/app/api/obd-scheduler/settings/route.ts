@@ -18,6 +18,7 @@ import type {
   UpdateBookingSettingsRequest,
 } from "@/lib/apps/obd-scheduler/types";
 import { generateBookingKey } from "@/lib/apps/obd-scheduler/bookingKey";
+import { ensureSchedulerSettings } from "@/lib/apps/obd-scheduler/settings";
 
 export const runtime = "nodejs";
 
@@ -67,28 +68,23 @@ export async function GET(request: NextRequest) {
 
     const businessId = user.id; // V3: userId = businessId
 
-    // Get or create settings
-    let settings = await prisma.bookingSettings.findUnique({
-      where: { businessId },
-    });
-
-    if (!settings) {
-      // Create default settings
-      settings = await prisma.bookingSettings.create({
-        data: {
-          businessId,
-          bookingModeDefault: "REQUEST_ONLY",
-          timezone: "America/New_York",
-          bufferMinutes: 15,
-          minNoticeHours: 24,
-          maxDaysOut: 90,
-          bookingKey: generateBookingKey(),
-        },
-      });
-    }
+    // Validate businessId and ensure settings exist
+    const settings = await ensureSchedulerSettings(businessId, user.email);
 
     return apiSuccessResponse(formatSettings(settings));
   } catch (error) {
+    // Only return 500 for real Prisma/database errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Check if it's a validation error (should be 400)
+    if (errorMessage.includes("Invalid businessId")) {
+      return apiErrorResponse(errorMessage, "VALIDATION_ERROR", 400);
+    }
+    
+    // Log server-side for debugging
+    console.error("[OBD Scheduler Settings] Error:", error);
+    
+    // Return 500 only for actual database/Prisma errors
     return handleApiError(error);
   }
 }
@@ -170,7 +166,7 @@ export async function POST(request: NextRequest) {
         data: updateData,
       });
     } else {
-      // Create new with defaults
+      // Create new with defaults (use user email if notificationEmail not provided)
       settings = await prisma.bookingSettings.create({
         data: {
           businessId,
@@ -181,6 +177,7 @@ export async function POST(request: NextRequest) {
           maxDaysOut: body.maxDaysOut ?? 90,
           policyText: body.policyText?.trim() || null,
           bookingKey: generateBookingKey(),
+          notificationEmail: body.notificationEmail?.trim() || user.email || null,
         },
       });
     }

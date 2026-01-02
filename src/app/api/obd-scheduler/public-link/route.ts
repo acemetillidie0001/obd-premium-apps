@@ -38,10 +38,36 @@ export async function GET(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
+    // Validate businessId
     const businessId = user.id; // V3: userId = businessId
+    if (!businessId || typeof businessId !== "string") {
+      return apiErrorResponse("Invalid business ID", "UNAUTHORIZED", 401);
+    }
 
     // Ensure link exists (creates if doesn't exist)
-    const publicLink = await ensureBookingPublicLink(businessId);
+    // This should never fail for missing data - it creates automatically
+    let publicLink;
+    try {
+      publicLink = await ensureBookingPublicLink(businessId);
+    } catch (prismaError) {
+      // Check if this is a real database error (connection, table missing, etc.)
+      const errorMessage = prismaError instanceof Error ? prismaError.message.toLowerCase() : String(prismaError).toLowerCase();
+      
+      // If it's a connection/table error, return DATABASE_ERROR
+      if (
+        errorMessage.includes("connection") ||
+        errorMessage.includes("relation") ||
+        errorMessage.includes("does not exist") ||
+        errorMessage.includes("p1001") ||
+        errorMessage.includes("p2025")
+      ) {
+        console.error("[OBD Scheduler Public Link] Database error:", prismaError);
+        return handleApiError(prismaError);
+      }
+      
+      // For other errors, re-throw to be handled by outer catch
+      throw prismaError;
+    }
 
     return apiSuccessResponse({
       id: publicLink.id,
@@ -54,6 +80,11 @@ export async function GET(request: NextRequest) {
         : null,
     });
   } catch (error) {
+    // Log server-side for debugging
+    console.error("[OBD Scheduler Public Link] Unexpected error:", error);
+    
+    // Only return 500 for real Prisma/database errors
+    // Missing data is handled by ensureBookingPublicLink (creates if needed)
     return handleApiError(error);
   }
 }

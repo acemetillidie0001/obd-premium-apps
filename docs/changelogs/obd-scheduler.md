@@ -5,6 +5,82 @@ All notable changes to the OBD Scheduler & Booking app will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Tier 5.8 — P1/P2 Audit Completion
+
+### Added
+- **Reactivate Action**: Ability to reactivate declined booking requests
+  - Location: Dashboard (Requests tab - detail view)
+- **BookingRequestAuditLog Model + History UI**: Comprehensive audit trail for all booking request actions
+  - Audit log tracks status changes, updates, and key actions
+  - History UI displays audit trail in dashboard
+  - Location: Database schema + Dashboard (Requests tab - detail view)
+- **Metrics Tab + /api/obd-scheduler/metrics Endpoint**: System metrics and monitoring
+  - Metrics endpoint provides 7d/30d/90d aggregated data
+  - Dashboard Metrics tab visualizes operational insights
+  - Location: `/api/obd-scheduler/metrics` endpoint + Dashboard (Metrics tab)
+- **RateLimitEvent Tracking**: Rate limit events tracked with hashed keys
+  - Secure tracking without exposing sensitive information
+  - Analytics and monitoring for rate limit patterns
+  - Location: Database schema + metrics system
+
+### Changed
+- **CSV Export**: Now non-blocking with chunked async processing
+  - Prevents UI blocking during large exports
+  - Improved user experience for exports with many requests
+  - Location: Dashboard (Requests tab)
+- **Toast Types**: Standardized via shared `toastTypes.ts` module
+  - Consistent toast notifications across scheduler UI
+  - Reusable toast type definitions
+  - Location: `src/components/obd/toastTypes.ts` + scheduler UI
+- **localStorage Keys**: Namespaced by businessId with migration
+  - Prevents conflicts across multiple businesses
+  - Existing keys migrated automatically
+  - Location: Scheduler dashboard + localStorage migration utility
+
+### Fixed
+- **Public Context Endpoint**: Rate limiting and failed lookup logging
+  - Proper rate limiting on public context endpoint
+  - Improved error logging for failed lookups
+  - Location: `/api/obd-scheduler/public/context` endpoint
+- **Booking Request Idempotency**: Duplicate detection within 30 minutes
+  - Prevents duplicate bookings from same source
+  - 30-minute window for duplicate detection
+  - Location: `/api/obd-scheduler/requests` POST endpoint
+- **CRM Sync Failures**: Surfaces failures via warnings instead of silent failures
+  - Non-blocking CRM sync with visible warnings
+  - Improved error visibility for debugging
+  - Location: CRM integration + dashboard warnings
+- **Shared Client/Server Validation**: Unified validation for email/phone/preferredStart/service
+  - Consistent validation logic across client and server
+  - Reduces validation discrepancies
+  - Location: Validation utilities + API routes
+- **Friendly Validation Errors**: User-friendly error messages
+  - No raw technical error messages exposed to users
+  - Clear, actionable error guidance
+  - Location: All validation endpoints
+
+### Testing/Tooling
+- **Vitest Unit/Route Tests**: Comprehensive test coverage for scheduler APIs
+  - Unit tests for core scheduler functionality
+  - Route tests for API endpoints
+  - Location: `tests/` directory
+- **Playwright Smoke Tests**: End-to-end smoke tests for critical flows
+  - Validates core user workflows
+  - Prevents regression in critical paths
+  - Location: `tests/e2e/` directory
+- **Axe Accessibility Tests**: Automated accessibility testing + CONTRAST_NOTES.md
+  - Automated a11y testing integrated into test suite
+  - Contrast documentation for design compliance
+  - Location: Test suite + `CONTRAST_NOTES.md`
+- **Visual Regression Snapshots**: Visual regression testing for UI consistency
+  - Captures UI snapshots for comparison
+  - Prevents unintended visual changes
+  - Location: Test suite
+- **k6 Load Test + LOAD_TEST.md**: Performance load testing with documentation
+  - k6 load tests for performance validation
+  - Comprehensive load testing documentation
+  - Location: `tests/load/` directory + `LOAD_TEST.md`
+
 ## Tier 5.7
 
 ### Added

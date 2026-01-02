@@ -69,6 +69,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - See [OBD UI System — Shared Components](docs/obd-ui-system-shared-components.md) for detailed component documentation
 
+## OBD Scheduler & Booking — P1/P2 Audit Completion (2026-01-02)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### 1) Security & Validation
+
+- **Rate Limiting Hardening**: Enhanced rate limiting with per-endpoint configuration and improved protection against abuse
+- **Idempotency**: Request deduplication to prevent duplicate bookings
+- **Shared Validators**: Centralized validation logic with reusable validator modules
+- **Friendly Validation Errors**: User-friendly error messages with clear guidance for invalid inputs
+- **Public Context Protection**: Secure public booking context endpoint with proper access controls
+
+### 2) Workflow Reliability
+
+- **Reactivate Action**: Ability to reactivate declined or completed booking requests
+- **BookingRequestAuditLog**: Comprehensive audit logging for all booking request actions with history UI in dashboard
+- **Non-Blocking Audit Logging**: Audit log warnings are non-blocking, ensuring system reliability even if logging fails
+
+### 3) Metrics & Monitoring
+
+- **Metrics Endpoint**: New `/metrics` endpoint for system health monitoring
+- **Dashboard Metrics Tab**: Metrics visualization in scheduler dashboard for operational insights
+- **RateLimitEvent Tracking**: Rate limit events tracked with hashed keys for security and analytics
+
+### 4) Performance & UX
+
+- **Non-Blocking CSV Export**: CSV export operations run asynchronously without blocking the UI
+- **Optimistic UI**: Immediate UI feedback for user actions with background sync
+- **Cross-Tab Sync**: Real-time synchronization of booking state across browser tabs
+- **Namespaced localStorage**: Proper localStorage key namespacing to prevent conflicts
+
+### 5) Accessibility & Quality
+
+- **Skip Links**: Keyboard navigation skip links for improved accessibility
+- **ARIA Labels**: Comprehensive ARIA labels for screen reader support
+- **Focus-Visible**: Enhanced focus indicators for keyboard navigation
+- **Accessibility Tests**: Automated a11y testing integrated into test suite
+- **Contrast Notes**: Documentation of color contrast compliance
+
+### 6) Testing & Tooling
+
+- **Vitest Unit Tests**: Comprehensive unit test coverage with Vitest framework
+- **Playwright Smoke Tests**: End-to-end smoke tests for critical user flows
+- **Visual Regression Snapshots**: Visual regression testing for UI consistency
+- **k6 Load Testing**: Performance load testing with k6, including documentation
+
+### Database Migrations
+
+- **BookingRequestAuditLog Migration**: New table for audit log tracking
+- **RateLimitEvent Migration**: New table for rate limit event tracking
+
 ## OBD CRM — V3.1 (Hub + Premium UX + Notes/Activities + Follow-Ups + Queue View)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

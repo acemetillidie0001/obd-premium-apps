@@ -697,3 +697,127 @@ enum AvailabilityExceptionType {
   CLOSED_ALL_DAY
   CUSTOM_HOURS
 }
+
+model AiHelpDeskEntry {
+  id        String                @id @default(cuid())
+  businessId String
+  type      AiHelpDeskEntryType
+  title     String
+  content   String                @db.Text
+  tags      String[]              @default([])
+  isActive  Boolean               @default(true)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, type])
+  @@index([businessId, isActive])
+}
+
+model AiHelpDeskQuestionLog {
+  id              String                      @id @default(cuid())
+  businessId      String
+  question        String                      @db.Text
+  hasSources      Boolean                     @default(false)
+  sourcesCount    Int                         @default(0)
+  responseQuality AiHelpDeskResponseQuality?
+  matchedEntryIds String[]                    @default([])
+  createdAt       DateTime                    @default(now())
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+}
+
+model AiHelpDeskWidgetKey {
+  id        String   @id @default(cuid())
+  businessId String  @unique
+  publicKey String
+  createdAt DateTime @default(now())
+  rotatedAt DateTime?
+
+  @@index([businessId])
+}
+
+model AiHelpDeskWidgetSettings {
+  id                String   @id @default(cuid())
+  businessId        String   @unique
+  enabled            Boolean  @default(false)
+  brandColor         String?  @default("#29c4a9")
+  greeting           String?  @default("Hi! How can I help you today?")
+  position           String?  @default("bottom-right")
+  assistantAvatarUrl String?
+  allowedDomains     String[] @default([])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([businessId])
+}
+
+model AiHelpDeskSyncState {
+  id              String   @id @default(cuid())
+  businessId      String   @unique
+  lastSyncedAt    DateTime?
+  lastSyncStatus  String?
+  lastSyncError   String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([businessId])
+}
+
+model AiWorkspaceMap {
+  id            String   @id @default(cuid())
+  businessId    String   @unique
+  workspaceSlug String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([workspaceSlug])
+}
+
+enum AiHelpDeskEntryType {
+  FAQ
+  SERVICE
+  POLICY
+  NOTE
+}
+
+enum AiHelpDeskResponseQuality {
+  GOOD
+  WEAK
+  NONE
+}
+
+model BusinessDescriptionSavedVersion {
+  id        String   @id @default(cuid())
+  businessId String
+  title     String
+  businessName String
+  city      String?
+  state     String?
+  versionName String?
+  inputs    Json
+  outputs   Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, isActive])
+}
+
+model SchedulerBusyBlock {
+  id         String   @id @default(cuid())
+  businessId String
+  start      DateTime
+  end        DateTime
+  reason     String?
+  source     String   @default("manual")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, start])
+  @@index([businessId, end])
+}

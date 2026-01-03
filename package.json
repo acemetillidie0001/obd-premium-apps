@@ -54,6 +54,8 @@
     "db:exec": "prisma db execute --file",
     "db:resolve:review": "prisma migrate resolve --rolled-back 20251225045724_add_review_request_automation_tables",
     "db:check": "node tools/check-migrations.cjs",
+    "db:inspect": "node tools/db-inspect.cjs",
+    "db:inspect:ts": "tsx tools/db-inspect.ts",
     "crm:db:fix": "powershell -ExecutionPolicy Bypass -File scripts/obd-crm-db-fix.ps1"
   },
   "dependencies": {

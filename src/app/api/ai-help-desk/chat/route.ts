@@ -87,25 +87,27 @@ export async function POST(request: NextRequest) {
       .filter((id): id is string => Boolean(id)) || [];
 
     // Log question asynchronously (don't await to avoid blocking response)
-    prisma.aiHelpDeskQuestionLog
-      .create({
-        data: {
-          businessId: businessId.trim(),
-          question: message.trim(),
-          hasSources,
-          sourcesCount,
-          responseQuality,
-          matchedEntryIds,
-        },
-      })
-      .catch((error) => {
-        // Log error but don't fail the request
-        // Use structured logging if available, otherwise console.error is acceptable for async failures
-        if (process.env.NODE_ENV === "development") {
-          console.error("Failed to log question for insights:", error);
-        }
-        // In production, consider using apiLogger if available
-      });
+    // NOTE: aiHelpDeskQuestionLog model removed from schema - table doesn't exist in production DB
+    // TODO: Re-enable when AiHelpDeskQuestionLog table is added to production database
+    // prisma.aiHelpDeskQuestionLog
+    //   .create({
+    //     data: {
+    //       businessId: businessId.trim(),
+    //       question: message.trim(),
+    //       hasSources,
+    //       sourcesCount,
+    //       responseQuality,
+    //       matchedEntryIds,
+    //     },
+    //   })
+    //   .catch((error) => {
+    //     // Log error but don't fail the request
+    //     // Use structured logging if available, otherwise console.error is acceptable for async failures
+    //     if (process.env.NODE_ENV === "development") {
+    //       console.error("Failed to log question for insights:", error);
+    //     }
+    //     // In production, consider using apiLogger if available
+    //   });
 
     // Return normalized response
     const response: ChatResponse = {

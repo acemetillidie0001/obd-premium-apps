@@ -316,7 +316,8 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
       sections.push(result.elevatorPitch);
     }
 
-    return sections.join("\n");
+    const content = sections.join("\n");
+    return content || "No content available for this bundle yet. Generate content first.";
   };
 
   const formatWebsiteBundle = (): string => {
@@ -344,7 +345,8 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
       });
     }
 
-    return sections.join("\n");
+    const content = sections.join("\n");
+    return content || "No content available for this bundle yet. Generate content first.";
   };
 
   const formatFullMarketingPack = (): string => {
@@ -414,7 +416,8 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
       sections.push(result.metaDescription);
     }
 
-    return sections.join("\n");
+    const content = sections.join("\n");
+    return content || "No content available for this bundle yet. Generate content first.";
   };
 
   return (
@@ -857,10 +860,16 @@ function BusinessDescriptionWriterPage() {
     setFormValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const processRequest = async (payload: BusinessDescriptionFormValues) => {
+  type RegenerateMode = "everything" | "destinations" | "packs";
+
+  const processRequest = async (payload: BusinessDescriptionFormValues, mode: RegenerateMode = "everything") => {
     setLoading(true);
     setError("");
-    setResult(null);
+    
+    // Only clear result for "everything" mode; for selective modes, we'll merge
+    if (mode === "everything") {
+      setResult(null);
+    }
 
     try {
       const apiPayload = {
@@ -898,8 +907,33 @@ function BusinessDescriptionWriterPage() {
       }
 
       // Handle standardized response format: { ok: true, data: BusinessDescriptionResponse }
-      const response: BusinessDescriptionResponse = jsonResponse.data || jsonResponse;
-      setResult(response);
+      const newResponse: BusinessDescriptionResponse = jsonResponse.data || jsonResponse;
+      
+      // Selective replacement: merge new response with existing result based on mode
+      if (mode === "everything" || !result) {
+        setResult(newResponse);
+      } else if (mode === "destinations") {
+        // Replace only destination fields, preserve packs
+        setResult({
+          ...result,
+          obdListingDescription: newResponse.obdListingDescription,
+          googleBusinessDescription: newResponse.googleBusinessDescription,
+          websiteAboutUs: newResponse.websiteAboutUs,
+          elevatorPitch: newResponse.elevatorPitch, // Citations uses elevatorPitch
+        });
+      } else if (mode === "packs") {
+        // Replace only pack fields, preserve destinations
+        setResult({
+          ...result,
+          socialBioPack: newResponse.socialBioPack,
+          taglineOptions: newResponse.taglineOptions,
+          faqSuggestions: newResponse.faqSuggestions,
+          metaDescription: newResponse.metaDescription,
+          // Note: elevatorPitch is used for Citations destination, so we preserve it
+          // when regenerating packs only
+        });
+      }
+      
       setEditedResult(null); // Reset edited result when generating new content
       setEditHistory([]); // V5-4: Clear edit history on new generation
     } catch (error) {
@@ -907,7 +941,9 @@ function BusinessDescriptionWriterPage() {
       const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
       const errorMessage = formatUserErrorMessage(error);
       setError(errorMessage);
-      setResult(null);
+      if (mode === "everything") {
+        setResult(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -925,9 +961,9 @@ function BusinessDescriptionWriterPage() {
     await processRequest(formValues);
   };
 
-  const handleRegenerate = async () => {
+  const handleRegenerate = async (mode: RegenerateMode = "everything") => {
     if (!lastPayload) return;
-    await processRequest(lastPayload);
+    await processRequest(lastPayload, mode);
   };
 
   // V4: Save current version (DB-first with localStorage fallback)

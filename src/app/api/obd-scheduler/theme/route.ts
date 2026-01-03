@@ -121,11 +121,6 @@ export async function PUT(request: NextRequest) {
         403
       );
     }
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
 
     const json = await request.json().catch(() => null);
     if (!json) {

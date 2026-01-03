@@ -84,6 +84,7 @@ async function logStatusChange(
   metadata?: Record<string, any>
 ): Promise<string | null> {
   try {
+    const prisma = getPrisma();
     await prisma.bookingRequestAuditLog.create({
       data: {
         businessId,

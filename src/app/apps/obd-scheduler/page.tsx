@@ -25,6 +25,10 @@ import type {
   BookingRequestAuditLog,
   SchedulerMetrics,
   MetricsRange,
+  SchedulerBusyBlock,
+  CreateBusyBlockRequest,
+  SchedulerCalendarIntegration,
+  CalendarIntegrationStatusResponse,
 } from "@/lib/apps/obd-scheduler/types";
 import { BookingStatus, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { assertNever } from "@/lib/dev/assertNever";
@@ -332,6 +336,19 @@ function OBDSchedulerPageContent() {
   const [availabilityError, setAvailabilityError] = useState("");
   const [availabilityWindows, setAvailabilityWindows] = useState<Omit<AvailabilityWindow, "id" | "businessId" | "createdAt" | "updatedAt">[]>([]);
   const [availabilityExceptions, setAvailabilityExceptions] = useState<Omit<AvailabilityException, "id" | "businessId" | "createdAt" | "updatedAt">[]>([]);
+  
+  // Phase 3A: Busy blocks state
+  const [busyBlocks, setBusyBlocks] = useState<SchedulerBusyBlock[]>([]);
+  const [busyBlocksLoading, setBusyBlocksLoading] = useState(false);
+  const [busyBlocksError, setBusyBlocksError] = useState("");
+  const [showBusyBlockModal, setShowBusyBlockModal] = useState(false);
+  const [busyBlockForm, setBusyBlockForm] = useState<CreateBusyBlockRequest>({
+    start: "",
+    end: "",
+    reason: "",
+  });
+  const [busyBlockErrors, setBusyBlockErrors] = useState<Record<string, string>>({});
+  const [deletingBusyBlockId, setDeletingBusyBlockId] = useState<string | null>(null);
 
   // Branding tab state
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -370,6 +387,12 @@ function OBDSchedulerPageContent() {
   }>>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState("");
+  
+  // Phase 3B: Calendar Integration status (V3.1)
+  const [calendarIntegration, setCalendarIntegration] = useState<CalendarIntegrationStatusResponse | null>(null);
+  const [calendarIntegrationLoading, setCalendarIntegrationLoading] = useState(false);
+  const [calendarIntegrationError, setCalendarIntegrationError] = useState("");
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
   
   // Golden Flow checklist state (client-only, not persisted)
   const [goldenFlowChecklist, setGoldenFlowChecklist] = useState<Record<string, boolean>>({
@@ -411,6 +434,7 @@ function OBDSchedulerPageContent() {
     decline: useRef<HTMLDivElement>(null),
     reactivate: useRef<HTMLDivElement>(null),
     history: useRef<HTMLDivElement>(null),
+    busyBlock: useRef<HTMLDivElement>(null),
   };
 
   // Focus trap and restoration for modals
@@ -430,7 +454,8 @@ function OBDSchedulerPageContent() {
           (showCompleteModal && modalRefs.complete.current) ||
           (showDeclineConfirm && modalRefs.decline.current) ||
           (showReactivateConfirm && modalRefs.reactivate.current) ||
-          (showHistoryModal && modalRefs.history.current);
+          (showHistoryModal && modalRefs.history.current) ||
+          (showBusyBlockModal && modalRefs.busyBlock.current);
         
         if (modalContainer) {
           const firstFocusable = modalContainer.querySelector(
@@ -471,6 +496,10 @@ function OBDSchedulerPageContent() {
         } else if (showHistoryModal) {
           setShowHistoryModal(null);
           setAuditLogs([]);
+        } else if (showBusyBlockModal) {
+          setShowBusyBlockModal(false);
+          setBusyBlockForm({ start: "", end: "", reason: "" });
+          setBusyBlockErrors({});
         }
       }
     };
@@ -900,6 +929,95 @@ function OBDSchedulerPageContent() {
     }
   };
 
+  // Phase 3A: Load busy blocks
+  const loadBusyBlocks = async () => {
+    setBusyBlocksLoading(true);
+    setBusyBlocksError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/busy-blocks");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load busy blocks");
+      }
+      setBusyBlocks(data.data || []);
+    } catch (error) {
+      console.error("Error loading busy blocks:", error);
+      setBusyBlocksError(error instanceof Error ? error.message : "Failed to load busy blocks");
+    } finally {
+      setBusyBlocksLoading(false);
+    }
+  };
+
+  // Phase 3A: Create busy block
+  const createBusyBlock = async () => {
+    setBusyBlockErrors({});
+    
+    // Validation
+    const errors: Record<string, string> = {};
+    if (!busyBlockForm.start) {
+      errors.start = "Start time is required";
+    }
+    if (!busyBlockForm.end) {
+      errors.end = "End time is required";
+    }
+    if (busyBlockForm.start && busyBlockForm.end) {
+      const startDate = new Date(busyBlockForm.start);
+      const endDate = new Date(busyBlockForm.end);
+      if (endDate <= startDate) {
+        errors.end = "End time must be after start time";
+      }
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setBusyBlockErrors(errors);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/obd-scheduler/busy-blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(busyBlockForm),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to create busy block");
+      }
+      showNotification("Blocked time added successfully");
+      setShowBusyBlockModal(false);
+      setBusyBlockForm({ start: "", end: "", reason: "" });
+      await loadBusyBlocks();
+    } catch (error) {
+      console.error("Error creating busy block:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to create busy block", "error");
+    }
+  };
+
+  // Phase 3A: Delete busy block
+  const deleteBusyBlock = async (blockId: string) => {
+    if (!confirm("Are you sure you want to remove this blocked time?")) {
+      return;
+    }
+    
+    setDeletingBusyBlockId(blockId);
+    try {
+      const res = await fetch(`/api/obd-scheduler/busy-blocks/${blockId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to delete busy block");
+      }
+      showNotification("Blocked time removed");
+      await loadBusyBlocks();
+    } catch (error) {
+      console.error("Error deleting busy block:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to delete busy block", "error");
+    } finally {
+      setDeletingBusyBlockId(null);
+    }
+  };
+
   // Load theme
   const loadTheme = async () => {
     setThemeLoading(true);
@@ -939,6 +1057,7 @@ function OBDSchedulerPageContent() {
       loadServices();
     } else if (activeTab === "availability") {
       loadAvailability();
+      loadBusyBlocks();
     } else if (activeTab === "branding") {
       loadTheme();
     } else if (activeTab === "settings") {
@@ -952,7 +1071,7 @@ function OBDSchedulerPageContent() {
       // No initial load needed here
     } else if (activeTab === "calendar") {
       // Calendar tab loads its own data via useEffect
-      // No initial load needed here
+      loadCalendarIntegrationStatus();
     } else {
       assertNever(activeTab, "Unhandled tab case");
     }
@@ -1340,9 +1459,78 @@ function OBDSchedulerPageContent() {
   useEffect(() => {
     if (activeTab === "calendar") {
       loadCalendarConnections();
+      loadCalendarIntegrationStatus();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Phase 3B: Load calendar integration status
+  const loadCalendarIntegrationStatus = async () => {
+    setCalendarIntegrationLoading(true);
+    setCalendarIntegrationError("");
+    try {
+      const res = await fetch("/api/obd-scheduler/calendar/status");
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load calendar integration status");
+      }
+      setCalendarIntegration(data.data as CalendarIntegrationStatusResponse);
+    } catch (error) {
+      console.error("Error loading calendar integration status:", error);
+      setCalendarIntegrationError(error instanceof Error ? error.message : "Failed to load calendar integration status");
+    } finally {
+      setCalendarIntegrationLoading(false);
+    }
+  };
+
+  // Phase 3B: Handle calendar connect (stub)
+  const handleCalendarConnect = async (provider: "google") => {
+    if (!calendarIntegration?.canConnect) {
+      showNotification("Calendar OAuth is not configured", "error");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/obd-scheduler/calendar/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to initiate calendar connection");
+      }
+      // TODO: Handle OAuth redirect when implemented
+      showNotification("Calendar connection not yet implemented", "info");
+    } catch (error) {
+      console.error("Error connecting calendar:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to connect calendar", "error");
+    }
+  };
+
+  // Phase 3B: Handle calendar sync (stub)
+  const handleCalendarSync = async (provider: "google" = "google") => {
+    setSyncingCalendar(true);
+    try {
+      const res = await fetch("/api/obd-scheduler/calendar/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to sync calendar");
+      }
+      // TODO: Handle sync success when implemented
+      showNotification("Calendar sync not yet implemented", "info");
+      await loadCalendarIntegrationStatus();
+    } catch (error) {
+      console.error("Error syncing calendar:", error);
+      showNotification(error instanceof Error ? error.message : "Failed to sync calendar", "error");
+    } finally {
+      setSyncingCalendar(false);
+    }
+  };
 
   // Handle OAuth callback URL parameters
   useEffect(() => {
@@ -2672,6 +2860,100 @@ function OBDSchedulerPageContent() {
                 </p>
               </div>
 
+              {/* Phase 3A: Blocked Time Section */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className={`text-lg font-semibold ${themeClasses.headingText}`}>Blocked Time</h3>
+                  <button
+                    onClick={() => {
+                      setBusyBlockForm({ start: "", end: "", reason: "" });
+                      setBusyBlockErrors({});
+                      setShowBusyBlockModal(true);
+                    }}
+                    className={`px-4 py-2 text-sm rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                  >
+                    Add Blocked Time
+                  </button>
+                </div>
+                <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                  Manually block specific date/time ranges to prevent bookings. These blocks will be excluded from available slots.
+                </p>
+
+                {busyBlocksError && (
+                  <div className={getErrorPanelClasses(isDark)}>
+                    <p>{busyBlocksError}</p>
+                  </div>
+                )}
+
+                {busyBlocksLoading ? (
+                  <p className={themeClasses.mutedText}>Loading blocked time...</p>
+                ) : busyBlocks.length === 0 ? (
+                  <p className={`text-sm ${themeClasses.mutedText}`}>
+                    No blocked time periods. Click "Add Blocked Time" to block specific date/time ranges.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {busyBlocks
+                      .filter((block) => new Date(block.end) >= new Date()) // Only show future/present blocks
+                      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+                      .map((block) => {
+                        const startDate = new Date(block.start);
+                        const endDate = new Date(block.end);
+                        const startStr = startDate.toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        });
+                        const endStr = endDate.toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        });
+                        
+                        return (
+                          <div
+                            key={block.id}
+                            className={`flex items-start justify-between p-3 rounded border ${
+                              isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className={`font-medium ${themeClasses.headingText}`}>
+                                {startStr} - {endStr}
+                              </div>
+                              {block.reason && (
+                                <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                                  {block.reason}
+                                </div>
+                              )}
+                              <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                                {block.source === "manual" ? "Manual block" : `From ${block.source}`}
+                              </div>
+                            </div>
+                            {block.source === "manual" && (
+                              <button
+                                onClick={() => deleteBusyBlock(block.id)}
+                                disabled={deletingBusyBlockId === block.id}
+                                className={`ml-4 px-3 py-1 text-sm rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                  isDark
+                                    ? "bg-red-600 hover:bg-red-700 text-white"
+                                    : "bg-red-500 hover:bg-red-600 text-white"
+                                }`}
+                              >
+                                {deletingBusyBlockId === block.id ? "Removing..." : "Remove"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+
               <button 
                 onClick={saveAvailability} 
                 disabled={savingAvailability}
@@ -3623,6 +3905,102 @@ function OBDSchedulerPageContent() {
             </div>
           ) : (
             <div className="space-y-6">
+              {/* Phase 3B: Calendar Sync Status Panel */}
+              <div className={`p-4 rounded border ${
+                isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+              }`}>
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className={`font-semibold mb-1 ${themeClasses.headingText}`}>
+                      Calendar Sync (Coming Soon)
+                    </h3>
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Automatically sync busy times from your Google Calendar to block booking slots.
+                    </p>
+                  </div>
+                </div>
+
+                {calendarIntegrationLoading ? (
+                  <p className={themeClasses.mutedText}>Loading sync status...</p>
+                ) : calendarIntegrationError ? (
+                  <div className={getErrorPanelClasses(isDark)}>
+                    <p>{calendarIntegrationError}</p>
+                  </div>
+                ) : calendarIntegration ? (
+                  <div className="space-y-4">
+                    {/* Status Display */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-medium ${themeClasses.labelText}`}>Status:</span>
+                        <span className={`text-sm px-2 py-1 rounded ${
+                          calendarIntegration.integration?.status === "connected"
+                            ? isDark ? "bg-green-900/30 text-green-300" : "bg-green-100 text-green-700"
+                            : calendarIntegration.integration?.status === "error"
+                            ? isDark ? "bg-red-900/30 text-red-300" : "bg-red-100 text-red-700"
+                            : isDark ? "bg-slate-700 text-slate-300" : "bg-slate-200 text-slate-700"
+                        }`}>
+                          {calendarIntegration.integration?.status === "connected" ? "Connected" :
+                           calendarIntegration.integration?.status === "error" ? "Error" : "Disabled"}
+                        </span>
+                      </div>
+                      
+                      {calendarIntegration.integration?.lastSyncAt && (
+                        <div className="flex items-center justify-between">
+                          <span className={`text-sm font-medium ${themeClasses.labelText}`}>Last Sync:</span>
+                          <span className={`text-sm ${themeClasses.mutedText}`}>
+                            {new Date(calendarIntegration.integration.lastSyncAt).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+
+                      {calendarIntegration.integration?.errorMessage && (
+                        <div className={`text-sm p-2 rounded ${
+                          isDark ? "bg-red-900/20 text-red-300" : "bg-red-50 text-red-700"
+                        }`}>
+                          {calendarIntegration.integration.errorMessage}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Connect Button */}
+                    {!calendarIntegration.oauthConfigured ? (
+                      <div className={`text-sm p-3 rounded ${
+                        isDark ? "bg-amber-900/20 border border-amber-700 text-amber-300" : "bg-amber-50 border border-amber-200 text-amber-700"
+                      }`}>
+                        ⚠️ Calendar OAuth is not configured. Please set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI environment variables.
+                      </div>
+                    ) : calendarIntegration.canConnect ? (
+                      <button
+                        onClick={() => handleCalendarConnect("google")}
+                        disabled={true} // Disabled until OAuth is wired
+                        className={`w-full px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          SUBMIT_BUTTON_CLASSES
+                        }`}
+                        title="OAuth flow will be wired in next step"
+                      >
+                        Connect Google Calendar
+                      </button>
+                    ) : calendarIntegration.integration?.status === "connected" ? (
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => handleCalendarSync("google")}
+                          disabled={syncingCalendar || true} // Disabled until sync is implemented
+                          className={`w-full px-4 py-2 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                            SUBMIT_BUTTON_CLASSES
+                          }`}
+                          title="Sync logic will be implemented in next step"
+                        >
+                          {syncingCalendar ? "Syncing..." : "Sync Now"}
+                        </button>
+                        <p className={`text-xs text-center ${themeClasses.mutedText}`}>
+                          Sync logic coming soon. This will create busy blocks from your Google Calendar events.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
               {/* Status Card */}
               {(() => {
                 const googleState = getGoogleCalendarState();
@@ -4765,6 +5143,135 @@ function OBDSchedulerPageContent() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Phase 3A: Add Busy Block Modal */}
+      {showBusyBlockModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="busy-block-modal-title"
+        >
+          <div
+            ref={modalRefs.busyBlock}
+            className={`rounded-xl border p-6 max-w-md w-full ${
+              isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 id="busy-block-modal-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Add Blocked Time
+              </h3>
+              <button
+                onClick={() => {
+                  setShowBusyBlockModal(false);
+                  setBusyBlockForm({ start: "", end: "", reason: "" });
+                  setBusyBlockErrors({});
+                }}
+                className={themeClasses.mutedText}
+                aria-label="Close busy block modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Start Time *
+                </label>
+                <input
+                  type="datetime-local"
+                  value={busyBlockForm.start ? new Date(busyBlockForm.start).toISOString().slice(0, 16) : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const isoString = value ? new Date(value).toISOString() : "";
+                    setBusyBlockForm({ ...busyBlockForm, start: isoString });
+                    if (busyBlockErrors.start) {
+                      setBusyBlockErrors({ ...busyBlockErrors, start: "" });
+                    }
+                  }}
+                  className={getInputClasses(isDark)}
+                  required
+                />
+                {busyBlockErrors.start && (
+                  <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                    {busyBlockErrors.start}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  End Time *
+                </label>
+                <input
+                  type="datetime-local"
+                  value={busyBlockForm.end ? new Date(busyBlockForm.end).toISOString().slice(0, 16) : ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    const isoString = value ? new Date(value).toISOString() : "";
+                    setBusyBlockForm({ ...busyBlockForm, end: isoString });
+                    if (busyBlockErrors.end) {
+                      setBusyBlockErrors({ ...busyBlockErrors, end: "" });
+                    }
+                  }}
+                  className={getInputClasses(isDark)}
+                  required
+                />
+                {busyBlockErrors.end && (
+                  <p className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                    {busyBlockErrors.end}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                  Reason (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={busyBlockForm.reason || ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value.length <= 500) {
+                      setBusyBlockForm({ ...busyBlockForm, reason: value });
+                    }
+                  }}
+                  className={getInputClasses(isDark)}
+                  placeholder="e.g., Lunch break, Maintenance"
+                  maxLength={500}
+                />
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  {(busyBlockForm.reason || "").length}/500 characters
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setShowBusyBlockModal(false);
+                    setBusyBlockForm({ start: "", end: "", reason: "" });
+                    setBusyBlockErrors({});
+                  }}
+                  className={`flex-1 px-4 py-2 rounded font-medium transition-colors ${
+                    isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createBusyBlock}
+                  className={`flex-1 px-4 py-2 rounded font-medium transition-colors ${SUBMIT_BUTTON_CLASSES}`}
+                >
+                  Add Block
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

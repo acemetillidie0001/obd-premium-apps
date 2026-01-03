@@ -226,3 +226,50 @@ export interface SchedulerMetrics {
   reactivateCount: number;
 }
 
+// Phase 3A: Calendar Groundwork - Busy Blocks
+export interface SchedulerBusyBlock {
+  id: string;
+  businessId: string;
+  start: string; // ISO 8601 format
+  end: string; // ISO 8601 format
+  reason: string | null;
+  source: "manual" | "google" | "microsoft"; // "manual" for Phase 3A, others for future sync
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBusyBlockRequest {
+  start: string; // ISO 8601 format
+  end: string; // ISO 8601 format
+  reason?: string | null;
+}
+
+export interface UpdateBusyBlockRequest {
+  start?: string; // ISO 8601 format
+  end?: string; // ISO 8601 format
+  reason?: string | null;
+}
+
+// Phase 3B: Calendar Sync Integration (V3.1)
+export type CalendarProvider = "google" | "microsoft";
+export type CalendarIntegrationStatus = "disabled" | "connected" | "error";
+
+export interface SchedulerCalendarIntegration {
+  id: string;
+  businessId: string;
+  provider: CalendarProvider;
+  status: CalendarIntegrationStatus;
+  lastSyncAt: string | null; // ISO 8601 format
+  calendarId: string | null;
+  tokenRef: string | null; // Reference to encrypted token storage
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CalendarIntegrationStatusResponse {
+  integration: SchedulerCalendarIntegration | null;
+  oauthConfigured: boolean; // Whether OAuth env vars are present
+  canConnect: boolean; // Whether connection is possible (oauthConfigured && status !== "connected")
+}
+

@@ -900,3 +900,36 @@ model SchedulerCalendarConnection {
   @@index([businessId])
   @@index([businessId, provider])
 }
+
+model SchedulerBusyBlock {
+  id         String   @id @default(cuid())
+  businessId String
+  start      DateTime
+  end        DateTime
+  reason     String?  @db.Text
+  source     String   @default("manual") // "manual" | "google" | "microsoft" (for future calendar sync)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, start, end])
+  @@index([start, end])
+}
+
+model SchedulerCalendarIntegration {
+  id         String   @id @default(cuid())
+  businessId String
+  provider   String   // "google" | "microsoft" (V3.1: "google" only)
+  status     String   @default("disabled") // "disabled" | "connected" | "error"
+  lastSyncAt DateTime?
+  calendarId String?  // Calendar ID from provider (e.g., "primary" for Google)
+  tokenRef   String?  // Reference to encrypted token storage (placeholder if encryption not ready)
+  errorMessage String? @db.Text // Last error message if status="error"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, provider])
+  @@index([businessId])
+  @@index([businessId, provider])
+  @@index([status])
+}

@@ -5,6 +5,74 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## AI Business Description Writer — V5.0.0 (2025-01-XX)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Added - V4 Features
+
+- **Use Case Tabs**: Tabbed interface for viewing descriptions by use case
+  - Directory Listing, Google Business Profile, Website/About Page, Citations/Short Bio
+  - Character count display per tab
+  - Copy-to-clipboard functionality for each tab
+- **SERP Preview**: Visual preview of meta description in search results format
+  - Shows how description appears in Google search results
+  - Real-time character count feedback
+- **Saved Versions Panel**: Save and manage description versions
+  - localStorage-based version storage (V4)
+  - Export/import JSON functionality
+  - Load saved inputs to regenerate descriptions
+- **Content Reuse Suggestions**: Panel with actionable reuse options
+  - Push to AI Help Desk Knowledge (one-click upsert)
+  - Copy CRM Note Pack (formatted for CRM systems)
+  - BusinessId resolver utility for dashboard integration
+- **Help Desk Integration**: Direct push to AI Help Desk Knowledge base
+  - Upsert endpoint integration (`/api/ai-help-desk/knowledge/upsert`)
+  - Tenant-safe with businessId validation
+  - Tip messaging when businessId unavailable
+
+### Added - V4.5 Features
+
+- **Database-Backed Saved Versions**: Cloud storage with local fallback
+  - DB-first approach with automatic localStorage fallback
+  - Seamless migration from localStorage to database
+  - Graceful degradation when database unavailable
+- **CRM Note Pack**: Copy-formatted content for CRM systems
+  - Deep link support (no writes, copy-only)
+  - Structured format for easy pasting into CRM notes
+
+### Added - V5 Features
+
+- **Description Health Check**: Analysis-only quality assessment
+  - Checks for location mentions, service keywords, length optimization
+  - Identifies risky claims and SEO opportunities
+  - No automatic changes — analysis only
+- **Premium Fix Packs**: Deterministic improvement suggestions
+  - Diff preview showing before/after changes
+  - Apply/Reset functionality (no auto-edits)
+  - Save improved version after fixes
+  - Push improved content to Help Desk
+  - Fix types: Add Location, Trim Length, Service Mentions, Safer Claims, Meta Optimization
+- **V5-4 Polish Features**:
+  - Apply All Recommended: Batch apply all fix packs with confirmation
+  - Undo Stack: History-based undo for fix pack applications
+  - Edited Badges: Visual indicators on tabs when content is edited
+  - Smooth Scroll: Auto-scroll to preview when expanding fix pack details
+
+### Technical Notes
+
+- **No breaking changes**: All features are additive and backward compatible
+- **Feature-flagged**: V4/V4.5/V5 features gated behind `flags.bdwV4`
+- **Deterministic fixes**: Fix packs use rule-based transformations (no AI calls)
+- **Null-safe**: All operations handle missing data gracefully
+- **No API changes**: Existing API endpoints unchanged
+- **No DB changes**: Uses existing database schema (no new migrations)
+
+### Documentation
+
+- See [Business Description Writer V5 Release Notes](docs/releases/business-description-writer-v5.md) for detailed release information
+- See [Business Description Writer Changelog](docs/changelogs/business-description-writer.md) for version history
+
 ## UI Standardization — Shared Components (2025-01-XX)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

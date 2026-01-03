@@ -188,6 +188,8 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
               activeTab === tab.id
                 ? isDark
@@ -259,6 +261,553 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
             {charCount.toLocaleString()} characters
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Copy Bundles Component
+interface CopyBundlesProps {
+  result: BusinessDescriptionResponse;
+  isDark: boolean;
+}
+
+function CopyBundles({ result, isDark }: CopyBundlesProps) {
+  const [copiedBundle, setCopiedBundle] = useState<string | null>(null);
+
+  const handleCopy = async (bundleId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedBundle(bundleId);
+      setTimeout(() => {
+        setCopiedBundle(null);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
+  const formatGBPBundle = (): string => {
+    const sections: string[] = [];
+
+    if (result.googleBusinessDescription) {
+      sections.push("Google Business Profile Description:");
+      sections.push(result.googleBusinessDescription);
+    }
+
+    if (result.metaDescription) {
+      sections.push("");
+      sections.push("SEO Meta Description:");
+      sections.push(result.metaDescription);
+    }
+
+    if (result.taglineOptions && result.taglineOptions.length > 0) {
+      sections.push("");
+      sections.push("Taglines:");
+      const taglinesToInclude = result.taglineOptions.slice(0, 3);
+      taglinesToInclude.forEach((tagline) => {
+        sections.push(`- ${tagline}`);
+      });
+    }
+
+    if (result.elevatorPitch) {
+      sections.push("");
+      sections.push("Elevator Pitch:");
+      sections.push(result.elevatorPitch);
+    }
+
+    return sections.join("\n");
+  };
+
+  const formatWebsiteBundle = (): string => {
+    const sections: string[] = [];
+
+    if (result.websiteAboutUs) {
+      sections.push("Website / About Page Description:");
+      sections.push(result.websiteAboutUs);
+    }
+
+    if (result.elevatorPitch) {
+      sections.push("");
+      sections.push("Elevator Pitch:");
+      sections.push(result.elevatorPitch);
+    }
+
+    if (result.faqSuggestions && result.faqSuggestions.length > 0) {
+      sections.push("");
+      sections.push("FAQ Suggestions:");
+      const faqsToInclude = result.faqSuggestions.slice(0, 5);
+      faqsToInclude.forEach((faq) => {
+        sections.push("");
+        sections.push(`Q: ${faq.question}`);
+        sections.push(`A: ${faq.answer}`);
+      });
+    }
+
+    return sections.join("\n");
+  };
+
+  const formatFullMarketingPack = (): string => {
+    const sections: string[] = [];
+
+    if (result.obdListingDescription) {
+      sections.push("OBD Directory Listing Description:");
+      sections.push(result.obdListingDescription);
+    }
+
+    if (result.googleBusinessDescription) {
+      sections.push("");
+      sections.push("Google Business Profile Description:");
+      sections.push(result.googleBusinessDescription);
+    }
+
+    if (result.websiteAboutUs) {
+      sections.push("");
+      sections.push("Website / About Page Description:");
+      sections.push(result.websiteAboutUs);
+    }
+
+    if (result.elevatorPitch) {
+      sections.push("");
+      sections.push("Citations / Short Bio:");
+      sections.push(result.elevatorPitch);
+    }
+
+    if (result.socialBioPack) {
+      sections.push("");
+      sections.push("Social Bio Pack:");
+      if (result.socialBioPack.facebookBio) {
+        sections.push(`Facebook: ${result.socialBioPack.facebookBio}`);
+      }
+      if (result.socialBioPack.instagramBio) {
+        sections.push(`Instagram: ${result.socialBioPack.instagramBio}`);
+      }
+      if (result.socialBioPack.xBio) {
+        sections.push(`X (Twitter): ${result.socialBioPack.xBio}`);
+      }
+      if (result.socialBioPack.linkedinTagline) {
+        sections.push(`LinkedIn: ${result.socialBioPack.linkedinTagline}`);
+      }
+    }
+
+    if (result.taglineOptions && result.taglineOptions.length > 0) {
+      sections.push("");
+      sections.push("Taglines:");
+      result.taglineOptions.forEach((tagline) => {
+        sections.push(`- ${tagline}`);
+      });
+    }
+
+    if (result.faqSuggestions && result.faqSuggestions.length > 0) {
+      sections.push("");
+      sections.push("FAQ Suggestions:");
+      result.faqSuggestions.forEach((faq) => {
+        sections.push("");
+        sections.push(`Q: ${faq.question}`);
+        sections.push(`A: ${faq.answer}`);
+      });
+    }
+
+    if (result.metaDescription) {
+      sections.push("");
+      sections.push("SEO Meta Description:");
+      sections.push(result.metaDescription);
+    }
+
+    return sections.join("\n");
+  };
+
+  return (
+    <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      <div className="flex flex-wrap gap-3 items-center">
+        <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>
+          Copy Bundles:
+        </span>
+        <button
+          onClick={() => handleCopy("gbp", formatGBPBundle())}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            copiedBundle === "gbp"
+              ? isDark
+                ? "bg-[#29c4a9] text-white"
+                : "bg-[#29c4a9] text-white"
+              : isDark
+              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+          }`}
+        >
+          {copiedBundle === "gbp" ? "Copied!" : "Copy GBP Bundle"}
+        </button>
+        <button
+          onClick={() => handleCopy("website", formatWebsiteBundle())}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            copiedBundle === "website"
+              ? isDark
+                ? "bg-[#29c4a9] text-white"
+                : "bg-[#29c4a9] text-white"
+              : isDark
+              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+          }`}
+        >
+          {copiedBundle === "website" ? "Copied!" : "Copy Website Bundle"}
+        </button>
+        <button
+          onClick={() => handleCopy("full", formatFullMarketingPack())}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            copiedBundle === "full"
+              ? isDark
+                ? "bg-[#29c4a9] text-white"
+                : "bg-[#29c4a9] text-white"
+              : isDark
+              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+          }`}
+        >
+          {copiedBundle === "full" ? "Copied!" : "Copy Full Marketing Pack"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Content Packs Tabs Component (Level 2)
+interface ContentPacksTabsProps {
+  result: BusinessDescriptionResponse;
+  isDark: boolean;
+  isV4Enabled: boolean;
+  formValues: BusinessDescriptionFormValues;
+}
+
+function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPacksTabsProps) {
+  const [activePackTab, setActivePackTab] = useState<string>("social-bio");
+  const [copiedItems, setCopiedItems] = useState<Record<string, string>>({});
+  
+  // Collapsed state for each pack (defaults: social-bio/taglines/faqs collapsed, elevator-pitch/meta expanded)
+  const [collapsedPacks, setCollapsedPacks] = useState<Record<string, boolean>>({
+    "social-bio": true, // collapsed by default
+    "taglines": true, // collapsed by default
+    "faqs": true, // collapsed by default
+    "elevator-pitch": false, // expanded by default
+    "meta": false, // expanded by default
+  });
+
+  const handleCopy = async (itemId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedItems((prev) => ({ ...prev, [itemId]: itemId }));
+      setTimeout(() => {
+        setCopiedItems((prev) => {
+          const next = { ...prev };
+          delete next[itemId];
+          return next;
+        });
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy:", error);
+    }
+  };
+
+  const toggleCollapse = (packId: string) => {
+    setCollapsedPacks((prev) => ({
+      ...prev,
+      [packId]: !prev[packId],
+    }));
+  };
+
+  const packTabs = [
+    { id: "social-bio", label: "Social Bio Pack" },
+    { id: "taglines", label: "Tagline Options" },
+    { id: "elevator-pitch", label: "Elevator Pitch" },
+    { id: "faqs", label: "FAQ Suggestions" },
+    { id: "meta", label: "SEO Meta Description" },
+  ];
+
+  const isCollapsed = collapsedPacks[activePackTab] ?? false;
+
+  const getPackPreview = (packId: string): string | null => {
+    switch (packId) {
+      case "social-bio":
+        return "4 items";
+      case "taglines":
+        return result.taglineOptions?.length ? `${result.taglineOptions.length} items` : null;
+      case "faqs":
+        return result.faqSuggestions?.length ? `${result.faqSuggestions.length} FAQs` : null;
+      case "elevator-pitch":
+        return result.elevatorPitch ? "Available" : null;
+      case "meta":
+        return result.metaDescription ? "Available" : null;
+      default:
+        return null;
+    }
+  };
+
+  const renderPackContent = () => {
+    const preview = getPackPreview(activePackTab);
+
+    switch (activePackTab) {
+      case "social-bio":
+        if (isCollapsed) {
+          return (
+            <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {preview || "No content yet"}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-4">
+            <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+              <div className="flex items-start justify-between mb-2">
+                <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>Facebook:</p>
+                <button
+                  onClick={() => handleCopy("social-facebook", result.socialBioPack.facebookBio)}
+                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  {copiedItems["social-facebook"] ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                {result.socialBioPack.facebookBio}
+              </p>
+            </div>
+            <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+              <div className="flex items-start justify-between mb-2">
+                <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>Instagram:</p>
+                <button
+                  onClick={() => handleCopy("social-instagram", result.socialBioPack.instagramBio)}
+                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  {copiedItems["social-instagram"] ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                {result.socialBioPack.instagramBio}
+              </p>
+            </div>
+            <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+              <div className="flex items-start justify-between mb-2">
+                <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>X (Twitter):</p>
+                <button
+                  onClick={() => handleCopy("social-x", result.socialBioPack.xBio)}
+                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  {copiedItems["social-x"] ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                {result.socialBioPack.xBio}
+              </p>
+            </div>
+            <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+              <div className="flex items-start justify-between mb-2">
+                <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>LinkedIn Tagline:</p>
+                <button
+                  onClick={() => handleCopy("social-linkedin", result.socialBioPack.linkedinTagline)}
+                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  {copiedItems["social-linkedin"] ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                {result.socialBioPack.linkedinTagline}
+              </p>
+            </div>
+          </div>
+        );
+
+      case "taglines":
+        if (!result.taglineOptions || result.taglineOptions.length === 0) {
+          return (
+            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              <p className="text-sm">No tagline options available.</p>
+            </div>
+          );
+        }
+        if (isCollapsed) {
+          return (
+            <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {preview || "No content yet"}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-3">
+            {result.taglineOptions.map((tagline, idx) => (
+              <div key={idx} className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                <div className="flex items-start justify-between">
+                  <p className={`flex-1 text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>{tagline}</p>
+                  <button
+                    onClick={() => handleCopy(`tagline-${idx}`, tagline)}
+                    className={`ml-3 px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  >
+                    {copiedItems[`tagline-${idx}`] ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+
+      case "elevator-pitch":
+        if (!result.elevatorPitch) {
+          return (
+            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              <p className="text-sm">No elevator pitch available.</p>
+            </div>
+          );
+        }
+        if (isCollapsed) {
+          return (
+            <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {preview || "No content yet"}
+            </div>
+          );
+        }
+        return (
+          <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+            <div className="flex items-start justify-end mb-3">
+              <button
+                onClick={() => handleCopy("elevator-pitch", result.elevatorPitch)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+              >
+                {copiedItems["elevator-pitch"] ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+              {result.elevatorPitch}
+            </p>
+          </div>
+        );
+
+      case "faqs":
+        if (!result.faqSuggestions || result.faqSuggestions.length === 0) {
+          return (
+            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              <p className="text-sm">No FAQ suggestions available.</p>
+            </div>
+          );
+        }
+        if (isCollapsed) {
+          return (
+            <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {preview || "No content yet"}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-4">
+            {result.faqSuggestions.map((faq, idx) => {
+              const faqText = `Q: ${faq.question}\n\nA: ${faq.answer}`;
+              return (
+                <div key={idx} className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                  <div className="flex items-start justify-end mb-3">
+                    <button
+                      onClick={() => handleCopy(`faq-${idx}`, faqText)}
+                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                    >
+                      {copiedItems[`faq-${idx}`] ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className={`font-medium mb-2 text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>
+                    Q: {faq.question}
+                  </p>
+                  <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                    A: {faq.answer}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        );
+
+      case "meta":
+        if (!result.metaDescription) {
+          return (
+            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              <p className="text-sm">No meta description available.</p>
+            </div>
+          );
+        }
+        if (isCollapsed) {
+          return (
+            <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              {preview || "No content yet"}
+            </div>
+          );
+        }
+        return (
+          <div className="space-y-4">
+            {isV4Enabled && (
+              <div className="mb-4">
+                <SerpPreview
+                  title={
+                    formValues.businessName.trim()
+                      ? `${formValues.businessName.trim()}${formValues.city.trim() ? ` - ${formValues.city.trim()}, ${formValues.state.trim() || "Florida"}` : ""}`
+                      : "Business Listing"
+                  }
+                  url=""
+                  description={result.metaDescription}
+                  isDark={isDark}
+                />
+              </div>
+            )}
+            <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+              <div className="flex items-start justify-end mb-3">
+                <button
+                  onClick={() => handleCopy("meta-description", result.metaDescription || "")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                >
+                  {copiedItems["meta-description"] ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                {result.metaDescription}
+              </p>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      {/* Tab Headers */}
+      <div className={`flex flex-wrap gap-2 p-4 border-b ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+        {packTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActivePackTab(tab.id)}
+            role="tab"
+            aria-selected={activePackTab === tab.id}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${activePackTab === tab.id ? "bg-[#29c4a9] text-white" : isDark ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      <div className="p-4">
+        {/* Pack Header with Toggle */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+            {packTabs.find((tab) => tab.id === activePackTab)?.label}
+          </h3>
+          <button
+            onClick={() => toggleCollapse(activePackTab)}
+            aria-expanded={!isCollapsed}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              isDark
+                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                : "bg-slate-100 text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+            }`}
+          >
+            {isCollapsed ? "Expand" : "Collapse"}
+          </button>
+        </div>
+        {renderPackContent()}
       </div>
     </div>
   );
@@ -1028,75 +1577,16 @@ function BusinessDescriptionWriterPage() {
                     </>
                   )}
 
-                  {/* Additional result cards - shown in both V4 and legacy modes */}
-                  <ResultCard title="Social Media Bio Pack" isDark={isDark}>
-                    <div className="space-y-4">
-                      <div>
-                        <p className={`font-medium mb-1 ${isDark ? "text-slate-200" : "text-slate-800"}`}>Facebook:</p>
-                        <p className="whitespace-pre-wrap">{displayResult.socialBioPack.facebookBio}</p>
-                      </div>
-                      <div>
-                        <p className={`font-medium mb-1 ${isDark ? "text-slate-200" : "text-slate-800"}`}>Instagram:</p>
-                        <p className="whitespace-pre-wrap">{displayResult.socialBioPack.instagramBio}</p>
-                      </div>
-                      <div>
-                        <p className={`font-medium mb-1 ${isDark ? "text-slate-200" : "text-slate-800"}`}>X (Twitter):</p>
-                        <p className="whitespace-pre-wrap">{displayResult.socialBioPack.xBio}</p>
-                      </div>
-                      <div>
-                        <p className={`font-medium mb-1 ${isDark ? "text-slate-200" : "text-slate-800"}`}>LinkedIn Tagline:</p>
-                        <p className="whitespace-pre-wrap">{displayResult.socialBioPack.linkedinTagline}</p>
-                      </div>
-                    </div>
-                  </ResultCard>
+                  {/* Copy Bundles - above Content Packs */}
+                  <CopyBundles result={displayResult} isDark={isDark} />
 
-                  <ResultCard title="Tagline Options" isDark={isDark}>
-                    <ul className="list-disc list-inside space-y-1">
-                      {displayResult.taglineOptions.map((tagline, idx) => (
-                        <li key={idx}>{tagline}</li>
-                      ))}
-                    </ul>
-                  </ResultCard>
-
-                  <ResultCard title="Elevator Pitch" isDark={isDark}>
-                    <p className="whitespace-pre-wrap">{displayResult.elevatorPitch}</p>
-                  </ResultCard>
-
-                  {displayResult.faqSuggestions.length > 0 && (
-                    <ResultCard title="FAQ Suggestions" isDark={isDark}>
-                      <div className="space-y-4">
-                        {displayResult.faqSuggestions.map((faq, idx) => (
-                          <div key={idx}>
-                            <p className={`font-medium mb-1 ${isDark ? "text-slate-200" : "text-slate-800"}`}>
-                              Q: {faq.question}
-                            </p>
-                            <p className="whitespace-pre-wrap">A: {faq.answer}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </ResultCard>
-                  )}
-
-                  {displayResult.metaDescription && (
-                    <ResultCard title="SEO Meta Description" isDark={isDark}>
-                      {/* V4 SERP Preview - Only shown when flags.bdwV4 is true */}
-                      {isV4Enabled ? (
-                        <div className="mb-4">
-                          <SerpPreview
-                            title={
-                              formValues.businessName.trim()
-                                ? `${formValues.businessName.trim()}${formValues.city.trim() ? ` - ${formValues.city.trim()}, ${formValues.state.trim() || "Florida"}` : ""}`
-                                : "Business Listing"
-                            }
-                            url=""
-                            description={displayResult.metaDescription}
-                            isDark={isDark}
-                          />
-                        </div>
-                      ) : null}
-                      <p className="whitespace-pre-wrap">{displayResult.metaDescription}</p>
-                    </ResultCard>
-                  )}
+                  {/* Content Packs Tabs - Level 2 (shown in both V4 and legacy modes) */}
+                  <ContentPacksTabs
+                    result={displayResult}
+                    isDark={isDark}
+                    isV4Enabled={isV4Enabled}
+                    formValues={formValues}
+                  />
 
                   {/* V4: Description Health Check - Only shown when flags.bdwV4 is true */}
                   {isV4Enabled && result && (

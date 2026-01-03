@@ -239,9 +239,208 @@ src/lib/utils/
 
 ---
 
+---
+
+## V3+ UX & Workflow Upgrade (January 3, 2026)
+
+### Overview
+
+The V3+ upgrade introduces a comprehensive UX and workflow enhancement across three tiers, focusing on improved navigation, enhanced copy workflows, safer fix pack previews, and advanced power-user features.
+
+**Status:** Production Ready  
+**No Breaking Changes:** All features are additive and backward compatible  
+**No Prisma / API Changes:** Frontend-only release
+
+---
+
+### Tier 1: UI Refactor + Copy Workflow
+
+#### Two-Level Tab System
+
+**Hierarchical Navigation**
+
+- **Level 1: Destination Output**
+  - Primary tabs: OBD Directory Listing, Google Business Profile, Website/About Page, Citations/Short Bio
+  - Character counts per tab
+  - Copy buttons per block
+  - "Edited" badges when content modified
+
+- **Level 2: Content Packs**
+  - Secondary tabs: Social Bio Pack, Tagline Options, Elevator Pitch, FAQ Suggestions, SEO Meta Description
+  - Export Center and Quality Controls tabs
+  - Collapsible state management
+
+#### Collapsible Content Packs
+
+- Each pack can be collapsed/expanded independently
+- Preview text when collapsed (e.g., "4 items", "5 FAQs")
+- Default states: Social Bio, Taglines, FAQs collapsed; Elevator Pitch, Meta expanded
+
+#### Copy Buttons Per Block
+
+- Individual copy buttons for each content block
+- "Copied!" confirmation (2-second timeout)
+- Per-block copy state tracking
+
+#### Copy Bundles
+
+- **Copy GBP Bundle**: Google Business Profile formatted pack
+- **Copy Website Bundle**: Website/About page formatted pack
+- **Copy Full Marketing Pack**: Complete bundle with all content types
+- Uses shared export formatters
+
+#### Regenerate Dropdown with Modes
+
+- **Regenerate All**: Full regeneration
+- **Regenerate Destination Output only**: Main descriptions only
+- **Regenerate Content Packs only**: Supplementary content only
+- Safe merge behavior preserves edited content
+
+---
+
+### Tier 2: Fix Packs Preview + Safety
+
+#### Non-Destructive Fix Pack Preview Modal
+
+- **Before/After Comparison**: Side-by-side view with character counts and deltas
+- **Apply Options**: Apply, Apply as New Version, or Cancel
+- **Safety**: Original result never mutated; all changes require explicit approval
+
+#### Character Counts + Deltas
+
+- Character counts for Before and After versions
+- Delta calculation (change in character count)
+- Visual indicators for length changes
+
+#### Undo with Toast
+
+- Single-level undo functionality
+- Toast notification confirms undo action
+- Disabled when edit history empty
+
+#### AI Recommended Opens Preview
+
+- "AI Recommended" fixes open preview modal (no auto-apply)
+- User must review and approve changes
+
+#### Eligibility Gating + No-Op Prevention
+
+- Fix packs only shown when eligible (issues detected)
+- No-op prevention: Hides fixes that would make no changes
+
+#### Shared safeTrimToLimit Utility
+
+- Consistent length trimming across fix packs
+- Respects sentence boundaries
+
+#### Fix Pack Wiring: Optimize Meta + Optimize Length
+
+- **Optimize Meta**: Improves meta description for SEO and length
+- **Optimize Length**: Truncates at sentence boundaries
+- Both use preview modal workflow
+
+---
+
+### Tier 3: Power User Features
+
+#### Option A: Export Center
+
+**Multi-Format Export**
+
+- **Copy Formats**: Plain text, markdown, HTML snippet
+- **Download Options**: `.txt` and `.md` files
+- **Paste-Ready Blocks**: Platform-specific formatting
+- **Shared Export Formatters**: Centralized export logic
+
+#### Option B: Brand Profile
+
+**Persistent Brand Settings**
+
+- **Presets**: Save and load brand voice, personality style, writing preferences
+- **localStorage Persistence**: Settings saved locally
+- **Fill-Empty-Only Default**: Presets only fill empty fields by default
+- **Overwrite Mode**: Optional mode to overwrite existing values
+
+#### Option C: Saved Versions Workspace
+
+**Advanced Version Management**
+
+- **Drawer/Modal Workspace**: Full-screen version management
+- **Rename/Tags**: Local metadata (localStorage) for organizing versions
+- **Compare Mode**: Side-by-side comparison with guardrails and swap sides
+- **Loaded Saved Version Banner**: Shows when version loaded; reset-to-loaded option
+- **Duplicate Clarity Toast**: Prevents accidental duplicate saves
+- **Delete Safety**: Confirmation and compare mode clearing
+
+#### Option D: Quality Controls
+
+**Advanced Quality Analysis & Fixes**
+
+- **Quality Metrics**: Hype words, repetition, keyword repetition, readability estimate
+- **Safe Fixes via Preview Modal**:
+  - **Soften Hype Words**: Replaces promotional language
+  - **Remove Duplicates**: Eliminates repetitive phrases
+  - Both use preview modal (no auto-apply)
+
+---
+
+### Deterministic Transformations
+
+All fix packs and quality controls use rule-based transformations:
+
+- No AI calls in fix packs or quality controls
+- All transformations are predictable and previewable
+- Character count changes calculated deterministically
+- Safe sentence-boundary truncation
+
+**Benefits:**
+- Fast execution (no API calls)
+- Predictable results
+- Previewable changes
+
+---
+
+### Known Limitations (V3+)
+
+#### localStorage-Based Metadata
+
+- **Brand Profile presets**: Stored in localStorage (browser-specific)
+- **Version metadata** (rename/tags): Stored in localStorage (not synced across devices)
+- **Impact**: Brand profiles and version metadata are device-specific
+
+**Workaround:**
+- Export/Import JSON functionality available for version backup
+- Brand profiles can be manually recreated if needed
+
+#### Single-Level Undo
+
+- Undo only restores one previous state
+- History cleared on reset or new generation
+
+#### Compare Mode Limitations
+
+- Compare mode works with loaded versions only
+- Cannot compare unsaved edits with saved versions directly
+- Must save current state before comparing
+
+---
+
+### Next Recommended Upgrades (Tier 4 Shortlist)
+
+1. **Multi-Level Undo Stack**: Full edit history with redo
+2. **Cloud-Synced Brand Profiles**: Database-backed, cross-device sync
+3. **Version Metadata in Database**: Move rename/tags to database
+4. **Advanced Compare Mode**: Compare unsaved edits, three-way merge
+5. **AI-Powered Fix Suggestions**: Optional AI enhancements
+6. **Export Templates**: Custom export format templates
+7. **Quality Control Enhancements**: Additional metrics and custom rules
+
+---
+
 ## Related Documentation
 
 - [Business Description Writer V5 Release Notes](docs/releases/business-description-writer-v5.md)
+- [Business Description Writer V3+ UX Upgrade Release Notes](docs/releases/business-description-writer-v3-ux-upgrade.md)
 - [Business Description Writer Changelog](docs/changelogs/business-description-writer.md)
 - [OBD UI System — Shared Components](docs/obd-ui-system-shared-components.md)
 

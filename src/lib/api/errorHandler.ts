@@ -109,6 +109,8 @@ export type ApiErrorCode =
   | "PILOT_ONLY"
   | "INTERNAL_ERROR"
   | "OAUTH_ERROR"
+  | "OAUTH_NOT_CONFIGURED"
+  | "NOT_IMPLEMENTED"
   | "NOT_ENABLED"
   | "UNKNOWN_ERROR";
 

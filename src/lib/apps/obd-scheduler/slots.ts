@@ -15,6 +15,7 @@ import type {
   AvailabilityWindow,
   AvailabilityException,
   BookingRequest,
+  SchedulerBusyBlock,
 } from "./types";
 import { AvailabilityExceptionType, BookingStatus } from "./types";
 
@@ -26,6 +27,7 @@ export interface SlotGenerationInput {
   availabilityWindows: AvailabilityWindow[];
   availabilityExceptions: AvailabilityException[];
   existingBookings: BookingRequest[];
+  busyBlocks?: SchedulerBusyBlock[]; // Phase 3A: Manual busy blocks
   serviceDurationMinutes?: number; // If not provided, defaults to 60
   targetDate: string; // YYYY-MM-DD format
 }
@@ -47,6 +49,7 @@ export function generateSlots(input: SlotGenerationInput): Slot[] {
     availabilityWindows,
     availabilityExceptions,
     existingBookings,
+    busyBlocks = [], // Phase 3A: Default to empty array if not provided
     serviceDurationMinutes = 60, // Default 60 minutes if not provided
     targetDate,
   } = input;
@@ -86,6 +89,7 @@ export function generateSlots(input: SlotGenerationInput): Slot[] {
           bufferMinutes,
           serviceDurationMinutes,
           existingBookings,
+          busyBlocks,
           now
         );
       }
@@ -113,6 +117,7 @@ export function generateSlots(input: SlotGenerationInput): Slot[] {
     bufferMinutes,
     serviceDurationMinutes,
     existingBookings,
+    busyBlocks,
     now
   );
 }
@@ -129,6 +134,7 @@ function generateSlotsForTimeRange(
   bufferMinutes: number,
   serviceDurationMinutes: number,
   existingBookings: BookingRequest[],
+  busyBlocks: SchedulerBusyBlock[],
   now: Date
 ): Slot[] {
   // Parse start and end times (HH:mm format)
@@ -268,6 +274,21 @@ function generateSlotsForTimeRange(
     if (hasBufferConflict) {
       currentSlot = new Date(currentSlot.getTime() + slotDurationMs);
       continue; // Buffer conflict, skip
+    }
+
+    // Phase 3A: Check for conflicts with busy blocks
+    const hasBusyBlockConflict = busyBlocks.some((block) => {
+      const blockStart = new Date(block.start);
+      const blockEnd = new Date(block.end);
+
+      // Check if slot overlaps with busy block
+      // Slot overlaps if it starts before block ends and ends after block starts
+      return currentSlot < blockEnd && slotEndTime > blockStart;
+    });
+
+    if (hasBusyBlockConflict) {
+      currentSlot = new Date(currentSlot.getTime() + slotDurationMs);
+      continue; // Busy block conflict, skip
     }
 
     // Slot is available!

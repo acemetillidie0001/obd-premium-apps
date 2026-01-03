@@ -648,3 +648,80 @@ export function previewFixPack(
   };
 }
 
+/**
+ * Tier 2B-1: Get proposed changes for a fix pack
+ * Returns proposed changes and list of changed keys
+ */
+export function getProposedChangesForFix(
+  fixId: FixPackId,
+  formValues: BDWFormValues,
+  baseResult: BDWResult
+): { proposed: Partial<BDWResult>; changedKeys: string[] } {
+  const preview = previewFixPack(fixId, formValues, baseResult);
+  const changedKeys: string[] = [];
+  
+  // Compare each proposed field to baseResult to find actual changes
+  Object.keys(preview.updated).forEach((key) => {
+    const typedKey = key as keyof BDWResult;
+    const proposedValue = preview.updated[typedKey];
+    const baseValue = baseResult[typedKey];
+    
+    // Only include if values actually differ
+    if (proposedValue !== baseValue && proposedValue !== null && proposedValue !== undefined) {
+      changedKeys.push(key);
+    }
+  });
+  
+  return {
+    proposed: preview.updated,
+    changedKeys,
+  };
+}
+
+/**
+ * Tier 2B-1: Get eligibility status for a fix pack
+ * Returns whether the fix is eligible and a reason if not
+ */
+export function getFixEligibility(
+  fixId: FixPackId,
+  formValues: BDWFormValues,
+  baseResult: BDWResult
+): { eligible: boolean; reason?: string; changedKeys?: string[] } {
+  const { changedKeys } = getProposedChangesForFix(fixId, formValues, baseResult);
+  
+  if (changedKeys.length === 0) {
+    // Not eligible - determine reason based on fix type
+    let reason: string;
+    switch (fixId) {
+      case "meta_optimize":
+        reason = "Meta description already within recommended length.";
+        break;
+      case "trim_length":
+        reason = "Descriptions already within recommended limits.";
+        break;
+      case "add_location":
+        reason = "Location references already present.";
+        break;
+      case "service_mention":
+        reason = "Service mentions already present.";
+        break;
+      case "safer_claims":
+        reason = "No risky claims found.";
+        break;
+      default:
+        reason = "No changes needed for this fix pack.";
+    }
+    
+    return {
+      eligible: false,
+      reason,
+      changedKeys: [],
+    };
+  }
+  
+  return {
+    eligible: true,
+    changedKeys,
+  };
+}
+

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { buildFixSuggestions, previewFixPack, type FixSuggestion, type FixPreview, type FixPackId } from "@/lib/utils/bdw-fix-packs";
+import { buildFixSuggestions, previewFixPack, getFixEligibility, type FixSuggestion, type FixPreview, type FixPackId } from "@/lib/utils/bdw-fix-packs";
 import { runBDWHealthCheck } from "@/lib/utils/bdw-health-check";
 
 interface BusinessDescriptionFormValues {
@@ -541,9 +541,99 @@ export default function FixPacks({
     return null;
   }
 
+  // Tier 2B-1: Check eligibility for each fix pack
+  const fixEligibilities = useMemo(() => {
+    const eligibilities = new Map<FixPackId, { eligible: boolean; reason?: string; changedKeys?: string[] }>();
+    const formVals = {
+      businessName: formValues.businessName || "",
+      city: formValues.city || undefined,
+      state: formValues.state || undefined,
+      services: formValues.services || undefined,
+      businessType: formValues.businessType || undefined,
+    };
+    const baseRes = {
+      obdListingDescription: baseResult.obdListingDescription || null,
+      googleBusinessDescription: baseResult.googleBusinessDescription || null,
+      websiteAboutUs: baseResult.websiteAboutUs || null,
+      elevatorPitch: baseResult.elevatorPitch || null,
+      metaDescription: baseResult.metaDescription || null,
+    };
+    
+    suggestions.forEach((suggestion) => {
+      const eligibility = getFixEligibility(suggestion.id, formVals, baseRes);
+      eligibilities.set(suggestion.id, eligibility);
+    });
+    
+    return eligibilities;
+  }, [suggestions, formValues, baseResult]);
+
+  // Tier 2B-1: Check AI Recommended eligibility
+  const aiRecommendedEligibility = useMemo(() => {
+    if (suggestions.length === 0) {
+      return { eligible: false, changedKeys: [] };
+    }
+    
+    const formVals = {
+      businessName: formValues.businessName || "",
+      city: formValues.city || undefined,
+      state: formValues.state || undefined,
+      services: formValues.services || undefined,
+      businessType: formValues.businessType || undefined,
+    };
+    const baseRes = {
+      obdListingDescription: baseResult.obdListingDescription || null,
+      googleBusinessDescription: baseResult.googleBusinessDescription || null,
+      websiteAboutUs: baseResult.websiteAboutUs || null,
+      elevatorPitch: baseResult.elevatorPitch || null,
+      metaDescription: baseResult.metaDescription || null,
+    };
+    
+    // Build cumulative changes (same logic as handlePreviewAllRecommended)
+    let currentResult = { ...baseRes };
+    const cumulativeUpdate: Partial<typeof baseRes> = {};
+    
+    suggestions.forEach((suggestion) => {
+      const preview = previewFixPack(suggestion.id, formVals, currentResult);
+      Object.assign(cumulativeUpdate, preview.updated);
+      
+      // Update currentResult for next iteration
+      currentResult = {
+        ...currentResult,
+        ...preview.updated,
+      };
+    });
+    
+    // Compare cumulative changes to baseResult to find actual changed keys
+    const changedKeys: string[] = [];
+    Object.keys(cumulativeUpdate).forEach((key) => {
+      const typedKey = key as keyof typeof baseRes;
+      const proposedValue = cumulativeUpdate[typedKey];
+      const baseValue = baseRes[typedKey];
+      
+      if (proposedValue !== baseValue && proposedValue !== null && proposedValue !== undefined) {
+        changedKeys.push(key);
+      }
+    });
+    
+    return {
+      eligible: changedKeys.length > 0,
+      changedKeys,
+    };
+  }, [suggestions, formValues, baseResult]);
+
   // Tier 2A: Handle preview - opens modal with proposed changes
   const handlePreview = (packId: FixPackId, suggestion: FixSuggestion) => {
     try {
+      // Tier 2B-1: Check eligibility first
+      const eligibility = fixEligibilities.get(packId);
+      if (!eligibility || !eligibility.eligible) {
+        // Tier 2B-1: Prevent no-op preview - show toast instead
+        setToast({
+          message: eligibility?.reason || "No changes needed for this fix pack.",
+        });
+        return;
+      }
+
       // Generate proposed changes from baseResult (original, untouched)
       const preview = previewFixPack(
         packId,
@@ -563,18 +653,25 @@ export default function FixPacks({
         }
       );
 
-      if (Object.keys(preview.updated).length > 0) {
-        // Create preview state - proposed changes stored in memory, baseResult untouched
-        const newPreviewState: FixPreviewState = {
-          isOpen: true,
-          fixId: packId,
-          fixTitle: suggestion.title,
-          targetKeys: Object.keys(preview.updated),
-          proposed: preview.updated as Partial<BusinessDescriptionResponse>,
-          createdAt: Date.now(),
-        };
-        setPreviewState(newPreviewState);
+      // Tier 2B-1: Double-check that we have actual changes
+      const changedKeys = eligibility.changedKeys || [];
+      if (changedKeys.length === 0) {
+        setToast({
+          message: "No changes needed for this fix pack.",
+        });
+        return;
       }
+
+      // Create preview state - proposed changes stored in memory, baseResult untouched
+      const newPreviewState: FixPreviewState = {
+        isOpen: true,
+        fixId: packId,
+        fixTitle: suggestion.title,
+        targetKeys: changedKeys,
+        proposed: preview.updated as Partial<BusinessDescriptionResponse>,
+        createdAt: Date.now(),
+      };
+      setPreviewState(newPreviewState);
     } catch (error) {
       console.error("[FixPacks] Error generating preview:", error);
       alert("Failed to generate preview. Please try again.");
@@ -771,6 +868,14 @@ export default function FixPacks({
   const handlePreviewAllRecommended = () => {
     if (suggestions.length === 0) return;
     
+    // Tier 2B-1: Check eligibility first
+    if (!aiRecommendedEligibility.eligible || aiRecommendedEligibility.changedKeys.length === 0) {
+      setToast({
+        message: "Everything looks good — no recommendations right now.",
+      });
+      return;
+    }
+    
     // Build cumulative update from all suggestions in priority order
     // Each fix pack works independently from baseResult, so we apply all to baseResult
     // and merge the results. If multiple fixes modify the same field, the last one wins
@@ -812,17 +917,22 @@ export default function FixPacks({
       };
     });
     
-    // Only show preview if there are actual changes
-    if (Object.keys(cumulativeUpdate).length > 0) {
+    // Tier 2B-1: Only show preview if there are actual changes
+    const changedKeys = aiRecommendedEligibility.changedKeys;
+    if (changedKeys.length > 0) {
       const newPreviewState: FixPreviewState = {
         isOpen: true,
         fixId: "ai-recommended", // Special ID for combined preview
         fixTitle: "AI Recommended Changes",
-        targetKeys: Object.keys(cumulativeUpdate),
+        targetKeys: changedKeys,
         proposed: cumulativeUpdate as Partial<BusinessDescriptionResponse>,
         createdAt: Date.now(),
       };
       setPreviewState(newPreviewState);
+    } else {
+      setToast({
+        message: "Everything looks good — no recommendations right now.",
+      });
     }
   };
 
@@ -861,17 +971,26 @@ export default function FixPacks({
             </button>
           )}
           {/* Tier 2A: Apply AI Recommended button - opens preview modal */}
+          {/* Tier 2B-1: Disable when no eligible changes */}
           {suggestions.length > 0 && (
-            <button
-              onClick={handlePreviewAllRecommended}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                isDark
-                  ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
-                  : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
-              }`}
-            >
-              Apply AI Recommended
-            </button>
+            <div className="flex flex-col items-end gap-1">
+              <button
+                onClick={handlePreviewAllRecommended}
+                disabled={!aiRecommendedEligibility.eligible}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isDark
+                    ? "bg-[#29c4a9] text-white hover:bg-[#25b09a] disabled:hover:bg-[#29c4a9]"
+                    : "bg-[#29c4a9] text-white hover:bg-[#25b09a] disabled:hover:bg-[#29c4a9]"
+                }`}
+              >
+                Apply AI Recommended
+              </button>
+              {!aiRecommendedEligibility.eligible && (
+                <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  No recommendations at the moment.
+                </span>
+              )}
+            </div>
           )}
           {hasEdits && (
             <>
@@ -918,6 +1037,8 @@ export default function FixPacks({
       <div className="space-y-2">
         {suggestions.map((suggestion) => {
           const isApplied = appliedPacks.has(suggestion.id);
+          const eligibility = fixEligibilities.get(suggestion.id);
+          const isEligible = eligibility?.eligible ?? true; // Default to true for backward compatibility
 
           return (
             <div
@@ -948,13 +1069,22 @@ export default function FixPacks({
                     }`}>
                       {suggestion.description}
                     </div>
+                    {/* Tier 2B-1: Show helper text when not eligible */}
+                    {!isEligible && eligibility?.reason && (
+                      <div className={`text-xs mt-1 italic ${
+                        isDark ? "text-slate-500" : "text-slate-500"
+                      }`}>
+                        {eligibility.reason}
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => handlePreview(suggestion.id, suggestion)}
-                    className={`ml-3 px-2 py-1 text-xs font-medium rounded transition-colors ${
+                    disabled={!isEligible}
+                    className={`ml-3 px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       isDark
-                        ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        ? "bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:hover:bg-slate-700"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:hover:bg-slate-100"
                     }`}
                   >
                     Preview

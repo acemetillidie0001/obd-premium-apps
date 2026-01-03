@@ -7,29 +7,18 @@ datasource db {
 }
 
 model User {
-  id                        String                     @id @default(cuid())
-  name                      String?
-  email                     String                     @unique
-  emailVerified             DateTime?
-  image                     String?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  role                      String                     @default("user")
-  isPremium                 Boolean                    @default(false)
-  accounts                  Account[]
-  brandProfile              BrandProfile?
-  reviewRequestCampaigns    ReviewRequestCampaign[]
-  reviewRequestCustomers    ReviewRequestCustomer[]
-  reviewRequestDatasets     ReviewRequestDataset[]
-  reviewRequestQueueItems   ReviewRequestQueueItem[]
-  sessions                  Session[]
-  socialAutoposterSettings  SocialAutoposterSettings?
-  socialDeliveryAttempts    SocialDeliveryAttempt[]
-  socialQueueItems          SocialQueueItem[]
-  usageCounters             UsageCounter[]
-  socialAccountConnections  SocialAccountConnection[]
-  socialPostingDestinations SocialPostingDestination[]
-  socialPublishAttempts     SocialPublishAttempt[]
+  id            String        @id @default(cuid())
+  name          String?
+  email         String        @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  role          String        @default("user")
+  isPremium     Boolean       @default(false)
+  accounts      Account[]
+  brandProfile  BrandProfile?
+  sessions      Session[]
 
   @@index([email])
 }
@@ -98,7 +87,6 @@ model UsageCounter {
   imagesCount   Int      @default(0)
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, appId, dayKey])
   @@index([userId, appId, dayKey])
@@ -161,7 +149,6 @@ model ReviewRequestCampaign {
   quietHoursEnd     String?
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
-  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   customers         ReviewRequestCustomer[]
   datasets          ReviewRequestDataset[]
   queueItems        ReviewRequestQueueItem[]
@@ -184,7 +171,6 @@ model ReviewRequestCustomer {
   optedOut      Boolean                  @default(false)
   createdAt     DateTime                 @default(now())
   campaign      ReviewRequestCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   queueItems    ReviewRequestQueueItem[]
 
   @@index([userId])
@@ -210,7 +196,6 @@ model ReviewRequestQueueItem {
   updatedAt     DateTime              @updatedAt
   campaign      ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   customer      ReviewRequestCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([campaignId])
@@ -229,7 +214,6 @@ model ReviewRequestDataset {
   warningsJson Json?
   createdAt    DateTime              @default(now())
   campaign     ReviewRequestCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([campaignId])
@@ -255,7 +239,6 @@ model SocialAutoposterSettings {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   imageSettings         Json?
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -270,8 +253,6 @@ model SocialQueueItem {
   postedAt            DateTime?
   errorMessage        String?
   attemptCount        Int                     @default(0)
-  nextAttemptAt       DateTime?
-  lastErrorCode       String?
   metadata            Json?
   contentTheme        String?
   contentHash         String?
@@ -289,9 +270,9 @@ model SocialQueueItem {
   imageErrorCode      String?
   imageFallbackReason String?
   imageRequestId      String?
-  imageRequest        ImageRequest?           @relation(fields: [imageRequestId], references: [requestId])
+  nextAttemptAt       DateTime?
+  lastErrorCode       String?
   deliveryAttempts    SocialDeliveryAttempt[]
-  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -314,12 +295,291 @@ model SocialDeliveryAttempt {
   responseData Json?
   attemptedAt  DateTime        @default(now())
   queueItem    SocialQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([queueItemId])
   @@index([userId, attemptedAt])
   @@index([success])
+}
+
+model ImageRequest {
+  requestId        String         @id
+  status           ImageStatus    @default(queued)
+  platform         ImagePlatform
+  category         ImageCategory
+  aspect           String
+  width            Int
+  height           Int
+  provider         ImageProvider?
+  storage          ImageStorage?
+  imageUrl         String?
+  altText          String?
+  errorCode        String?
+  errorMessageSafe String?
+  fallbackReason   String?
+  decisionJson     Json?
+  promptHash       String?
+  inputHash        String?
+  expiresAt        DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  events           ImageEvent[]
+
+  @@index([status])
+  @@index([platform, category])
+  @@index([createdAt])
+}
+
+model ImageEvent {
+  id          String       @id @default(cuid())
+  requestId   String
+  type        String
+  ok          Boolean      @default(true)
+  messageSafe String?
+  data        Json?
+  createdAt   DateTime     @default(now())
+  request     ImageRequest @relation(fields: [requestId], references: [requestId], onDelete: Cascade)
+
+  @@index([requestId])
+  @@index([createdAt])
+}
+
+model CrmContact {
+  id               String               @id @default(cuid())
+  businessId       String
+  name             String
+  email            String?
+  phone            String?
+  company          String?
+  address          String?
+  status           CrmContactStatus     @default(Lead)
+  source           CrmContactSource     @default(manual)
+  nextFollowUpAt   DateTime?
+  nextFollowUpNote String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  activities       CrmContactActivity[]
+  tags             CrmContactTag[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, updatedAt])
+  @@index([businessId, name])
+  @@index([businessId, nextFollowUpAt])
+}
+
+model CrmTag {
+  id         String          @id @default(cuid())
+  businessId String
+  name       String
+  color      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  contacts   CrmContactTag[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+}
+
+model CrmContactTag {
+  id        String     @id @default(cuid())
+  contactId String
+  tagId     String
+  createdAt DateTime   @default(now())
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       CrmTag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+}
+
+model CrmContactActivity {
+  id         String     @id @default(cuid())
+  contactId  String
+  businessId String
+  type       String     @default("note")
+  content    String?
+  summary    String?
+  occurredAt DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  contact    CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([businessId, occurredAt])
+}
+
+model BookingService {
+  id                 String           @id @default(cuid())
+  businessId         String
+  name               String
+  durationMinutes    Int
+  description        String?
+  active             Boolean          @default(true)
+  paymentRequired    PaymentRequired  @default(NONE)
+  depositAmountCents Int?
+  currency           String?          @default("USD")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  requests           BookingRequest[]
+
+  @@index([businessId])
+  @@index([businessId, active])
+}
+
+model BookingSettings {
+  id                 String      @id @default(cuid())
+  businessId         String      @unique
+  bookingModeDefault BookingMode @default(REQUEST_ONLY)
+  timezone           String      @default("America/New_York")
+  bufferMinutes      Int         @default(15)
+  minNoticeHours     Int         @default(24)
+  maxDaysOut         Int         @default(90)
+  policyText         String?
+  bookingKey         String      @unique
+  notificationEmail  String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([businessId])
+  @@index([bookingKey])
+}
+
+model BookingPublicLink {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  code       String   @unique
+  slug       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([code])
+  @@index([slug])
+}
+
+model BookingRequest {
+  id             String                   @id @default(cuid())
+  businessId     String
+  serviceId      String?
+  customerName   String
+  customerEmail  String
+  customerPhone  String?
+  preferredStart DateTime?
+  preferredEnd   DateTime?
+  message        String?
+  status         BookingStatus            @default(REQUESTED)
+  proposedStart  DateTime?
+  proposedEnd    DateTime?
+  internalNotes  String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  service        BookingService?          @relation(fields: [serviceId], references: [id], onUpdate: NoAction)
+  auditLogs      BookingRequestAuditLog[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([status])
+}
+
+model BookingRequestAuditLog {
+  id          String         @id @default(cuid())
+  businessId  String
+  requestId   String
+  actorUserId String?
+  action      String
+  fromStatus  BookingStatus
+  toStatus    BookingStatus
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  request     BookingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([businessId])
+  @@index([requestId])
+  @@index([requestId, createdAt])
+  @@index([businessId, createdAt])
+}
+
+model RateLimitEvent {
+  id             String   @id @default(cuid())
+  businessId     String
+  routeKey       String
+  day            DateTime @db.Date
+  violationCount Int      @default(0)
+  successCount   Int      @default(0)
+  hashedKey      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([businessId, routeKey, day])
+  @@index([businessId])
+  @@index([businessId, day])
+  @@index([routeKey, day])
+}
+
+model AvailabilityWindow {
+  id         String   @id @default(cuid())
+  businessId String
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+  isEnabled  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([businessId, dayOfWeek])
+  @@index([businessId])
+  @@index([businessId, dayOfWeek])
+}
+
+model AvailabilityException {
+  id         String                    @id @default(cuid())
+  businessId String
+  date       DateTime                  @db.Date
+  startTime  String?
+  endTime    String?
+  type       AvailabilityExceptionType
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+
+  @@unique([businessId, date])
+  @@index([businessId])
+  @@index([businessId, date])
+}
+
+model BookingTheme {
+  id           String   @id @default(cuid())
+  businessId   String   @unique
+  logoUrl      String?
+  primaryColor String?  @default("#29c4a9")
+  accentColor  String?
+  headlineText String?
+  introText    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([businessId])
+}
+
+model SchedulerCalendarConnection {
+  id              String   @id @default(cuid())
+  businessId      String
+  provider        String
+  accountEmail    String?
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  expiresAt       DateTime
+  enabled         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([businessId, provider])
+  @@index([businessId])
+  @@index([businessId, provider])
 }
 
 enum ReviewRequestChannel {
@@ -398,242 +658,6 @@ enum ImageStorage {
   vercelBlob
 }
 
-model ImageRequest {
-  requestId String      @id
-  status    ImageStatus @default(queued)
-
-  platform ImagePlatform
-  category ImageCategory
-  aspect   String
-  width    Int
-  height   Int
-
-  provider ImageProvider?
-  storage  ImageStorage?
-
-  imageUrl String?
-  altText  String?
-
-  errorCode        String?
-  errorMessageSafe String?
-  fallbackReason   String?
-
-  decisionJson Json?
-  promptHash   String?
-  inputHash    String?
-
-  // Optional retention
-  expiresAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  events           ImageEvent[]
-  socialQueueItems SocialQueueItem[]
-
-  @@index([status])
-  @@index([platform, category])
-  @@index([createdAt])
-}
-
-model ImageEvent {
-  id          String  @id @default(cuid())
-  requestId   String
-  type        String // e.g. "provider_call", "storage_write", "fallback", "consumer_request"
-  ok          Boolean @default(true)
-  messageSafe String?
-  data        Json?
-
-  createdAt DateTime @default(now())
-
-  request ImageRequest @relation(fields: [requestId], references: [requestId], onDelete: Cascade)
-
-  @@index([requestId])
-  @@index([createdAt])
-}
-
-enum SocialConnectionPlatform {
-  facebook
-  instagram
-  google_business
-  x
-}
-
-model SocialAccountConnection {
-  id                String                   @id @default(cuid())
-  userId            String
-  platform          SocialConnectionPlatform
-  providerAccountId String // page id, ig business id, etc
-  displayName       String
-  accessToken       String // store securely; do NOT log; encrypt-at-rest if you have a helper
-  tokenExpiresAt    DateTime?
-  refreshToken      String?
-  metaJson          Json? // safe metadata only
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
-  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, platform, providerAccountId])
-  @@index([userId])
-  @@index([userId, platform])
-}
-
-model SocialPostingDestination {
-  id                  String                   @id @default(cuid())
-  userId              String
-  platform            SocialConnectionPlatform
-  selectedAccountId   String // selected page id or ig business id
-  selectedDisplayName String
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, platform])
-  @@index([userId])
-  @@index([userId, platform])
-}
-
-model SocialPublishAttempt {
-  id                String                   @id @default(cuid())
-  userId            String
-  platform          SocialConnectionPlatform
-  kind              String                   @default("test") // "test" or future types
-  status            String // "success" | "failed"
-  providerPostId    String?
-  providerPermalink String?
-  errorMessage      String? // Safe, user-readable error
-  createdAt         DateTime                 @default(now())
-  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([userId, createdAt])
-  @@index([platform])
-}
-
-model AiWorkspaceMap {
-  id            String   @id @default(cuid())
-  businessId    String   @unique
-  workspaceSlug String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([businessId])
-  @@index([workspaceSlug])
-}
-
-enum AiHelpDeskEntryType {
-  FAQ
-  SERVICE
-  POLICY
-  NOTE
-}
-
-model AiHelpDeskEntry {
-  id         String              @id @default(cuid())
-  businessId String
-  type       AiHelpDeskEntryType
-  title      String
-  content    String              @db.Text
-  tags       String[]            @default([])
-  isActive   Boolean             @default(true)
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
-
-  @@index([businessId])
-  @@index([businessId, type])
-  @@index([businessId, isActive])
-}
-
-model AiHelpDeskSyncState {
-  id             String    @id @default(cuid())
-  businessId     String    @unique
-  lastSyncedAt   DateTime?
-  lastSyncStatus String?
-  lastSyncError  String?   @db.Text
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@index([businessId])
-}
-
-enum AiHelpDeskResponseQuality {
-  GOOD
-  WEAK
-  NONE
-}
-
-model AiHelpDeskQuestionLog {
-  id              String                     @id @default(cuid())
-  businessId      String
-  question        String                     @db.Text
-  hasSources      Boolean                    @default(false)
-  sourcesCount    Int                        @default(0)
-  responseQuality AiHelpDeskResponseQuality?
-  matchedEntryIds String[]                   @default([])
-  createdAt       DateTime                   @default(now())
-
-  @@index([businessId])
-  @@index([businessId, createdAt])
-  @@index([businessId, hasSources])
-  @@index([businessId, responseQuality])
-}
-
-model AiHelpDeskWidgetKey {
-  id         String    @id @default(cuid())
-  businessId String    @unique
-  publicKey  String
-  createdAt  DateTime  @default(now())
-  rotatedAt  DateTime?
-
-  @@index([businessId])
-  @@index([publicKey])
-}
-
-model BusinessDescriptionSavedVersion {
-  id           String   @id @default(cuid())
-  businessId  String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  title       String
-  businessName String
-  city        String?
-  state       String?
-  inputs      Json
-  outputs     Json
-  isActive    Boolean  @default(true)
-
-  @@index([businessId])
-  @@index([businessId, createdAt])
-  @@index([businessId, isActive])
-}
-
-model AiHelpDeskWidgetSettings {
-  id                 String   @id @default(cuid())
-  businessId         String   @unique
-  enabled            Boolean  @default(false)
-  brandColor         String?  @default("#29c4a9")
-  greeting           String?  @default("Hi! How can I help you today?")
-  position           String?  @default("bottom-right") // bottom-right, bottom-left
-  assistantAvatarUrl String? // Optional avatar URL for chat assistant
-  allowedDomains     String[] @default([]) // Array of allowed domains for widget embedding
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  @@index([businessId])
-}
-
-model AiHelpDeskWidgetEvent {
-  id         String   @id @default(cuid())
-  businessId String
-  eventType  String // "widget_open", "message_sent"
-  metadata   String? // JSON string for additional event data
-  createdAt  DateTime @default(now())
-
-  @@index([businessId])
-  @@index([eventType])
-  @@index([createdAt])
-}
-
 enum CrmContactStatus {
   Lead
   Active
@@ -647,78 +671,6 @@ enum CrmContactSource {
   reviews
   helpdesk
   import
-}
-
-model CrmContact {
-  id               String           @id @default(cuid())
-  businessId       String
-  name             String
-  email            String?
-  phone            String?
-  company          String?
-  address          String?
-  status           CrmContactStatus @default(Lead)
-  source           CrmContactSource @default(manual)
-  nextFollowUpAt   DateTime?
-  nextFollowUpNote String?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-
-  tags       CrmContactTag[]
-  activities CrmContactActivity[]
-
-  @@index([businessId])
-  @@index([businessId, status])
-  @@index([businessId, updatedAt])
-  @@index([businessId, name])
-  @@index([businessId, nextFollowUpAt])
-}
-
-model CrmTag {
-  id         String   @id @default(cuid())
-  businessId String
-  name       String
-  color      String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  contacts CrmContactTag[]
-
-  @@unique([businessId, name])
-  @@index([businessId])
-}
-
-model CrmContactTag {
-  id        String   @id @default(cuid())
-  contactId String
-  tagId     String
-  createdAt DateTime @default(now())
-
-  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  tag     CrmTag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@unique([contactId, tagId])
-  @@index([contactId])
-  @@index([tagId])
-}
-
-model CrmContactActivity {
-  id         String    @id @default(cuid())
-  contactId  String
-  businessId String
-  type       String    @default("note") // "note" or activity types: "CALL", "EMAIL", "TEXT", "MEETING", "TASK", "OTHER"
-  content    String?   @db.Text // For notes
-  summary    String?   @db.Text // For activities
-  occurredAt DateTime? // For activities (when the activity happened)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-
-  contact CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
-
-  @@index([contactId])
-  @@index([businessId])
-  @@index([businessId, createdAt])
-  @@index([businessId, occurredAt])
 }
 
 enum BookingStatus {
@@ -744,210 +696,4 @@ enum PaymentRequired {
 enum AvailabilityExceptionType {
   CLOSED_ALL_DAY
   CUSTOM_HOURS
-}
-
-model BookingService {
-  id                String         @id @default(cuid())
-  businessId        String
-  name              String
-  durationMinutes   Int
-  description       String?        @db.Text
-  active            Boolean        @default(true)
-  paymentRequired   PaymentRequired @default(NONE)
-  depositAmountCents Int?
-  currency          String?        @default("USD")
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  requests BookingRequest[]
-
-  @@index([businessId])
-  @@index([businessId, active])
-}
-
-model BookingSettings {
-  id                String      @id @default(cuid())
-  businessId        String      @unique
-  bookingModeDefault BookingMode @default(REQUEST_ONLY)
-  timezone          String      @default("America/New_York")
-  bufferMinutes     Int         @default(15)
-  minNoticeHours    Int         @default(24)
-  maxDaysOut        Int         @default(90)
-  policyText        String?     @db.Text
-  bookingKey        String      @unique // Random key for public booking link (legacy long format)
-  notificationEmail String?     // Email address for booking request notifications
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-
-  @@index([businessId])
-  @@index([bookingKey])
-}
-
-model BookingPublicLink {
-  id         String   @id @default(cuid())
-  businessId String   @unique
-  code       String   @unique // Short base62 code (8-10 chars)
-  slug       String?  // Optional custom slug for pretty URLs
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([businessId])
-  @@index([code])
-  @@index([slug])
-}
-
-model BookingRequest {
-  id             String        @id @default(cuid())
-  businessId     String
-  serviceId      String?
-  customerName   String
-  customerEmail  String
-  customerPhone  String?
-  preferredStart DateTime?
-  preferredEnd   DateTime?
-  message        String?       @db.Text
-  status         BookingStatus @default(REQUESTED)
-  proposedStart  DateTime?
-  proposedEnd    DateTime?
-  internalNotes  String?       @db.Text
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  service BookingService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  auditLogs BookingRequestAuditLog[]
-
-  @@index([businessId])
-  @@index([businessId, status])
-  @@index([businessId, createdAt])
-  @@index([status])
-}
-
-model BookingRequestAuditLog {
-  id          String   @id @default(cuid())
-  businessId  String
-  requestId   String
-  actorUserId String?  // Nullable if unavailable (e.g., system actions)
-  action      String   // "approve", "propose", "decline", "complete", "archive", "reactivate"
-  fromStatus  BookingStatus
-  toStatus    BookingStatus
-  metadata    Json?    // Optional additional data
-  createdAt   DateTime @default(now())
-
-  request BookingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@index([businessId])
-  @@index([requestId])
-  @@index([requestId, createdAt])
-  @@index([businessId, createdAt])
-}
-
-model RateLimitEvent {
-  id         String   @id @default(cuid())
-  businessId String
-  routeKey   String   // e.g., "obd-scheduler:requests" or "obd-scheduler:action"
-  day        DateTime @db.Date // Date for aggregation (YYYY-MM-DD)
-  violationCount Int  @default(0) // Count of 429 responses
-  successCount    Int  @default(0) // Count of successful requests (optional)
-  hashedKey  String?  // Hashed rate limit key (no raw IPs)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([businessId, routeKey, day])
-  @@index([businessId])
-  @@index([businessId, day])
-  @@index([routeKey, day])
-}
-
-model AvailabilityWindow {
-  id         String   @id @default(cuid())
-  businessId String
-  dayOfWeek  Int      // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  startTime  String   // HH:mm format (e.g., "09:00")
-  endTime    String   // HH:mm format (e.g., "17:00")
-  isEnabled  Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([businessId, dayOfWeek])
-  @@index([businessId])
-  @@index([businessId, dayOfWeek])
-}
-
-model AvailabilityException {
-  id         String                    @id @default(cuid())
-  businessId String
-  date       DateTime                  @db.Date
-  startTime  String?                   // HH:mm format (optional, only for CUSTOM_HOURS)
-  endTime    String?                   // HH:mm format (optional, only for CUSTOM_HOURS)
-  type       AvailabilityExceptionType
-  createdAt  DateTime                  @default(now())
-  updatedAt  DateTime                  @updatedAt
-
-  @@unique([businessId, date])
-  @@index([businessId])
-  @@index([businessId, date])
-}
-
-model BookingTheme {
-  id          String   @id @default(cuid())
-  businessId  String   @unique
-  logoUrl     String?
-  primaryColor String?  @default("#29c4a9")
-  accentColor  String?
-  headlineText String? @db.Text
-  introText    String? @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([businessId])
-}
-
-model SchedulerCalendarConnection {
-  id              String   @id @default(cuid())
-  businessId      String
-  provider        String   // "google" | "microsoft"
-  accountEmail    String?
-  accessTokenEnc  String   @db.Text // Encrypted access token
-  refreshTokenEnc String?  @db.Text // Encrypted refresh token (optional)
-  expiresAt       DateTime
-  enabled         Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@unique([businessId, provider])
-  @@index([businessId])
-  @@index([businessId, provider])
-}
-
-model SchedulerBusyBlock {
-  id         String   @id @default(cuid())
-  businessId String
-  start      DateTime
-  end        DateTime
-  reason     String?  @db.Text
-  source     String   @default("manual") // "manual" | "google" | "microsoft" (for future calendar sync)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([businessId])
-  @@index([businessId, start, end])
-  @@index([start, end])
-}
-
-model SchedulerCalendarIntegration {
-  id         String   @id @default(cuid())
-  businessId String
-  provider   String   // "google" | "microsoft" (V3.1: "google" only)
-  status     String   @default("disabled") // "disabled" | "connected" | "error"
-  lastSyncAt DateTime?
-  calendarId String?  // Calendar ID from provider (e.g., "primary" for Google)
-  tokenRef   String?  // Reference to encrypted token storage (placeholder if encryption not ready)
-  errorMessage String? @db.Text // Last error message if status="error"
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([businessId, provider])
-  @@index([businessId])
-  @@index([businessId, provider])
-  @@index([status])
 }

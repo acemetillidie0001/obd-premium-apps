@@ -589,6 +589,24 @@ model AiHelpDeskWidgetKey {
   @@index([publicKey])
 }
 
+model BusinessDescriptionSavedVersion {
+  id           String   @id @default(cuid())
+  businessId  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  title       String
+  businessName String
+  city        String?
+  state       String?
+  inputs      Json
+  outputs     Json
+  isActive    Boolean  @default(true)
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([businessId, isActive])
+}
+
 model AiHelpDeskWidgetSettings {
   id                 String   @id @default(cuid())
   businessId         String   @unique

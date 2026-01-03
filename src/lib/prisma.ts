@@ -3,7 +3,6 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { getDatabaseUrl } from "./dbUrl";
 import { requireDatabaseUrl } from "./db/requireDatabaseUrl";
-import "./dbStartupCheck"; // Run startup checks when Prisma is imported
 
 /**
  * Prisma Client for Runtime (Next.js Application)
@@ -20,40 +19,74 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-// Require DATABASE_URL to be set (fail fast with friendly error if missing)
-requireDatabaseUrl();
+let prismaInstance: PrismaClient | null = null;
 
-// Get normalized database URL from DATABASE_URL (runtime connection)
-// Ensures sslmode=require and connection_limit=1 for serverless environments
-const connectionString = getDatabaseUrl();
+/**
+ * Get Prisma Client instance (lazy initialization)
+ * 
+ * This function ensures DATABASE_URL is validated only when Prisma is actually needed,
+ * allowing API routes to catch the error and return appropriate 503 responses.
+ * 
+ * @returns PrismaClient instance
+ * @throws Error if DATABASE_URL is missing
+ */
+export function getPrisma(): PrismaClient {
+  // Require DATABASE_URL to be set (fail fast with friendly error if missing)
+  requireDatabaseUrl();
 
-// Configure Pool with SSL for Railway Postgres
-// Railway requires SSL but uses self-signed certificates
-// CRITICAL: We must set rejectUnauthorized: false to accept self-signed certificates
-const pool = new Pool({
-  connectionString,
-  ssl: {
-    rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
-  },
-  // Additional SSL options to ensure connection works
-  max: 1, // Match connection_limit=1 from connection string
-});
+  // Return cached instance if available
+  if (prismaInstance) {
+    return prismaInstance;
+  }
 
-// Create adapter with the pool
-const adapter = new PrismaPg(pool);
+  // Get normalized database URL from DATABASE_URL (runtime connection)
+  // Ensures sslmode=require and connection_limit=1 for serverless environments
+  const connectionString = getDatabaseUrl();
 
-// Verify adapter is created correctly
-if (!adapter) {
-  throw new Error("Failed to create PrismaPg adapter");
-}
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-    log: ["error", "warn"],
+  // Configure Pool with SSL for Railway Postgres
+  // Railway requires SSL but uses self-signed certificates
+  // CRITICAL: We must set rejectUnauthorized: false to accept self-signed certificates
+  const pool = new Pool({
+    connectionString,
+    ssl: {
+      rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
+    },
+    // Additional SSL options to ensure connection works
+    max: 1, // Match connection_limit=1 from connection string
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+  // Create adapter with the pool
+  const adapter = new PrismaPg(pool);
+
+  // Verify adapter is created correctly
+  if (!adapter) {
+    throw new Error("Failed to create PrismaPg adapter");
+  }
+
+  // Create PrismaClient instance
+  prismaInstance =
+    globalForPrisma.prisma ??
+    new PrismaClient({
+      adapter,
+      log: ["error", "warn"],
+    });
+
+  if (process.env.NODE_ENV !== "production") {
+    globalForPrisma.prisma = prismaInstance;
+  }
+
+  return prismaInstance;
 }
+
+/**
+ * @deprecated Use getPrisma() instead. This export is kept for backward compatibility
+ * but will throw at import time if DATABASE_URL is missing.
+ * 
+ * For Scheduler API routes, use getPrisma() inside handlers to return proper 503 errors.
+ */
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    // Lazy initialization - only throws when actually accessed
+    return getPrisma()[prop as keyof PrismaClient];
+  },
+}) as PrismaClient;

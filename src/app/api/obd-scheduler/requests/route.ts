@@ -9,9 +9,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
-import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
+import { handleApiError, apiSuccessResponse, apiErrorResponse, logSchedulerEventWithBusiness } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { z } from "zod";
 import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -272,6 +273,7 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
@@ -281,6 +283,15 @@ export async function GET(request: NextRequest) {
     const businessId = user.id; // V3: userId = businessId
     if (!businessId || typeof businessId !== "string") {
       return apiErrorResponse("Invalid business ID", "UNAUTHORIZED", 401);
+    }
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -386,6 +397,7 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const json = await request.json().catch(() => null);
     if (!json) {
       return apiErrorResponse("Invalid JSON body", "VALIDATION_ERROR", 400);
@@ -472,6 +484,15 @@ export async function POST(request: NextRequest) {
       }
 
       businessId = user.id; // V3: userId = businessId
+
+      // Check pilot access (only for authenticated requests)
+      if (!isSchedulerPilotAllowed(businessId)) {
+        return apiErrorResponse(
+          "Scheduler is currently in pilot rollout.",
+          "PILOT_ONLY",
+          403
+        );
+      }
     }
 
     // Verify service exists and belongs to business (if provided)
@@ -485,6 +506,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (!service) {
+        logSchedulerEventWithBusiness("INVALID_SERVICE", businessId, {
+          route: "/api/obd-scheduler/requests",
+        });
         return apiErrorResponse("Service not found or inactive", "INVALID_SERVICE", 400);
       }
     }
@@ -539,6 +563,9 @@ export async function POST(request: NextRequest) {
         existingRequest.serviceId === normalizedPayload.serviceId;
 
       if (isDuplicate) {
+        logSchedulerEventWithBusiness("DUPLICATE_SUBMISSION_BLOCKED", businessId, {
+          route: "/api/obd-scheduler/requests",
+        });
         const formatted = formatRequest(existingRequest);
         const response = apiSuccessResponse(formatted, 200);
 

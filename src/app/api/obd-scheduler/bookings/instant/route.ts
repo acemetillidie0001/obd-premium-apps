@@ -8,8 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
-import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { prisma } from "@/lib/prisma";
+import { handleApiError, apiSuccessResponse, apiErrorResponse, logSchedulerEvent } from "@/lib/api/errorHandler";
+import { getPrisma } from "@/lib/prisma";
 import { z } from "zod";
 import { validateBookingKeyFormat } from "@/lib/apps/obd-scheduler/bookingKey";
 import { generateSlots } from "@/lib/apps/obd-scheduler/slots";
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const json = await request.json().catch(() => null);
     if (!json) {
       return apiErrorResponse("Invalid JSON body", "VALIDATION_ERROR", 400);
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (!service) {
+        logSchedulerEvent("INVALID_SERVICE", {
+          route: "/api/obd-scheduler/bookings/instant",
+        });
         return apiErrorResponse("Service not found or inactive", "INVALID_SERVICE", 400);
       }
 

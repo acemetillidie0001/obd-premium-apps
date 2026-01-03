@@ -11,7 +11,8 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { BookingStatus as PrismaBookingStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -55,12 +56,22 @@ export async function GET(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
     
     // Parse range parameter
     const { searchParams } = new URL(request.url);

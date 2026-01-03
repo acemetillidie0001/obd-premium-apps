@@ -3,6 +3,78 @@ import OpenAI from "openai";
 import { TenantSafetyError } from "@/lib/integrations/anythingllm/scoping";
 
 /**
+ * Scheduler Event Logging
+ * 
+ * Logs non-PII events for Scheduler observability.
+ * Only logs tags, route paths, and hashed business IDs (no names, emails, phones, or request bodies).
+ */
+
+/**
+ * Hash a business ID for logging (non-reversible, consistent)
+ */
+function hashBusinessId(businessId: string | null | undefined): string | null {
+  if (!businessId) return null;
+  
+  try {
+    // Simple hash function (non-cryptographic, just for obfuscation)
+    let hash = 0;
+    for (let i = 0; i < businessId.length; i++) {
+      const char = businessId.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36).substring(0, 8);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Log a Scheduler event (non-PII only)
+ * 
+ * @param tag - Event tag (e.g., "DB_UNAVAILABLE", "INVALID_BOOKING_KEY")
+ * @param meta - Optional metadata (route, hashed businessId, etc.) - NO PII
+ */
+export function logSchedulerEvent(
+  tag: string,
+  meta?: Record<string, string | null | undefined>
+): void {
+  try {
+    const logData: Record<string, string | null> = {
+      tag,
+      ...(meta || {}),
+    };
+
+    // Remove undefined values
+    Object.keys(logData).forEach((key) => {
+      if (logData[key] === undefined) {
+        delete logData[key];
+      }
+    });
+
+    console.log("[Scheduler Event]", JSON.stringify(logData));
+  } catch (error) {
+    // Silently fail logging to avoid affecting request flow
+    console.warn("[Scheduler Event] Logging failed:", error);
+  }
+}
+
+/**
+ * Log a Scheduler event with businessId hashing
+ */
+export function logSchedulerEventWithBusiness(
+  tag: string,
+  businessId: string | null | undefined,
+  meta?: Record<string, string | null | undefined>
+): void {
+  const hashedBusinessId = hashBusinessId(businessId);
+  logSchedulerEvent(tag, {
+    ...meta,
+    businessIdHash: hashedBusinessId,
+  });
+}
+
+/**
  * Standardized API Error Handler
  * 
  * Provides consistent error response format across all API routes.
@@ -33,6 +105,8 @@ export type ApiErrorCode =
   | "DATABASE_CONNECTION_ERROR"
   | "DATABASE_MODEL_ERROR"
   | "PRISMA_CLIENT_OUTDATED"
+  | "DB_UNAVAILABLE"
+  | "PILOT_ONLY"
   | "INTERNAL_ERROR"
   | "OAUTH_ERROR"
   | "NOT_ENABLED"
@@ -110,6 +184,16 @@ export function handleApiError(error: unknown): NextResponse<ApiErrorResponse> {
   // Handle business/mapping requirement errors (check Error instances before OpenAI errors)
   if (error instanceof Error) {
     const errorMessage = error.message.toLowerCase();
+    
+    // Check for missing DATABASE_URL (DB_UNAVAILABLE)
+    if (errorMessage.includes("database_url is not set")) {
+      logSchedulerEvent("DB_UNAVAILABLE");
+      return apiErrorResponse(
+        "Scheduler is temporarily unavailable. Please try again soon.",
+        "DB_UNAVAILABLE",
+        503
+      );
+    }
     
     if (errorMessage.includes("business id is required") || errorMessage.includes("businessid is required")) {
       return apiErrorResponse(

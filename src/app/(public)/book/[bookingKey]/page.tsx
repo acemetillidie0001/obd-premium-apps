@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import type { CreateBookingRequestRequest, BookingService, BookingMode } from "@/lib/apps/obd-scheduler/types";
 import { BookingMode as BookingModeEnum } from "@/lib/apps/obd-scheduler/types";
@@ -75,6 +75,7 @@ export default function PublicBookingPage() {
   const [error, setError] = useState("");
   const [context, setContext] = useState<BusinessContext>(defaultContext);
   const [contextError, setContextError] = useState(false);
+  const [dbUnavailable, setDbUnavailable] = useState(false);
   const [timeAdjusted, setTimeAdjusted] = useState(false);
   const [formData, setFormData] = useState<CreateBookingRequestRequest>({
     serviceId: null,
@@ -94,6 +95,9 @@ export default function PublicBookingPage() {
   const [slotsError, setSlotsError] = useState("");
   const [calendarWarning, setCalendarWarning] = useState<string | null>(null);
 
+  // Request ID guard to prevent stale slot responses from updating state
+  const slotsRequestIdRef = useRef(0);
+
   // Load business context
   useEffect(() => {
     if (!bookingKey) {
@@ -109,8 +113,26 @@ export default function PublicBookingPage() {
         
         // Check if response is OK before parsing
         if (!res.ok) {
+          // For 503 with DB_UNAVAILABLE, show special unavailable message
+          if (res.status === 503) {
+            try {
+              const errorText = await res.text();
+              const errorJson = JSON.parse(errorText);
+              if (errorJson.code === "DB_UNAVAILABLE") {
+                setDbUnavailable(true);
+                setContextError(false);
+                setError("");
+                setLoading(false);
+                return;
+              }
+            } catch {
+              // If parsing fails, fall through to generic error handling
+            }
+          }
+          
           // For 404, set context error but don't block form rendering
           if (res.status === 404) {
+            setDbUnavailable(false);
             setContextError(true);
             setError("This booking link isn't available");
             // Set minimal context to allow form to render
@@ -135,6 +157,7 @@ export default function PublicBookingPage() {
             // If reading response fails, use default message
             errorMessage = `Failed to load booking form (${res.status})`;
           }
+          setDbUnavailable(false);
           setContextError(true);
           setError(errorMessage);
           // Set minimal context to allow form to render
@@ -203,9 +226,11 @@ export default function PublicBookingPage() {
 
         setContext(contextData);
         setContextError(false);
+        setDbUnavailable(false);
         setError("");
       } catch (error) {
         console.error("Error loading context:", error);
+        setDbUnavailable(false);
         setContextError(true);
         setError(error instanceof Error ? error.message : "Failed to load booking form");
         // Set minimal context to allow form to render
@@ -217,6 +242,81 @@ export default function PublicBookingPage() {
 
     loadContext();
   }, [bookingKey]);
+
+  // Retry function for DB_UNAVAILABLE
+  const handleRetry = () => {
+    setDbUnavailable(false);
+    setLoading(true);
+    setError("");
+    
+    const loadContext = async () => {
+      try {
+        const res = await fetch(`/api/obd-scheduler/public/context?bookingKey=${encodeURIComponent(bookingKey)}`);
+        
+        if (!res.ok) {
+          if (res.status === 503) {
+            try {
+              const errorText = await res.text();
+              const errorJson = JSON.parse(errorText);
+              if (errorJson.code === "DB_UNAVAILABLE") {
+                setDbUnavailable(true);
+                setLoading(false);
+                return;
+              }
+            } catch {
+              // Fall through
+            }
+          }
+          setDbUnavailable(false);
+          setContextError(true);
+          setError("Failed to load booking form");
+          setContext(defaultContext);
+          setLoading(false);
+          return;
+        }
+
+        const text = await res.text();
+        const data = JSON.parse(text);
+
+        if (!data.ok || !data.data) {
+          setDbUnavailable(false);
+          setContextError(true);
+          setError(data.error || "Failed to load booking form");
+          setContext(defaultContext);
+          setLoading(false);
+          return;
+        }
+
+        const contextData: BusinessContext = {
+          businessId: data.data.businessId ?? "",
+          bookingModeDefault: data.data.bookingModeDefault ?? BookingModeEnum.REQUEST_ONLY,
+          timezone: data.data.timezone ?? "America/New_York",
+          bufferMinutes: data.data.bufferMinutes ?? 15,
+          minNoticeHours: data.data.minNoticeHours ?? 24,
+          maxDaysOut: data.data.maxDaysOut ?? 90,
+          policyText: data.data.policyText ?? null,
+          services: Array.isArray(data.data.services) ? data.data.services : [],
+          businessName: data.data.businessName ?? null,
+          logoUrl: data.data.logoUrl ?? null,
+        };
+
+        setContext(contextData);
+        setContextError(false);
+        setDbUnavailable(false);
+        setError("");
+      } catch (error) {
+        console.error("Error loading context:", error);
+        setDbUnavailable(false);
+        setContextError(true);
+        setError(error instanceof Error ? error.message : "Failed to load booking form");
+        setContext(defaultContext);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadContext();
+  };
 
   // Extract primitive values from context (plain const, not hooks)
   const minNoticeHours = context.minNoticeHours ?? 24;
@@ -253,6 +353,12 @@ export default function PublicBookingPage() {
   // Inline fetch logic directly in useEffect to avoid useCallback dependency
   useEffect(() => {
     if (bookingModeDefault === BookingModeEnum.INSTANT_ALLOWED && selectedDate && bookingKey) {
+      // Increment request ID for this fetch (stale response guard)
+      const currentRequestId = ++slotsRequestIdRef.current;
+      
+      // Create AbortController to cancel request if dependencies change
+      const abortController = new AbortController();
+      
       // Fetch slots inline (no useCallback needed)
       const fetchSlots = async () => {
         setSlotsLoading(true);
@@ -269,38 +375,68 @@ export default function PublicBookingPage() {
             params.set("serviceId", formData.serviceId);
           }
 
-          const res = await fetch(`/api/obd-scheduler/slots?${params.toString()}`);
+          const res = await fetch(`/api/obd-scheduler/slots?${params.toString()}`, {
+            signal: abortController.signal,
+          });
+          
+          // Check if this request is still the latest (stale response guard)
+          if (currentRequestId !== slotsRequestIdRef.current) {
+            // This response is stale, ignore it
+            return;
+          }
+          
           const data = await res.json();
 
           if (!res.ok || !data.ok) {
             throw new Error(data.error || "Failed to load available times");
           }
 
+          // Double-check request ID before applying state updates
+          if (currentRequestId !== slotsRequestIdRef.current) {
+            // This response is stale, ignore it
+            return;
+          }
+
           const slotsData: SlotsResponse = data.data;
           setSlots(slotsData.slots);
           
           // Show calendar warning if present (non-blocking)
-          if (data.data.calendarWarning) {
-            setCalendarWarning(data.data.calendarWarning);
-          } else {
-            setCalendarWarning(null);
+          setCalendarWarning(data.data.calendarWarning || null);
+        } catch (error) {
+          // Ignore AbortError (request was cancelled due to dependency change)
+          if (error instanceof Error && error.name === "AbortError") {
+            return;
           }
           
-          // Show calendar warning if present (non-blocking)
-          if (data.data.calendarWarning) {
-            setCalendarWarning(data.data.calendarWarning);
-          } else {
-            setCalendarWarning(null);
+          // Check if this request is still the latest before showing error
+          if (currentRequestId !== slotsRequestIdRef.current) {
+            // This error is from a stale request, ignore it
+            return;
           }
-        } catch (error) {
+          
           console.error("Error loading slots:", error);
           setSlotsError(error instanceof Error ? error.message : "Failed to load available times");
         } finally {
-          setSlotsLoading(false);
+          // Only update loading state if this is still the latest request
+          if (currentRequestId === slotsRequestIdRef.current) {
+            setSlotsLoading(false);
+          }
         }
       };
 
       fetchSlots();
+      
+      // Cleanup: abort request if dependencies change or component unmounts
+      return () => {
+        abortController.abort();
+      };
+    } else {
+      // Reset slots when conditions not met
+      setSlots([]);
+      setSelectedSlot(null);
+      setSlotsLoading(false);
+      setSlotsError("");
+      setCalendarWarning(null);
     }
   }, [selectedDate, formData.serviceId, bookingModeDefault, bookingKey]);
 
@@ -590,19 +726,38 @@ export default function PublicBookingPage() {
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">{isInstantMode ? "Book Appointment" : "Booking Request"}</h1>
             <p className="text-sm md:text-base text-slate-600 mb-8">{isInstantMode ? "Select a time and book instantly" : "Submit a booking request"}</p>
             
-            {/* P2-1: Context Error Warning Banner - blocks form submission */}
-            {contextError && (
-              <div className="mb-6">
-                <div className={PANEL_CLASSES}>
-                  <div className={ERROR_PANEL_CLASSES}>
-                    <h2 className="text-lg font-semibold mb-2">We couldn't load booking details</h2>
-                    <p>Please refresh the page or contact the business for assistance.</p>
-                  </div>
+            {/* DB_UNAVAILABLE: Show clean unavailable message and prevent form rendering */}
+            {dbUnavailable ? (
+              <div className={PANEL_CLASSES}>
+                <div className="text-center space-y-4">
+                  <h2 className="text-xl font-semibold text-slate-900">Booking is temporarily unavailable</h2>
+                  <p className="text-slate-600">
+                    Please try again in a few minutes. If you need help sooner, contact the business directly.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className={SUBMIT_BUTTON_CLASSES}
+                  >
+                    Try again
+                  </button>
                 </div>
               </div>
-            )}
-            
-            <div className={PANEL_CLASSES}>
+            ) : (
+              <>
+                {/* P2-1: Context Error Warning Banner - blocks form submission */}
+                {contextError && (
+                  <div className="mb-6">
+                    <div className={PANEL_CLASSES}>
+                      <div className={ERROR_PANEL_CLASSES}>
+                        <h2 className="text-lg font-semibold mb-2">We couldn't load booking details</h2>
+                        <p>Please refresh the page or contact the business for assistance.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <div className={PANEL_CLASSES}>
         {loading ? (
           // Loading state
           <p className="text-slate-600">Loading booking form...</p>
@@ -1047,7 +1202,9 @@ export default function PublicBookingPage() {
         )}
             </>
           )}
-        </div>
+                </div>
+              </>
+            )}
         </>
         )}
         

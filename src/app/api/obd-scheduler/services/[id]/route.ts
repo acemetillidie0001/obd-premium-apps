@@ -11,7 +11,8 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { z } from "zod";
 import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -62,12 +63,23 @@ export async function PATCH(
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
+
     const { id } = await params;
 
     // Verify service exists and belongs to business
@@ -138,12 +150,23 @@ export async function DELETE(
   if (guard) return guard;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
+
     const { id } = await params;
 
     // Verify service exists and belongs to business

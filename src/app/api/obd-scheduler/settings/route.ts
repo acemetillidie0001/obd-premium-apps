@@ -11,7 +11,8 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { z } from "zod";
 import type {
   BookingSettings,
@@ -57,34 +58,61 @@ function formatSettings(settings: any): BookingSettings {
  * Get booking settings (creates default if not exists)
  */
 export async function GET(request: NextRequest) {
+  // Log request path
+  console.log("[OBD Scheduler Settings GET] Request path:", request.url);
+  
+  // Check DATABASE_URL presence
+  const hasDatabaseUrl = !!process.env.DATABASE_URL;
+  console.log("[OBD Scheduler Settings GET] DATABASE_URL present:", hasDatabaseUrl);
+
   const guard = await requirePremiumAccess();
-  if (guard) return guard;
+  if (guard) {
+    console.log("[OBD Scheduler Settings GET] Premium access denied");
+    return guard;
+  }
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
+      console.log("[OBD Scheduler Settings GET] No user found (unauthorized)");
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+    console.log("[OBD Scheduler Settings GET] User ID:", user.id, "Business ID:", businessId);
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
 
     // Validate businessId and ensure settings exist
     const settings = await ensureSchedulerSettings(businessId, user.email);
+    console.log("[OBD Scheduler Settings GET] Settings loaded successfully");
 
     return apiSuccessResponse(formatSettings(settings));
   } catch (error) {
-    // Only return 500 for real Prisma/database errors
+    // Log error details
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorCode = (error as { code?: string }).code;
+    console.error("[OBD Scheduler Settings GET] Error caught:", {
+      message: errorMessage,
+      code: errorCode,
+      error: error instanceof Error ? error.name : typeof error,
+    });
     
     // Check if it's a validation error (should be 400)
     if (errorMessage.includes("Invalid businessId")) {
       return apiErrorResponse(errorMessage, "VALIDATION_ERROR", 400);
     }
     
-    // Log server-side for debugging
-    console.error("[OBD Scheduler Settings] Error:", error);
-    
     // Return 500 only for actual database/Prisma errors
+    // handleApiError will detect Prisma/database errors and return DATABASE_ERROR code
     return handleApiError(error);
   }
 }
@@ -102,12 +130,22 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
 
     const json = await request.json().catch(() => null);
     if (!json) {

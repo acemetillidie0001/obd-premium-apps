@@ -70,6 +70,8 @@ If your Vercel deployments are failing, follow these steps:
 
 ## Step 3: Run Database Migration
 
+**Important:** Vercel builds (`vercel-build` script) do NOT require database access. The build process only runs `prisma generate` and `next build`. Database migrations should be run separately.
+
 If the database schema is missing fields, you need to run migrations:
 
 ### Option A: Via Vercel Build Command
@@ -207,6 +209,19 @@ After making changes:
    npm run migrate:deploy
    ```
 3. If connection fails, verify `DATABASE_URL`
+
+### Issue: "SELF_SIGNED_CERT_IN_CHAIN" during build
+
+**Cause:** Build process attempting to connect to database during build step
+
+**Solution:**
+- **Vercel builds do NOT require database access** - the `vercel-build` script only runs `prisma generate` and `next build`
+- Database migrations should be run separately (manually or via Vercel's post-deploy hooks)
+- If you need to resolve failed migrations, run manually:
+  ```bash
+  pnpm run db:resolve-failed-migrations
+  ```
+- **Important:** The `db:resolve-failed-migrations` script is manual-only and should NOT be part of the build process
 
 ### Issue: "Prisma Client not found"
 

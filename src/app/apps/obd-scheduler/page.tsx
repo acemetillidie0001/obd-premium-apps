@@ -143,6 +143,7 @@ function OBDSchedulerPageContent() {
   const [showRequestDetail, setShowRequestDetail] = useState(false);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
+  const [isPilotMode, setIsPilotMode] = useState<boolean>(false);
   // Initialize activeView with consistent default (fixes hydration mismatch)
   // Will be updated from localStorage in useEffect after hydration
   const [activeView, setActiveView] = useState<RequestView>("needs-action");
@@ -502,6 +503,24 @@ function OBDSchedulerPageContent() {
     }
   }, [activeTab, requests]);
 
+  // Check pilot mode status (one-time check on mount)
+  useEffect(() => {
+    const checkPilotMode = async () => {
+      try {
+        const res = await fetch("/api/obd-scheduler/health");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.pilotMode !== undefined) {
+            setIsPilotMode(data.pilotMode === true);
+          }
+        }
+      } catch {
+        // Silently fail - default to false
+      }
+    };
+    checkPilotMode();
+  }, []);
+
   // Load requests (fetch all, filtering done client-side)
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
@@ -528,6 +547,13 @@ function OBDSchedulerPageContent() {
       if (!data.ok) {
         const errorMessage = data.error || "";
         const errorCode = data.code || "";
+        
+        // Handle PILOT_ONLY error (403) - show pilot message and stop loading
+        if (errorCode === "PILOT_ONLY" || res.status === 403) {
+          setRequestsError("PILOT_ONLY");
+          setRequests([]);
+          return;
+        }
         
         // Only show error if it's a database/connection issue (500+ status or DATABASE_ERROR code)
         if (
@@ -674,36 +700,53 @@ function OBDSchedulerPageContent() {
     try {
       const settingsRes = await fetch("/api/obd-scheduler/settings");
       
-      // Handle network/fetch errors
-      if (!settingsRes.ok && settingsRes.status >= 500) {
-        // Only show error for server errors (database connection, etc.)
-        const errorText = await settingsRes.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: "Database connection error" };
-        }
-        throw new Error(errorData.error || "Database connection error. Please try again.");
+      // Parse response
+      let settingsData;
+      try {
+        settingsData = await settingsRes.json();
+      } catch (parseError) {
+        // If JSON parsing fails, it's likely a network/server error
+        const errorText = await settingsRes.text().catch(() => "Unknown error");
+        throw new Error(`Failed to parse response: ${errorText}`);
       }
       
-      const settingsData = await settingsRes.json();
-      
-      // Only show error for actual database/connection failures, not missing data
-      // The API should always return valid settings (find-or-create pattern)
+      // Handle error responses based on error code
       if (!settingsData.ok) {
-        const errorMessage = settingsData.error || "";
-        // Only show error if it's a database/connection issue, not missing settings
-        if (errorMessage.toLowerCase().includes("database") || 
-            errorMessage.toLowerCase().includes("connection") ||
-            errorMessage.toLowerCase().includes("prisma") ||
-            settingsRes.status >= 500) {
-          throw new Error(errorMessage || "Database error. Please try again.");
+        const errorCode = settingsData.code || "UNKNOWN_ERROR";
+        const errorMessage = settingsData.error || "Failed to load settings";
+        
+        // Only show red banner for actual database failures
+        if (
+          errorCode === "DATABASE_ERROR" ||
+          errorCode === "DATABASE_CONNECTION_ERROR" ||
+          errorCode === "DATABASE_MODEL_ERROR" ||
+          errorCode === "PRISMA_CLIENT_OUTDATED" ||
+          settingsRes.status >= 500
+        ) {
+          // Real database failure - show error banner
+          setSettingsError(errorMessage);
+          console.error("Settings load failed (database error):", errorCode, errorMessage);
+          return;
+        } else if (errorCode === "UNAUTHORIZED") {
+          // Auth failure - show user-friendly message but not red banner
+          console.warn("Settings load failed (unauthorized):", errorMessage);
+          setSettingsError("");
+          // Could show a toast notification here if needed
+          return;
+        } else if (errorCode === "VALIDATION_ERROR") {
+          // Validation failure - log but don't show red banner
+          console.warn("Settings load failed (validation):", errorMessage);
+          setSettingsError("");
+          return;
+        } else {
+          // Other errors - log but don't show red banner
+          console.warn("Settings load failed (other):", errorCode, errorMessage);
+          setSettingsError("");
+          return;
         }
-        // For other errors (auth, validation, etc.), still throw but with generic message
-        throw new Error("Failed to load settings");
       }
       
+      // Success - load settings
       const loadedSettings = settingsData.data;
       setSettings(loadedSettings);
       setSettingsForm({
@@ -717,16 +760,17 @@ function OBDSchedulerPageContent() {
       });
     } catch (error) {
       console.error("Error loading settings:", error);
-      // Only set error for actual database failures
+      // Network errors or unexpected errors - only show if likely database-related
       const errorMessage = error instanceof Error ? error.message : "Failed to load settings";
-      // Check if it's a database-related error
-      if (errorMessage.toLowerCase().includes("database") || 
-          errorMessage.toLowerCase().includes("connection") ||
-          errorMessage.toLowerCase().includes("prisma")) {
+      // Check if it's a database-related error by message content
+      if (
+        errorMessage.toLowerCase().includes("database") || 
+        errorMessage.toLowerCase().includes("connection") ||
+        errorMessage.toLowerCase().includes("prisma")
+      ) {
         setSettingsError(errorMessage);
       } else {
-        // For non-database errors, log but don't show red banner
-        // (e.g., auth errors, network timeouts that aren't DB-related)
+        // For network/other errors, log but don't show red banner
         console.warn("Settings load error (non-database):", errorMessage);
         setSettingsError("");
       }
@@ -2054,8 +2098,45 @@ function OBDSchedulerPageContent() {
         </div>
       </OBDPanel>
 
+      {/* Pilot Mode Message */}
+      {requestsError === "PILOT_ONLY" && (
+        <OBDPanel isDark={isDark} className="mb-6">
+          <div className={`rounded-xl border p-6 text-center ${
+            isDark 
+              ? "border-slate-700 bg-slate-800/50 text-slate-100" 
+              : "border-slate-200 bg-slate-50 text-slate-700"
+          }`}>
+            <h2 className={`text-lg font-semibold mb-2 ${themeClasses.headingText}`}>
+              Scheduler is in pilot rollout
+            </h2>
+            <p className={themeClasses.mutedText}>
+              Your account will be enabled soon. If you need access immediately, please contact support.
+            </p>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* V1 Scope Banner */}
+      {requestsError !== "PILOT_ONLY" && (
+        <OBDPanel isDark={isDark} className="mb-6">
+          <div className={`rounded-lg border p-4 ${
+            isDark 
+              ? "border-slate-700 bg-slate-800/30 text-slate-200" 
+              : "border-slate-200 bg-slate-50 text-slate-700"
+          }`}>
+            <h3 className={`text-sm font-semibold mb-1 ${themeClasses.headingText}`}>
+              Scheduler V1
+            </h3>
+            <p className={`text-sm ${themeClasses.mutedText}`}>
+              Includes request + instant booking, service selection, and availability windows. Coming soon: calendar sync, SMS, and payments.
+              {isPilotMode && " Pilot rollout is in progress."}
+            </p>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Requests Tab */}
-      {activeTab === "requests" && (
+      {activeTab === "requests" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <div className="mb-4">
             <div className="flex items-center justify-between mb-4">
@@ -2394,7 +2475,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* Services Tab */}
-      {activeTab === "services" && (
+      {activeTab === "services" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-0">
             <OBDHeading level={2} isDark={isDark}>Services</OBDHeading>
@@ -2481,7 +2562,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* Availability Tab */}
-      {activeTab === "availability" && (
+      {activeTab === "availability" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Availability Windows</OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
@@ -2604,7 +2685,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* ===== TAB: BRANDING (start) ===== */}
-      {activeTab === "branding" && (
+      {activeTab === "branding" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Branding & Theme</OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
@@ -2762,7 +2843,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: BRANDING (end) ===== */}
 
       {/* ===== TAB: SETTINGS (start) ===== */}
-      {activeTab === "settings" && (
+      {activeTab === "settings" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Booking Settings</OBDHeading>
 
@@ -3087,7 +3168,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: SETTINGS (end) ===== */}
 
       {/* ===== TAB: METRICS (start) ===== */}
-      {activeTab === "metrics" && (
+      {activeTab === "metrics" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <div className="flex items-center justify-between mb-6" data-testid="metrics-container">
             <OBDHeading level={2} isDark={isDark}>Business Metrics</OBDHeading>
@@ -3269,7 +3350,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: METRICS (end) ===== */}
 
       {/* ===== TAB: VERIFICATION (start) ===== */}
-      {activeTab === "verification" && (
+      {activeTab === "verification" && requestsError !== "PILOT_ONLY" && (
         <>
           <OBDPanel isDark={isDark} className="mb-6">
             <div className="flex items-center justify-between mb-6">
@@ -3532,7 +3613,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: VERIFICATION (end) ===== */}
 
       {/* ===== TAB: CALENDAR (start) ===== */}
-      {activeTab === "calendar" && (
+      {activeTab === "calendar" && requestsError !== "PILOT_ONLY" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Calendar Integration</OBDHeading>
           

@@ -2,6 +2,33 @@
 
 Welcome to the OBD Scheduler & Booking documentation. This index helps you find the information you need.
 
+## V1 Scope
+
+OBD Scheduler V1 focuses on core booking functionality with a clean, reliable experience for both businesses and customers. Here's what's included and what's coming in future releases.
+
+### V1 Includes
+
+- **Public booking link** (bookingKey-based): Secure, shareable booking URLs
+- **Service selection**: Customers can choose from your active services
+- **Availability windows + exceptions**: Set your business hours and block specific dates
+- **Request booking mode**: Customers submit requests for your approval
+- **Instant booking mode**: When enabled, customers can book immediately
+- **Email notifications**: Customer confirmations and business alerts
+- **Admin request management dashboard**: View, filter, sort, and manage all booking requests
+
+### V1 Excludes (Coming Soon / Not in V1)
+
+- **Payment processing**: No payment collection or deposits in V1
+- **SMS notifications**: Email-only notifications in V1 (SMS coming in future release)
+- **Calendar sync**: No Google Calendar or Microsoft Outlook integration in V1
+- **Automated reminders**: No automated follow-up emails or drip sequences
+- **Client login/accounts**: Customers don't create accounts or view booking history
+- **Multi-staff routing**: Single-staff booking model in V1
+
+> **Note**: Features will expand in V1.x as we roll out improvements based on user feedback.
+
+---
+
 ## Quick Links
 
 ### 📖 [Overview & Architecture](./../apps/obd-scheduler-v3.md#overview)

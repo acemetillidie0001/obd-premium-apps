@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { prisma } from "@/lib/prisma";
+import { handleApiError, apiSuccessResponse, apiErrorResponse, logSchedulerEvent } from "@/lib/api/errorHandler";
+import { getPrisma } from "@/lib/prisma";
 import { validateBookingKeyFormat } from "@/lib/apps/obd-scheduler/bookingKey";
 import { resolveBookingLink } from "@/lib/apps/obd-scheduler/bookingPublicLink";
 
@@ -182,10 +182,15 @@ export async function GET(request: NextRequest) {
       // Check if it looks like a legacy bookingKey format for logging
       const isLegacyFormat = bookingParam.length === 64 && /^[0-9a-f]+$/i.test(bookingParam);
       logFailedBookingKeyLookup(bookingParam, clientIP, request, isLegacyFormat ? "not_found" : "invalid_format");
+      logSchedulerEvent("INVALID_BOOKING_KEY", {
+        route: "/api/obd-scheduler/public/context",
+        format: isLegacyFormat ? "legacy" : "invalid",
+      });
       return apiErrorResponse("Invalid booking link", "NOT_FOUND", 404);
     }
 
     // Find settings by businessId
+    const prisma = getPrisma();
     const settings = await prisma.bookingSettings.findUnique({
       where: { businessId: resolution.businessId },
       select: {
@@ -202,6 +207,10 @@ export async function GET(request: NextRequest) {
     if (!settings) {
       // P1-16: Log failed lookup for security/audit
       logFailedBookingKeyLookup(bookingParam, clientIP, request, "not_found");
+      logSchedulerEvent("INVALID_BOOKING_KEY", {
+        route: "/api/obd-scheduler/public/context",
+        format: "not_found",
+      });
       return apiErrorResponse("Invalid booking link", "NOT_FOUND", 404);
     }
 

@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import { z } from "zod";
 import { validateBookingKeyFormat } from "@/lib/apps/obd-scheduler/bookingKey";
 import { generateSlots } from "@/lib/apps/obd-scheduler/slots";
@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const prisma = getPrisma();
     const { searchParams } = new URL(request.url);
     const bookingKey = searchParams.get("bookingKey");
     const date = searchParams.get("date");

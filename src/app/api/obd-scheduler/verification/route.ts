@@ -9,7 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
+import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { resolveBookingLink } from "@/lib/apps/obd-scheduler/bookingPublicLink";
 
 export const runtime = "nodejs";
@@ -128,7 +129,7 @@ async function checkPublicBookingPageSlugCode(
 /**
  * Check if services API returns valid list
  */
-async function checkServicesAPI(businessId: string): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
+async function checkServicesAPI(businessId: string, prisma: ReturnType<typeof import("@/lib/prisma").getPrisma>): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
   try {
     const services = await prisma.bookingService.findMany({
       where: { businessId },
@@ -152,7 +153,7 @@ async function checkServicesAPI(businessId: string): Promise<{ status: "pass" | 
 /**
  * Check if requests API responds
  */
-async function checkRequestsAPI(businessId: string): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
+async function checkRequestsAPI(businessId: string, prisma: ReturnType<typeof import("@/lib/prisma").getPrisma>): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
   try {
     const count = await prisma.bookingRequest.count({
       where: { businessId },
@@ -175,7 +176,7 @@ async function checkRequestsAPI(businessId: string): Promise<{ status: "pass" | 
 /**
  * Check if metrics endpoint responds
  */
-async function checkMetricsAPI(businessId: string): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
+async function checkMetricsAPI(businessId: string, prisma: ReturnType<typeof import("@/lib/prisma").getPrisma>): Promise<{ status: "pass" | "fail"; message: string; details?: string }> {
   try {
     // Just check if we can query the database for metrics data
     // This is a read-only check that doesn't modify anything
@@ -258,12 +259,23 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
+    const prisma = getPrisma();
     const user = await getCurrentUser();
     if (!user) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
     const businessId = user.id; // V3: userId = businessId
+
+    // Check pilot access
+    if (!isSchedulerPilotAllowed(businessId)) {
+      return apiErrorResponse(
+        "Scheduler is currently in pilot rollout.",
+        "PILOT_ONLY",
+        403
+      );
+    }
+
     const timestamp = new Date().toISOString();
     const checks: VerificationCheck[] = [];
 
@@ -329,7 +341,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 4. Check services API
-    const servicesCheck = await checkServicesAPI(businessId);
+    const servicesCheck = await checkServicesAPI(businessId, prisma);
     checks.push({
       name: "Services API",
       status: servicesCheck.status,
@@ -339,7 +351,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 5. Check requests API
-    const requestsCheck = await checkRequestsAPI(businessId);
+    const requestsCheck = await checkRequestsAPI(businessId, prisma);
     checks.push({
       name: "Requests API",
       status: requestsCheck.status,
@@ -349,7 +361,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 6. Check metrics API
-    const metricsCheck = await checkMetricsAPI(businessId);
+    const metricsCheck = await checkMetricsAPI(businessId, prisma);
     checks.push({
       name: "Metrics API",
       status: metricsCheck.status,

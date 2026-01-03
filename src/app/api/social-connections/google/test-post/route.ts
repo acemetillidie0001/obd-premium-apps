@@ -3,17 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { publishToGoogleBusiness } from "@/lib/apps/social-auto-poster/publishers/googleBusinessPublisher";
-
-/**
- * Helper: Validate and narrow nullable string to required string
- * Throws with clear error message if value is missing
- */
-function requireString(value: string | null | undefined, field: string): string {
-  if (!value) {
-    throw new Error(`[social] Missing required ${field}`);
-  }
-  return value;
-}
+import { requireString } from "@/lib/utils/requireString";
 
 /**
  * POST /api/social-connections/google/test-post
@@ -74,8 +64,8 @@ export async function POST(request: NextRequest) {
     let locationId: string;
     let accessToken: string;
     try {
-      locationId = requireString(googleDestination.selectedAccountId, "googleDestination.selectedAccountId");
-      accessToken = requireString(googleConnection.accessToken, "googleConnection.accessToken");
+      locationId = requireString(googleDestination.selectedAccountId, "googleDestination.selectedAccountId", "social");
+      accessToken = requireString(googleConnection.accessToken, "googleConnection.accessToken", "social");
     } catch (validationError) {
       const errorMessage = validationError instanceof Error ? validationError.message : "Missing required field";
       return NextResponse.json(

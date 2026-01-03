@@ -3,17 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
-
-/**
- * Helper: Validate and narrow nullable string to required string
- * Throws with clear error message if value is missing
- */
-function requireString(value: string | null | undefined, field: string): string {
-  if (!value) {
-    throw new Error(`[social] Missing required ${field}`);
-  }
-  return value;
-}
+import { requireString } from "@/lib/utils/requireString";
 
 /**
  * POST /api/social-connections/meta/test-post
@@ -103,7 +93,8 @@ export async function POST(request: NextRequest) {
         // Validate and narrow required field (fail-fast with clear error)
         const providerAccountId = requireString(
           facebookDestination.selectedAccountId,
-          "facebookDestination.selectedAccountId"
+          "facebookDestination.selectedAccountId",
+          "social"
         );
 
         const fbConnection = await prisma.socialAccountConnection.findFirst({
@@ -238,7 +229,8 @@ export async function POST(request: NextRequest) {
         // Validate and narrow required field (fail-fast with clear error)
         const providerAccountId = requireString(
           instagramDestination.selectedAccountId,
-          "instagramDestination.selectedAccountId"
+          "instagramDestination.selectedAccountId",
+          "social"
         );
 
         const igConnection = await prisma.socialAccountConnection.findFirst({

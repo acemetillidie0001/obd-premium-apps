@@ -10,20 +10,10 @@ import { publishToFacebookPage, publishToInstagram, isTemporaryError } from "./p
 import { publishToGoogleBusiness, isTemporaryError as isGoogleTemporaryError } from "./publishers/googleBusinessPublisher";
 import { resolvePostImage } from "./resolvePostImage";
 import { isMetaPublishingEnabled } from "./metaConnectionStatus";
+import { requireString } from "@/lib/utils/requireString";
 import type { Prisma } from "@prisma/client";
 
 const MAX_ATTEMPTS = 5;
-
-/**
- * Helper: Validate and narrow nullable string to required string
- * Throws with clear error message if value is missing
- */
-function requireString(value: string | null | undefined, field: string): string {
-  if (!value) {
-    throw new Error(`[social] Missing required ${field}`);
-  }
-  return value;
-}
 
 /**
  * Calculate next attempt time based on attempt count (exponential backoff)
@@ -145,7 +135,8 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         // Validate and narrow required field (fail-fast with clear error)
         const providerAccountId = requireString(
           fbDestination.selectedAccountId,
-          "fbDestination.selectedAccountId"
+          "fbDestination.selectedAccountId",
+          "social"
         );
 
         const fbConnection = await prisma.socialAccountConnection.findFirst({
@@ -207,7 +198,8 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         // Validate and narrow required field (fail-fast with clear error)
         const providerAccountId = requireString(
           igDestination.selectedAccountId,
-          "igDestination.selectedAccountId"
+          "igDestination.selectedAccountId",
+          "social"
         );
 
         const igConnection = await prisma.socialAccountConnection.findFirst({
@@ -268,7 +260,14 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         },
       });
 
-      if (gbpDestination && gbpDestination.selectedAccountId) {
+      if (gbpDestination) {
+        // Validate and narrow required field (fail-fast with clear error)
+        const locationId = requireString(
+          gbpDestination.selectedAccountId,
+          "gbpDestination.selectedAccountId",
+          "social"
+        );
+
         const gbpConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
@@ -278,7 +277,7 @@ export async function processScheduledPost(queueItemId: string, userId: string):
 
         if (gbpConnection && gbpConnection.accessToken) {
           const gbpResult = await publishToGoogleBusiness({
-            locationId: gbpDestination.selectedAccountId,
+            locationId,
             accessToken: gbpConnection.accessToken,
             refreshToken: gbpConnection.refreshToken,
             tokenExpiresAt: gbpConnection.tokenExpiresAt,

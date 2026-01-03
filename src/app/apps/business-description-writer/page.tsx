@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -20,6 +21,7 @@ import { attemptPushToHelpDeskKnowledge } from "@/lib/utils/bdw-help-desk-integr
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
 import { createDbVersion } from "@/lib/utils/bdw-saved-versions-db";
 import { buildCrmNotePack } from "@/lib/utils/bdw-crm-note-pack";
+import { isBdwV4Enabled } from "@/lib/utils/feature-rollout";
 
 type PersonalityStyle = "Soft" | "Bold" | "High-Energy" | "Luxury";
 type WritingStyleTemplate =
@@ -263,10 +265,17 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
 }
 
 function BusinessDescriptionWriterPage() {
-  // V4 Feature Flag: Controls V4 UI rollout (additive-only, no API changes)
-  const isV4Enabled = flags.bdwV4;
-
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  
+  // V4 Feature Flag: Staged rollout with allowlist and query param override
+  const userEmail = session?.user?.email ?? null;
+  const isV4Enabled = isBdwV4Enabled({
+    masterEnabled: flags.bdwV4,
+    userEmail,
+    searchParams,
+  });
+
   // V4: Resolve businessId with fallback chain (URL params → future: session → future: context)
   const resolvedBusinessId = resolveBusinessId(searchParams);
 
@@ -896,6 +905,21 @@ function BusinessDescriptionWriterPage() {
               </OBDStickyActionBar>
             </form>
       </OBDPanel>
+
+      {/* V4 Staged Rollout Notice - shown when master flag is true but user is not enabled */}
+      {flags.bdwV4 && !isV4Enabled && (
+        <OBDPanel isDark={isDark} className="mt-4">
+          <div className={`rounded-lg border p-3 ${
+            isDark
+              ? "bg-slate-800/30 border-slate-700"
+              : "bg-slate-50 border-slate-200"
+          }`}>
+            <p className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              V4 is in staged rollout. Add <code className="px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-xs">?bdwV4=1</code> to preview.
+            </p>
+          </div>
+        </OBDPanel>
+      )}
 
       {/* Results section */}
       {error ? (

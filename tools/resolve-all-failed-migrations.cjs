@@ -1,3 +1,4 @@
+console.log("[resolver] FINGERPRINT=v3-guard-lazyload");
 console.log("RESOLVER_HARD_EXIT_ACTIVE=1");
 process.exit(0);
 // FINGERPRINT_RESOLVER=2026-01-03T00:00Z_v1

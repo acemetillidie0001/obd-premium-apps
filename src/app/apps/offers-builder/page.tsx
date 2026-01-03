@@ -2212,7 +2212,7 @@ function OffersBuilderPageContent() {
       {result && !loading && (
         <OBDStickyActionBar isDark={isDark} className="mt-12">
           <button
-            onClick={handleRegenerate}
+            onClick={() => handleRegenerate()}
             disabled={loading}
             className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isDark

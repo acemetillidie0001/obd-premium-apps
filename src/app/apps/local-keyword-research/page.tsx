@@ -1212,7 +1212,7 @@ export default function LocalKeywordResearchPage() {
               {lastRequest && (
                 <button
                   type="button"
-                  onClick={handleRegenerate}
+                  onClick={() => handleRegenerate()}
                   disabled={isLoading}
                   className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
                     isLoading

@@ -590,7 +590,7 @@ export default function AILogoGeneratorPage() {
             </OBDHeading>
             <div className="flex gap-2">
               <button
-                onClick={handleRegenerate}
+                onClick={() => handleRegenerate()}
                 disabled={loading}
                 className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
                   isDark

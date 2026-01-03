@@ -1863,7 +1863,7 @@ export default function BrandKitBuilderPage() {
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-4">
             <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
               <button
-                onClick={handleRegenerate}
+                onClick={() => handleRegenerate()}
                 disabled={loading}
                 className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isDark

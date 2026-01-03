@@ -1096,7 +1096,7 @@ export default function LocalSEOPageBuilderPage() {
             </OBDHeading>
             <div className="flex gap-2">
               <button
-                onClick={handleRegenerate}
+                onClick={() => handleRegenerate()}
                 disabled={loading || !lastPayload}
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isDark

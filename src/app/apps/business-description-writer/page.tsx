@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
@@ -816,6 +816,107 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPa
   );
 }
 
+// Regenerate Dropdown Component
+interface RegenerateDropdownProps {
+  onRegenerate: (mode: "everything" | "destinations" | "packs") => void | Promise<void>;
+  loading: boolean;
+  isDark: boolean;
+}
+
+function RegenerateDropdown({ onRegenerate, loading, isDark }: RegenerateDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isOpen]);
+
+  const handleSelect = (mode: "everything" | "destinations" | "packs") => {
+    onRegenerate(mode);
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        disabled={loading}
+        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
+          isDark
+            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+        }`}
+      >
+        {loading ? "Regenerating..." : "Regenerate"}
+        <svg
+          className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      
+      {isOpen && (
+        <div
+          className={`absolute right-0 mt-2 w-56 rounded-lg border shadow-lg z-10 ${
+            isDark
+              ? "bg-slate-800 border-slate-700"
+              : "bg-white border-slate-200"
+          }`}
+        >
+          <div className="py-1">
+            <button
+              onClick={() => handleSelect("everything")}
+              disabled={loading}
+              className={`w-full text-left px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "text-slate-200 hover:bg-slate-700"
+                  : "text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Regenerate Everything
+            </button>
+            <button
+              onClick={() => handleSelect("destinations")}
+              disabled={loading}
+              className={`w-full text-left px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "text-slate-200 hover:bg-slate-700"
+                  : "text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Regenerate Destination Output only
+            </button>
+            <button
+              onClick={() => handleSelect("packs")}
+              disabled={loading}
+              className={`w-full text-left px-4 py-2 text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "text-slate-200 hover:bg-slate-700"
+                  : "text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Regenerate Content Packs only
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BusinessDescriptionWriterPage() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
@@ -919,7 +1020,7 @@ function BusinessDescriptionWriterPage() {
           obdListingDescription: newResponse.obdListingDescription,
           googleBusinessDescription: newResponse.googleBusinessDescription,
           websiteAboutUs: newResponse.websiteAboutUs,
-          elevatorPitch: newResponse.elevatorPitch, // Citations uses elevatorPitch
+          elevatorPitch: newResponse.elevatorPitch, // Citations/Short Bio uses elevatorPitch
         });
       } else if (mode === "packs") {
         // Replace only pack fields, preserve destinations
@@ -929,8 +1030,7 @@ function BusinessDescriptionWriterPage() {
           taglineOptions: newResponse.taglineOptions,
           faqSuggestions: newResponse.faqSuggestions,
           metaDescription: newResponse.metaDescription,
-          // Note: elevatorPitch is used for Citations destination, so we preserve it
-          // when regenerating packs only
+          elevatorPitch: newResponse.elevatorPitch, // Elevator Pitch is part of Content Packs
         });
       }
       
@@ -1546,17 +1646,11 @@ function BusinessDescriptionWriterPage() {
                     </button>
                   </>
                 )}
-                <button
-                  onClick={handleRegenerate}
-                  disabled={loading}
-                  className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isDark
-                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {loading ? "Regenerating..." : "Regenerate"}
-                </button>
+                <RegenerateDropdown
+                  onRegenerate={handleRegenerate}
+                  loading={loading}
+                  isDark={isDark}
+                />
               </div>
             ) : undefined
           }

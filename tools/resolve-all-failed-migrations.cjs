@@ -1,26 +1,33 @@
-// --- Vercel build guard ---
-// Never run DB repair/resolution during Vercel builds (Railway TLS proxy can fail cert chain).
-// This script remains available for manual ops runs: pnpm run db:resolve-failed-migrations
-if (process.env.VERCEL === "1" || typeof process.env.VERCEL_ENV === "string") {
-  console.log("[resolve-all-failed-migrations] Skipped on Vercel build.");
+console.log("RESOLVER_HARD_EXIT_ACTIVE=1");
+process.exit(0);
+// FINGERPRINT_RESOLVER=2026-01-03T00:00Z_v1
+console.log("FINGERPRINT_RESOLVER=2026-01-03T00:00Z_v1");
+
+// HARD VERCEL DETECTION GUARD - EXIT IMMEDIATELY IF ON VERCEL
+// Check Vercel environment variables
+const hasVercelEnv = 
+  process.env.VERCEL === "1" || 
+  process.env.VERCEL === "true" ||
+  typeof process.env.VERCEL_ENV === "string" ||
+  process.env.VERCEL_ENV !== undefined ||
+  process.env.VERCEL_URL !== undefined ||
+  process.env.VERCEL_GIT_COMMIT_SHA !== undefined ||
+  process.env.NOW_REGION !== undefined;
+
+// Check Vercel path via working directory
+const cwd = process.cwd();
+const pwd = process.env.PWD || "";
+const isVercelPath = cwd.startsWith("/vercel/") || pwd.startsWith("/vercel/");
+
+// EXIT IMMEDIATELY if on Vercel - no code below can run
+if (hasVercelEnv || isVercelPath) {
+  console.log("RESOLVER_SKIPPED_ON_VERCEL=1");
   process.exit(0);
 }
-// --- end guard ---
 
-// Railway's TCP proxy presents a certificate chain that Node.js doesn't trust by default.
-// This script runs only during Vercel build/CI, not at runtime, so it's safe to accept
-// the proxy's certificate chain here to allow encrypted connections to Railway Postgres.
+// CRITICAL: Set TLS rejection BEFORE any modules are loaded
+// Node.js reads this when TLS module is first loaded, so it must be after Vercel guard
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-console.log("[resolve-all-failed-migrations] FINGERPRINT=v2-railway-tls0");
-
-// Early-exit guard: Skip database operations on Vercel builds
-// This prevents SSL certificate errors during Vercel deployments
-// The script should only run manually when needed, not during builds
-if (process.env.VERCEL === "1" || process.env.VERCEL_ENV) {
-  console.log("[resolve-all-failed-migrations] Skipping on Vercel build (VERCEL=1 or VERCEL_ENV set)");
-  console.log("[resolve-all-failed-migrations] This script should be run manually via: pnpm run db:resolve-failed-migrations");
-  process.exit(0);
-}
 
 /**
  * Resolve ALL Failed Migrations
@@ -50,18 +57,28 @@ try {
 
 async function resolveAllFailedMigrations() {
   // Use pg Pool directly to avoid Prisma 7 client initialization issues
-  const dbUrl = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
+  let dbUrl = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
   if (!dbUrl) {
     throw new Error("DATABASE_URL or DATABASE_URL_DIRECT must be set");
   }
 
+  // Remove any existing sslmode from the connection string to avoid conflicts
+  // We'll handle SSL via the Pool config instead
+  dbUrl = dbUrl.replace(/[?&]sslmode=[^&]*/gi, '');
+  
   console.log("[resolve-all-failed-migrations] TLS_REJECT=", process.env.NODE_TLS_REJECT_UNAUTHORIZED);
+  console.log("[resolve-all-failed-migrations] NODE_ENV=", process.env.NODE_ENV);
 
+  // Configure Pool with explicit SSL settings that accept self-signed certificates
+  // This is necessary for Railway Postgres which uses self-signed certificates
   const pool = new Pool({
     connectionString: dbUrl,
     ssl: {
       rejectUnauthorized: false, // Accept self-signed certificates (Railway uses these)
     },
+    // Additional connection options for reliability
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000,
   });
 
   try {

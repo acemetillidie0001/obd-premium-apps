@@ -5,10 +5,12 @@
  * and query parameter overrides for testing.
  */
 
+type SearchParamsLike = { get: (key: string) => string | null };
+
 interface IsBdwV4EnabledParams {
   masterEnabled: boolean;
   userEmail: string | null | undefined;
-  searchParams: URLSearchParams | ReadonlyURLSearchParams | null;
+  searchParams: SearchParamsLike | null;
 }
 
 /**

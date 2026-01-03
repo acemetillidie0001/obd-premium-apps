@@ -15,6 +15,17 @@ import type { Prisma } from "@prisma/client";
 const MAX_ATTEMPTS = 5;
 
 /**
+ * Helper: Validate and narrow nullable string to required string
+ * Throws with clear error message if value is missing
+ */
+function requireString(value: string | null | undefined, field: string): string {
+  if (!value) {
+    throw new Error(`[social] Missing required ${field}`);
+  }
+  return value;
+}
+
+/**
  * Calculate next attempt time based on attempt count (exponential backoff)
  */
 function calculateNextAttemptAt(attemptCount: number): Date {
@@ -131,11 +142,17 @@ export async function processScheduledPost(queueItemId: string, userId: string):
       });
 
       if (fbDestination) {
+        // Validate and narrow required field (fail-fast with clear error)
+        const providerAccountId = requireString(
+          fbDestination.selectedAccountId,
+          "fbDestination.selectedAccountId"
+        );
+
         const fbConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
             platform: "facebook",
-            providerAccountId: fbDestination.selectedAccountId,
+            providerAccountId,
           },
         });
 
@@ -166,8 +183,14 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         publishErrorCode = "NO_DESTINATION";
       }
     } catch (error) {
-      publishError = error instanceof Error ? error.message : "Unknown error";
-      publishErrorCode = "EXCEPTION";
+      // Handle validation errors with clear error code
+      if (error instanceof Error && error.message.startsWith("[social]")) {
+        publishError = error.message;
+        publishErrorCode = "VALIDATION_ERROR";
+      } else {
+        publishError = error instanceof Error ? error.message : "Unknown error";
+        publishErrorCode = "EXCEPTION";
+      }
     }
   } else if (platform === "instagram") {
     try {
@@ -181,11 +204,17 @@ export async function processScheduledPost(queueItemId: string, userId: string):
       });
 
       if (igDestination) {
+        // Validate and narrow required field (fail-fast with clear error)
+        const providerAccountId = requireString(
+          igDestination.selectedAccountId,
+          "igDestination.selectedAccountId"
+        );
+
         const igConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
             platform: "instagram",
-            providerAccountId: igDestination.selectedAccountId,
+            providerAccountId,
           },
         });
 
@@ -219,8 +248,14 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         publishErrorCode = "NO_DESTINATION";
       }
     } catch (error) {
-      publishError = error instanceof Error ? error.message : "Unknown error";
-      publishErrorCode = "EXCEPTION";
+      // Handle validation errors with clear error code
+      if (error instanceof Error && error.message.startsWith("[social]")) {
+        publishError = error.message;
+        publishErrorCode = "VALIDATION_ERROR";
+      } else {
+        publishError = error instanceof Error ? error.message : "Unknown error";
+        publishErrorCode = "EXCEPTION";
+      }
     }
   } else if (platform === "google_business") {
     try {
@@ -233,7 +268,7 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         },
       });
 
-      if (gbpDestination) {
+      if (gbpDestination && gbpDestination.selectedAccountId) {
         const gbpConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
@@ -285,8 +320,14 @@ export async function processScheduledPost(queueItemId: string, userId: string):
         publishErrorCode = "NO_DESTINATION";
       }
     } catch (error) {
-      publishError = error instanceof Error ? error.message : "Unknown error";
-      publishErrorCode = "EXCEPTION";
+      // Handle validation errors with clear error code
+      if (error instanceof Error && error.message.startsWith("[social]")) {
+        publishError = error.message;
+        publishErrorCode = "VALIDATION_ERROR";
+      } else {
+        publishError = error instanceof Error ? error.message : "Unknown error";
+        publishErrorCode = "EXCEPTION";
+      }
     }
   }
 

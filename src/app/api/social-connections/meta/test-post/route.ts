@@ -5,6 +5,17 @@ import { hasPremiumAccess } from "@/lib/premium";
 import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 
 /**
+ * Helper: Validate and narrow nullable string to required string
+ * Throws with clear error message if value is missing
+ */
+function requireString(value: string | null | undefined, field: string): string {
+  if (!value) {
+    throw new Error(`[social] Missing required ${field}`);
+  }
+  return value;
+}
+
+/**
  * POST /api/social-connections/meta/test-post
  * 
  * Publishes a test post to Facebook Page and/or Instagram.
@@ -89,11 +100,17 @@ export async function POST(request: NextRequest) {
     // Attempt Facebook post
     if (attemptFacebook && facebookDestination) {
       try {
+        // Validate and narrow required field (fail-fast with clear error)
+        const providerAccountId = requireString(
+          facebookDestination.selectedAccountId,
+          "facebookDestination.selectedAccountId"
+        );
+
         const fbConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
             platform: "facebook",
-            providerAccountId: facebookDestination.selectedAccountId,
+            providerAccountId,
           },
         });
 
@@ -187,6 +204,15 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error) {
+        // Handle validation errors (400) vs publish failures (500)
+        if (error instanceof Error && error.message.startsWith("[social]")) {
+          // Validation error - return 400 immediately
+          return NextResponse.json(
+            { error: error.message },
+            { status: 400 }
+          );
+        }
+        
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         results.facebook = {
           ok: false,
@@ -209,11 +235,17 @@ export async function POST(request: NextRequest) {
     // Attempt Instagram post (only if Instagram is connected)
     if (attemptInstagram && instagramDestination) {
       try {
+        // Validate and narrow required field (fail-fast with clear error)
+        const providerAccountId = requireString(
+          instagramDestination.selectedAccountId,
+          "instagramDestination.selectedAccountId"
+        );
+
         const igConnection = await prisma.socialAccountConnection.findFirst({
           where: {
             userId,
             platform: "instagram",
-            providerAccountId: instagramDestination.selectedAccountId,
+            providerAccountId,
           },
         });
 
@@ -363,6 +395,15 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (error) {
+        // Handle validation errors (400) vs publish failures (500)
+        if (error instanceof Error && error.message.startsWith("[social]")) {
+          // Validation error - return 400 immediately
+          return NextResponse.json(
+            { error: error.message },
+            { status: 400 }
+          );
+        }
+        
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         results.instagram = {
           ok: false,
@@ -390,6 +431,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error in test post:", error);
+    
+    // Handle validation errors (400) vs publish failures (500)
+    if (error instanceof Error && error.message.startsWith("[social]")) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
+    
     return NextResponse.json(
       { error: "Failed to publish test post" },
       { status: 500 }

@@ -1,8 +1,26 @@
+// --- Vercel build guard ---
+// Never run DB repair/resolution during Vercel builds (Railway TLS proxy can fail cert chain).
+// This script remains available for manual ops runs: pnpm run db:resolve-failed-migrations
+if (process.env.VERCEL === "1" || typeof process.env.VERCEL_ENV === "string") {
+  console.log("[resolve-all-failed-migrations] Skipped on Vercel build.");
+  process.exit(0);
+}
+// --- end guard ---
+
 // Railway's TCP proxy presents a certificate chain that Node.js doesn't trust by default.
 // This script runs only during Vercel build/CI, not at runtime, so it's safe to accept
 // the proxy's certificate chain here to allow encrypted connections to Railway Postgres.
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 console.log("[resolve-all-failed-migrations] FINGERPRINT=v2-railway-tls0");
+
+// Early-exit guard: Skip database operations on Vercel builds
+// This prevents SSL certificate errors during Vercel deployments
+// The script should only run manually when needed, not during builds
+if (process.env.VERCEL === "1" || process.env.VERCEL_ENV) {
+  console.log("[resolve-all-failed-migrations] Skipping on Vercel build (VERCEL=1 or VERCEL_ENV set)");
+  console.log("[resolve-all-failed-migrations] This script should be run manually via: pnpm run db:resolve-failed-migrations");
+  process.exit(0);
+}
 
 /**
  * Resolve ALL Failed Migrations

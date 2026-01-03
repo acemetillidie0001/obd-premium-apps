@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const { provider } = parsed.data;
 
     // Check if integration exists and is connected
-    const integration = await prisma.schedulerCalendarIntegration.findUnique({
+    const integration = await prisma.schedulerCalendarConnection.findUnique({
       where: {
         businessId_provider: {
           businessId,
@@ -91,9 +91,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (integration.status !== "connected") {
+    if (!integration.enabled) {
       return apiErrorResponse(
-        `Calendar integration is not connected. Current status: ${integration.status}`,
+        `Calendar integration is not enabled.`,
         "INTEGRATION_NOT_CONNECTED",
         400
       );

@@ -12,24 +12,27 @@ import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import type {
   CalendarIntegrationStatusResponse,
-  SchedulerCalendarIntegration,
+  SchedulerCalendarConnection,
 } from "@/lib/apps/obd-scheduler/types";
 
 export const runtime = "nodejs";
 
 // Helper: Format integration from DB
-function formatIntegration(integration: any): SchedulerCalendarIntegration | null {
+function formatIntegration(integration: any): SchedulerCalendarConnection | null {
   if (!integration) return null;
+  
+  // Map enabled boolean to status string
+  const status: "disabled" | "connected" | "error" = integration.enabled ? "connected" : "disabled";
   
   return {
     id: integration.id,
     businessId: integration.businessId,
     provider: integration.provider as "google" | "microsoft",
-    status: integration.status as "disabled" | "connected" | "error",
-    lastSyncAt: integration.lastSyncAt?.toISOString() || null,
-    calendarId: integration.calendarId,
-    tokenRef: integration.tokenRef,
-    errorMessage: integration.errorMessage,
+    status,
+    lastSyncAt: null, // Not in schema yet
+    calendarId: null, // Not in schema yet
+    tokenRef: null, // Not in schema yet
+    errorMessage: null, // Not in schema yet
     createdAt: integration.createdAt.toISOString(),
     updatedAt: integration.updatedAt.toISOString(),
   };
@@ -66,7 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get integration for Google (V3.1: Google only)
-    const integration = await prisma.schedulerCalendarIntegration.findUnique({
+    const integration = await prisma.schedulerCalendarConnection.findUnique({
       where: {
         businessId_provider: {
           businessId,
@@ -82,8 +85,8 @@ export async function GET(request: NextRequest) {
       process.env.GOOGLE_REDIRECT_URI
     );
 
-    // Determine if connection is possible
-    const canConnect = oauthConfigured && (!integration || integration.status !== "connected");
+    // Determine if connection is possible (enabled = connected)
+    const canConnect = oauthConfigured && (!integration || !integration.enabled);
 
     const response: CalendarIntegrationStatusResponse = {
       integration: formatIntegration(integration),

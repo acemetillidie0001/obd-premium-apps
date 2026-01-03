@@ -254,7 +254,7 @@ export interface UpdateBusyBlockRequest {
 export type CalendarProvider = "google" | "microsoft";
 export type CalendarIntegrationStatus = "disabled" | "connected" | "error";
 
-export interface SchedulerCalendarIntegration {
+export interface SchedulerCalendarConnection {
   id: string;
   businessId: string;
   provider: CalendarProvider;
@@ -268,7 +268,7 @@ export interface SchedulerCalendarIntegration {
 }
 
 export interface CalendarIntegrationStatusResponse {
-  integration: SchedulerCalendarIntegration | null;
+  integration: SchedulerCalendarConnection | null;
   oauthConfigured: boolean; // Whether OAuth env vars are present
   canConnect: boolean; // Whether connection is possible (oauthConfigured && status !== "connected")
 }

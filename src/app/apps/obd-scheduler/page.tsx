@@ -27,7 +27,7 @@ import type {
   MetricsRange,
   SchedulerBusyBlock,
   CreateBusyBlockRequest,
-  SchedulerCalendarIntegration,
+  SchedulerCalendarConnection,
   CalendarIntegrationStatusResponse,
 } from "@/lib/apps/obd-scheduler/types";
 import { BookingStatus, BookingMode } from "@/lib/apps/obd-scheduler/types";

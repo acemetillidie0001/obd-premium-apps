@@ -5,6 +5,17 @@ import { hasPremiumAccess } from "@/lib/premium";
 import { publishToGoogleBusiness } from "@/lib/apps/social-auto-poster/publishers/googleBusinessPublisher";
 
 /**
+ * Helper: Validate and narrow nullable string to required string
+ * Throws with clear error message if value is missing
+ */
+function requireString(value: string | null | undefined, field: string): string {
+  if (!value) {
+    throw new Error(`[social] Missing required ${field}`);
+  }
+  return value;
+}
+
+/**
  * POST /api/social-connections/google/test-post
  * 
  * Publishes a test post to the selected Google Business Profile location.
@@ -52,12 +63,30 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (!googleConnection || !googleConnection.accessToken) {
+    if (!googleConnection) {
       return NextResponse.json(
         { error: "Google Business Profile connection not found" },
         { status: 404 }
       );
     }
+
+    // Validate and narrow required fields (fail-fast with clear errors)
+    let locationId: string;
+    let accessToken: string;
+    try {
+      locationId = requireString(googleDestination.selectedAccountId, "googleDestination.selectedAccountId");
+      accessToken = requireString(googleConnection.accessToken, "googleConnection.accessToken");
+    } catch (validationError) {
+      const errorMessage = validationError instanceof Error ? validationError.message : "Missing required field";
+      return NextResponse.json(
+        { error: errorMessage },
+        { status: 400 }
+      );
+    }
+
+    // Optional fields (can be null)
+    const refreshToken = googleConnection.refreshToken || null;
+    const tokenExpiresAt = googleConnection.tokenExpiresAt || null;
 
     // Test post summary text
     const timestamp = new Date().toLocaleString("en-US", {
@@ -76,10 +105,10 @@ export async function POST(request: NextRequest) {
 
     // Publish to Google Business Profile
     const result = await publishToGoogleBusiness({
-      locationId: googleDestination.selectedAccountId,
-      accessToken: googleConnection.accessToken,
-      refreshToken: googleConnection.refreshToken,
-      tokenExpiresAt: googleConnection.tokenExpiresAt,
+      locationId,
+      accessToken,
+      refreshToken,
+      tokenExpiresAt,
       summaryText: testSummary,
       imageUrl,
     });
@@ -122,6 +151,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error in Google test post:", error);
+    
+    // Handle validation errors (400) vs publish failures (500)
+    if (error instanceof Error && error.message.startsWith("[social]")) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
+    
     return NextResponse.json(
       { error: "Failed to publish test post" },
       { status: 500 }

@@ -16,12 +16,33 @@ import SavedVersionsPanel from "@/components/bdw/SavedVersionsPanel";
 import ContentReuseSuggestions from "@/components/bdw/ContentReuseSuggestions";
 import DescriptionHealthCheck from "@/components/bdw/DescriptionHealthCheck";
 import FixPacks from "@/components/bdw/FixPacks";
+import BrandProfilePanel from "@/components/bdw/BrandProfilePanel";
+import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
 import { saveVersion, type SavedVersion } from "@/lib/utils/bdw-saved-versions";
 import { attemptPushToHelpDeskKnowledge } from "@/lib/utils/bdw-help-desk-integration";
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
 import { createDbVersion } from "@/lib/utils/bdw-saved-versions-db";
 import { buildCrmNotePack } from "@/lib/utils/bdw-crm-note-pack";
 import { isBdwV4Enabled } from "@/lib/utils/feature-rollout";
+import {
+  formatFullPackPlainText,
+  formatFullPackMarkdown,
+  formatWebsiteHtmlSnippet,
+  formatGBPPackPlainText,
+  formatWebsitePackPlainText,
+  formatGBPBlock,
+  formatWebsiteAboutBlock,
+  formatSocialBioBlock,
+  formatFAQBlock,
+  formatMetaBlock,
+} from "@/lib/utils/bdw-export-formatters";
+import {
+  runQualityAnalysis,
+  generateSoftenHypeWordsFix,
+  generateRemoveDuplicatesFix,
+  type BusinessDescriptionResponse as QualityResponse,
+} from "@/lib/utils/bdw-quality-controls";
+import { loadVersionMetadata } from "@/lib/utils/bdw-version-metadata";
 
 type PersonalityStyle = "Soft" | "Bold" | "High-Energy" | "Luxury";
 type WritingStyleTemplate =
@@ -287,139 +308,6 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
     }
   };
 
-  const formatGBPBundle = (): string => {
-    const sections: string[] = [];
-
-    if (result.googleBusinessDescription) {
-      sections.push("Google Business Profile Description:");
-      sections.push(result.googleBusinessDescription);
-    }
-
-    if (result.metaDescription) {
-      sections.push("");
-      sections.push("SEO Meta Description:");
-      sections.push(result.metaDescription);
-    }
-
-    if (result.taglineOptions && result.taglineOptions.length > 0) {
-      sections.push("");
-      sections.push("Taglines:");
-      const taglinesToInclude = result.taglineOptions.slice(0, 3);
-      taglinesToInclude.forEach((tagline) => {
-        sections.push(`- ${tagline}`);
-      });
-    }
-
-    if (result.elevatorPitch) {
-      sections.push("");
-      sections.push("Elevator Pitch:");
-      sections.push(result.elevatorPitch);
-    }
-
-    const content = sections.join("\n");
-    return content || "No content available for this bundle yet. Generate content first.";
-  };
-
-  const formatWebsiteBundle = (): string => {
-    const sections: string[] = [];
-
-    if (result.websiteAboutUs) {
-      sections.push("Website / About Page Description:");
-      sections.push(result.websiteAboutUs);
-    }
-
-    if (result.elevatorPitch) {
-      sections.push("");
-      sections.push("Elevator Pitch:");
-      sections.push(result.elevatorPitch);
-    }
-
-    if (result.faqSuggestions && result.faqSuggestions.length > 0) {
-      sections.push("");
-      sections.push("FAQ Suggestions:");
-      const faqsToInclude = result.faqSuggestions.slice(0, 5);
-      faqsToInclude.forEach((faq) => {
-        sections.push("");
-        sections.push(`Q: ${faq.question}`);
-        sections.push(`A: ${faq.answer}`);
-      });
-    }
-
-    const content = sections.join("\n");
-    return content || "No content available for this bundle yet. Generate content first.";
-  };
-
-  const formatFullMarketingPack = (): string => {
-    const sections: string[] = [];
-
-    if (result.obdListingDescription) {
-      sections.push("OBD Directory Listing Description:");
-      sections.push(result.obdListingDescription);
-    }
-
-    if (result.googleBusinessDescription) {
-      sections.push("");
-      sections.push("Google Business Profile Description:");
-      sections.push(result.googleBusinessDescription);
-    }
-
-    if (result.websiteAboutUs) {
-      sections.push("");
-      sections.push("Website / About Page Description:");
-      sections.push(result.websiteAboutUs);
-    }
-
-    if (result.elevatorPitch) {
-      sections.push("");
-      sections.push("Citations / Short Bio:");
-      sections.push(result.elevatorPitch);
-    }
-
-    if (result.socialBioPack) {
-      sections.push("");
-      sections.push("Social Bio Pack:");
-      if (result.socialBioPack.facebookBio) {
-        sections.push(`Facebook: ${result.socialBioPack.facebookBio}`);
-      }
-      if (result.socialBioPack.instagramBio) {
-        sections.push(`Instagram: ${result.socialBioPack.instagramBio}`);
-      }
-      if (result.socialBioPack.xBio) {
-        sections.push(`X (Twitter): ${result.socialBioPack.xBio}`);
-      }
-      if (result.socialBioPack.linkedinTagline) {
-        sections.push(`LinkedIn: ${result.socialBioPack.linkedinTagline}`);
-      }
-    }
-
-    if (result.taglineOptions && result.taglineOptions.length > 0) {
-      sections.push("");
-      sections.push("Taglines:");
-      result.taglineOptions.forEach((tagline) => {
-        sections.push(`- ${tagline}`);
-      });
-    }
-
-    if (result.faqSuggestions && result.faqSuggestions.length > 0) {
-      sections.push("");
-      sections.push("FAQ Suggestions:");
-      result.faqSuggestions.forEach((faq) => {
-        sections.push("");
-        sections.push(`Q: ${faq.question}`);
-        sections.push(`A: ${faq.answer}`);
-      });
-    }
-
-    if (result.metaDescription) {
-      sections.push("");
-      sections.push("SEO Meta Description:");
-      sections.push(result.metaDescription);
-    }
-
-    const content = sections.join("\n");
-    return content || "No content available for this bundle yet. Generate content first.";
-  };
-
   return (
     <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
       <div className="flex flex-wrap gap-3 items-center">
@@ -427,7 +315,7 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
           Copy Bundles:
         </span>
         <button
-          onClick={() => handleCopy("gbp", formatGBPBundle())}
+          onClick={() => handleCopy("gbp", formatGBPPackPlainText(result))}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             copiedBundle === "gbp"
               ? isDark
@@ -441,7 +329,7 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
           {copiedBundle === "gbp" ? "Copied!" : "Copy GBP Bundle"}
         </button>
         <button
-          onClick={() => handleCopy("website", formatWebsiteBundle())}
+          onClick={() => handleCopy("website", formatWebsitePackPlainText(result))}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             copiedBundle === "website"
               ? isDark
@@ -455,7 +343,7 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
           {copiedBundle === "website" ? "Copied!" : "Copy Website Bundle"}
         </button>
         <button
-          onClick={() => handleCopy("full", formatFullMarketingPack())}
+          onClick={() => handleCopy("full", formatFullPackPlainText(result))}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             copiedBundle === "full"
               ? isDark
@@ -473,15 +361,585 @@ function CopyBundles({ result, isDark }: CopyBundlesProps) {
   );
 }
 
+// Quality Preview Modal Component
+interface QualityPreviewModalProps {
+  previewState: {
+    isOpen: boolean;
+    fixId: string;
+    fixTitle: string;
+    targetKeys: string[];
+    proposed: Partial<BusinessDescriptionResponse>;
+  };
+  baseResult: BusinessDescriptionResponse;
+  onClose: () => void;
+  onApply: () => void;
+  isDark: boolean;
+}
+
+function QualityPreviewModal({
+  previewState,
+  baseResult,
+  onClose,
+  onApply,
+  isDark,
+}: QualityPreviewModalProps) {
+  // Close on Escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
+  // Prevent body scroll when modal is open
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, []);
+
+  const fieldNames: Record<string, string> = {
+    obdListingDescription: "OBD Listing",
+    googleBusinessDescription: "Google Business Profile",
+    websiteAboutUs: "Website/About",
+    elevatorPitch: "Citations",
+    metaDescription: "Meta Description",
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div
+        className={`relative z-10 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${
+          isDark
+            ? "bg-slate-800 border-slate-700"
+            : "bg-white border-slate-200"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`sticky top-0 flex items-center justify-between p-4 border-b ${
+          isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
+        }`}>
+          <div>
+            <h3 className={`text-lg font-semibold ${
+              isDark ? "text-white" : "text-slate-900"
+            }`}>
+              {previewState.fixTitle} Preview
+            </h3>
+            <p className={`text-xs mt-1 ${
+              isDark ? "text-slate-400" : "text-slate-500"
+            }`}>
+              Review changes before applying
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-lg transition-colors ${
+              isDark
+                ? "hover:bg-slate-700 text-slate-300"
+                : "hover:bg-slate-100 text-slate-600"
+            }`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-4 space-y-4">
+          {previewState.targetKeys.map((key) => {
+            const originalValue = (baseResult as any)[key] || "";
+            const proposedValue = (previewState.proposed as any)[key] || "";
+            const fieldName = fieldNames[key] || key;
+            
+            return (
+              <div key={key} className={`rounded-lg border ${
+                isDark
+                  ? "bg-slate-900/50 border-slate-600"
+                  : "bg-white border-slate-300"
+              }`}>
+                <div className={`px-4 py-3 border-b ${
+                  isDark ? "border-slate-700" : "border-slate-200"
+                }`}>
+                  <h4 className={`font-semibold text-sm ${
+                    isDark ? "text-white" : "text-slate-900"
+                  }`}>
+                    {fieldName}
+                  </h4>
+                </div>
+                <div className="grid grid-cols-2 gap-4 p-4">
+                  <div>
+                    <div className={`text-xs mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      Before ({originalValue.length} chars)
+                    </div>
+                    <div className={`rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto ${
+                      isDark
+                        ? "bg-slate-900 border-slate-600 text-slate-100"
+                        : "bg-white border-slate-300 text-slate-700"
+                    }`}>
+                      {originalValue || <span className={isDark ? "text-slate-500" : "text-slate-400"}>No content</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={`text-xs mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      After ({proposedValue.length} chars)
+                    </div>
+                    <div className={`rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto ${
+                      isDark
+                        ? "bg-slate-900 border-green-600/50 text-green-100"
+                        : "bg-green-50 border-green-200 text-green-800"
+                    }`}>
+                      {proposedValue || <span className={isDark ? "text-slate-500" : "text-slate-400"}>No content</span>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className={`sticky bottom-0 flex items-center justify-end gap-3 p-4 border-t ${
+          isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
+        }`}>
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              isDark
+                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onApply}
+            className="px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+          >
+            Apply Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Quality Controls Tab Component
+interface QualityControlsTabProps {
+  result: BusinessDescriptionResponse;
+  formValues: BusinessDescriptionFormValues;
+  isDark: boolean;
+  onApplyFix?: (partialUpdated: Partial<BusinessDescriptionResponse>) => void;
+}
+
+function QualityControlsTab({ result, formValues, isDark, onApplyFix }: QualityControlsTabProps) {
+  const [previewState, setPreviewState] = useState<{
+    isOpen: boolean;
+    fixId: string;
+    fixTitle: string;
+    targetKeys: string[];
+    proposed: Partial<BusinessDescriptionResponse>;
+  } | null>(null);
+
+  // Run quality analysis
+  const analysis = runQualityAnalysis(
+    result,
+    formValues.services,
+    formValues.keywords
+  );
+
+  const handlePreviewFix = (
+    fixId: string,
+    fixTitle: string,
+    proposed: Partial<BusinessDescriptionResponse>
+  ) => {
+    const targetKeys = Object.keys(proposed);
+    if (targetKeys.length === 0) {
+      alert("No changes to preview.");
+      return;
+    }
+    setPreviewState({
+      isOpen: true,
+      fixId,
+      fixTitle,
+      targetKeys,
+      proposed,
+    });
+  };
+
+  const handleApplyFix = () => {
+    if (previewState && onApplyFix) {
+      onApplyFix(previewState.proposed);
+      setPreviewState(null);
+    }
+  };
+
+  const handleClosePreview = () => {
+    setPreviewState(null);
+  };
+
+  // Check if result has content
+  const hasContent =
+    result.obdListingDescription ||
+    result.googleBusinessDescription ||
+    result.websiteAboutUs ||
+    result.elevatorPitch ||
+    result.metaDescription;
+
+  if (!hasContent) {
+    return (
+      <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className="text-sm">Generate content to run quality checks.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Section 1: Hype Words Detector */}
+      <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+        <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+          Hype Words Detector
+        </h4>
+        <div className="space-y-3">
+          {analysis.hypeWords.map((item) => (
+            <div key={item.section} className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                {item.section}:
+              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>
+                  {item.count} {item.count === 1 ? "match" : "matches"}
+                </span>
+                {item.words.length > 0 && (
+                  <span className={`text-xs px-2 py-1 rounded ${isDark ? "bg-slate-700 text-slate-300" : "bg-slate-200 text-slate-600"}`}>
+                    {item.words.join(", ")}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className={`text-xs mt-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+          This is a style check (estimate).
+        </p>
+      </div>
+
+      {/* Section 2: Repetition Warning */}
+      <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+        <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+          Repetition Warning
+        </h4>
+        {analysis.repetitions.length === 0 ? (
+          <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+            No repeated sentences detected.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {analysis.repetitions.map((item) => (
+              <div key={item.section}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-sm font-medium ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                    {item.section}:
+                  </span>
+                  <span className={`text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>
+                    {item.count} {item.count === 1 ? "duplicate" : "duplicates"}
+                  </span>
+                </div>
+                {item.sentences.length > 0 && (
+                  <div className={`text-xs mt-1 max-h-32 overflow-y-auto ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                    {item.sentences.slice(0, 5).map((sentence, idx) => (
+                      <div key={idx} className="mb-1">
+                        &quot;{sentence.length > 80 ? sentence.substring(0, 80) + "..." : sentence}&quot;
+                      </div>
+                    ))}
+                    {item.sentences.length > 5 && (
+                      <div className="mt-1 italic">
+                        ...and {item.sentences.length - 5} more
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Section 3: Keyword Repetition */}
+      {analysis.keywordRepetitions.length > 0 && (
+        <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+          <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+            Keyword Repetition
+          </h4>
+          <div className="space-y-3">
+            {analysis.keywordRepetitions.map((item) => (
+              <div key={item.keyword} className={`rounded border p-3 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                <div className="font-medium mb-2 text-sm">
+                  <span className={isDark ? "text-slate-200" : "text-slate-800"}>
+                    &quot;{item.keyword}&quot;
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className={isDark ? "text-slate-400" : "text-slate-600"}>
+                    OBD: {item.counts.obd}
+                  </div>
+                  <div className={isDark ? "text-slate-400" : "text-slate-600"}>
+                    GBP: {item.counts.gbp}
+                  </div>
+                  <div className={isDark ? "text-slate-400" : "text-slate-600"}>
+                    Website: {item.counts.website}
+                  </div>
+                  <div className={isDark ? "text-slate-400" : "text-slate-600"}>
+                    Citations: {item.counts.citations}
+                  </div>
+                  <div className={isDark ? "text-slate-400" : "text-slate-600"}>
+                    Meta: {item.counts.meta}
+                  </div>
+                </div>
+                {item.warnings.length > 0 && (
+                  <div className={`mt-2 text-xs ${isDark ? "text-yellow-400" : "text-yellow-600"}`}>
+                    ⚠️ {item.warnings.join(", ")}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Section 4: Readability Estimate */}
+      <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+        <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+          Readability Estimate
+        </h4>
+        <div className="space-y-3">
+          {analysis.readability.map((item) => (
+            <div key={item.section} className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                {item.section}:
+              </span>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  {item.avgWordsPerSentence.toFixed(1)} words/sentence, {item.avgCharsPerWord.toFixed(1)} chars/word
+                </span>
+                <span className={`text-xs font-medium px-2 py-1 rounded ${
+                  item.band === "Easy"
+                    ? isDark ? "bg-green-900/30 text-green-300" : "bg-green-100 text-green-700"
+                    : item.band === "Complex"
+                    ? isDark ? "bg-orange-900/30 text-orange-300" : "bg-orange-100 text-orange-700"
+                    : isDark ? "bg-blue-900/30 text-blue-300" : "bg-blue-100 text-blue-700"
+                }`}>
+                  {item.band}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className={`text-xs mt-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+          Estimate (not exact).
+        </p>
+      </div>
+
+      {/* Optional Safe Fix Actions */}
+      {onApplyFix && (
+        <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+          <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+            Safe Fix Actions
+          </h4>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => {
+                const proposed = generateSoftenHypeWordsFix(result);
+                const hasChanges = Object.keys(proposed).length > 0;
+                if (hasChanges) {
+                  handlePreviewFix("soften-hype-words", "Soften Hype Words", proposed);
+                } else {
+                  alert("No hype words found to soften.");
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isDark
+                  ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                  : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+              }`}
+            >
+              Soften Hype Words
+            </button>
+            <button
+              onClick={() => {
+                const proposed = generateRemoveDuplicatesFix(result);
+                const hasChanges = Object.keys(proposed).length > 0;
+                if (hasChanges) {
+                  handlePreviewFix("remove-duplicates", "Remove Duplicate Sentences", proposed);
+                } else {
+                  alert("No duplicate sentences found.");
+                }
+              }}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isDark
+                  ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                  : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+              }`}
+            >
+              Remove Duplicate Sentences
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {previewState && previewState.isOpen && (
+        <QualityPreviewModal
+          previewState={previewState}
+          baseResult={result}
+          onClose={handleClosePreview}
+          onApply={handleApplyFix}
+          isDark={isDark}
+        />
+      )}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={handleClosePreview}
+          />
+          <div
+            className={`relative z-10 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${
+              isDark
+                ? "bg-slate-800 border-slate-700"
+                : "bg-white border-slate-200"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`sticky top-0 flex items-center justify-between p-4 border-b ${
+              isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
+            }`}>
+              <div>
+                <h3 className={`text-lg font-semibold ${
+                  isDark ? "text-white" : "text-slate-900"
+                }`}>
+                  {previewState.fixTitle} Preview
+                </h3>
+                <p className={`text-xs mt-1 ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  Review changes before applying
+                </p>
+              </div>
+              <button
+                onClick={handleClosePreview}
+                className={`p-2 rounded-lg transition-colors ${
+                  isDark
+                    ? "hover:bg-slate-700 text-slate-300"
+                    : "hover:bg-slate-100 text-slate-600"
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {previewState.targetKeys.map((key) => {
+                const originalValue = (result as any)[key] || "";
+                const proposedValue = (previewState.proposed as any)[key] || "";
+                const fieldNames: Record<string, string> = {
+                  obdListingDescription: "OBD Listing",
+                  googleBusinessDescription: "Google Business Profile",
+                  websiteAboutUs: "Website/About",
+                  elevatorPitch: "Citations",
+                  metaDescription: "Meta Description",
+                };
+                const fieldName = fieldNames[key] || key;
+                
+                return (
+                  <div key={key} className={`rounded-lg border ${
+                    isDark
+                      ? "bg-slate-900/50 border-slate-600"
+                      : "bg-white border-slate-300"
+                  }`}>
+                    <div className={`px-4 py-3 border-b ${
+                      isDark ? "border-slate-700" : "border-slate-200"
+                    }`}>
+                      <h4 className={`font-semibold text-sm ${
+                        isDark ? "text-white" : "text-slate-900"
+                      }`}>
+                        {fieldName}
+                      </h4>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 p-4">
+                      <div>
+                        <div className={`text-xs mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          Before ({originalValue.length} chars)
+                        </div>
+                        <div className={`rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto ${
+                          isDark
+                            ? "bg-slate-900 border-slate-600 text-slate-100"
+                            : "bg-white border-slate-300 text-slate-700"
+                        }`}>
+                          {originalValue || <span className={isDark ? "text-slate-500" : "text-slate-400"}>No content</span>}
+                        </div>
+                      </div>
+                      <div>
+                        <div className={`text-xs mb-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                          After ({proposedValue.length} chars)
+                        </div>
+                        <div className={`rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto ${
+                          isDark
+                            ? "bg-slate-900 border-green-600/50 text-green-100"
+                            : "bg-green-50 border-green-200 text-green-800"
+                        }`}>
+                          {proposedValue || <span className={isDark ? "text-slate-500" : "text-slate-400"}>No content</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className={`sticky bottom-0 flex items-center justify-end gap-3 p-4 border-t ${
+              isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
+            }`}>
+              <button
+                onClick={handleClosePreview}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                    : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleApplyFix}
+                className="px-4 py-2 text-sm font-medium rounded-lg transition-colors bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+              >
+                Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Content Packs Tabs Component (Level 2)
 interface ContentPacksTabsProps {
   result: BusinessDescriptionResponse;
   isDark: boolean;
   isV4Enabled: boolean;
   formValues: BusinessDescriptionFormValues;
+  onApplyFix?: (partialUpdated: Partial<BusinessDescriptionResponse>) => void;
 }
 
-function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPacksTabsProps) {
+function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix }: ContentPacksTabsProps) {
   const [activePackTab, setActivePackTab] = useState<string>("social-bio");
   const [copiedItems, setCopiedItems] = useState<Record<string, string>>({});
   
@@ -523,6 +981,8 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPa
     { id: "elevator-pitch", label: "Elevator Pitch" },
     { id: "faqs", label: "FAQ Suggestions" },
     { id: "meta", label: "SEO Meta Description" },
+    { id: "export-center", label: "Export Center" },
+    { id: "quality-controls", label: "Quality Controls" },
   ];
 
   const isCollapsed = collapsedPacks[activePackTab] ?? false;
@@ -769,6 +1229,228 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPa
           </div>
         );
 
+      case "quality-controls":
+        // Quality Controls tab - no collapse functionality
+        return (
+          <QualityControlsTab
+            result={result}
+            formValues={formValues}
+            isDark={isDark}
+            onApplyFix={onApplyFix}
+          />
+        );
+
+      case "export-center":
+        // Export Center tab - no collapse functionality
+        return (
+          <div className="space-y-6">
+            {/* Check if content exists */}
+            {!result.obdListingDescription && !result.websiteAboutUs && !result.googleBusinessDescription && 
+             !result.socialBioPack?.facebookBio && !result.taglineOptions?.length && 
+             !result.elevatorPitch && !result.faqSuggestions?.length && !result.metaDescription ? (
+              <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                <p className="text-sm">Generate content to enable exports.</p>
+              </div>
+            ) : (
+              <>
+                {/* Section 1: Quick Exports */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Quick Exports
+                  </h4>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => handleCopy("export-plain-text", formatFullPackPlainText(result))}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItems["export-plain-text"]
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItems["export-plain-text"] ? "Copied!" : "Copy as Plain Text (Full Marketing Pack)"}
+                    </button>
+                    <button
+                      onClick={() => handleCopy("export-markdown", formatFullPackMarkdown(result))}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItems["export-markdown"]
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItems["export-markdown"] ? "Copied!" : "Copy as Markdown (Full Marketing Pack)"}
+                    </button>
+                    <button
+                      onClick={() => handleCopy("export-html", formatWebsiteHtmlSnippet(result))}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItems["export-html"]
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItems["export-html"] ? "Copied!" : "Copy as HTML Snippet (Website/About)"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Section 2: Downloads */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Downloads
+                  </h4>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => {
+                        const content = formatFullPackPlainText(result);
+                        const blob = new Blob([content], { type: "text/plain" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "marketing-pack.txt";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      Download .txt (Full Marketing Pack)
+                    </button>
+                    <button
+                      onClick={() => {
+                        const content = formatFullPackMarkdown(result);
+                        const blob = new Blob([content], { type: "text/markdown" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "marketing-pack.md";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                      }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      Download .md (Full Marketing Pack)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Section 3: Paste-ready Blocks */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Paste-ready Blocks
+                  </h4>
+                  <div className="space-y-4">
+                    {/* GBP Block */}
+                    <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <p className={`font-medium text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>GBP Block</p>
+                        <button
+                          onClick={() => handleCopy("block-gbp", formatGBPBlock(result))}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {copiedItems["block-gbp"] ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                      <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                        {formatGBPBlock(result)}
+                      </p>
+                    </div>
+
+                    {/* Website/About Block */}
+                    <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <p className={`font-medium text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>Website/About Block</p>
+                        <button
+                          onClick={() => handleCopy("block-website", formatWebsiteAboutBlock(result))}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {copiedItems["block-website"] ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                      <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                        {formatWebsiteAboutBlock(result)}
+                      </p>
+                    </div>
+
+                    {/* Social Bio Block */}
+                    <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <p className={`font-medium text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>Social Bio Block</p>
+                        <button
+                          onClick={() => handleCopy("block-social-bio", formatSocialBioBlock(result))}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {copiedItems["block-social-bio"] ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                      <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                        {formatSocialBioBlock(result)}
+                      </p>
+                    </div>
+
+                    {/* FAQ Block */}
+                    <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <p className={`font-medium text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>FAQ Block</p>
+                        <button
+                          onClick={() => handleCopy("block-faq", formatFAQBlock(result))}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {copiedItems["block-faq"] ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                      <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                        {formatFAQBlock(result)}
+                      </p>
+                    </div>
+
+                    {/* Meta Block */}
+                    <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+                      <div className="flex items-start justify-between mb-2">
+                        <p className={`font-medium text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>Meta Block</p>
+                        <button
+                          onClick={() => handleCopy("block-meta", formatMetaBlock(result))}
+                          className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                            isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          }`}
+                        >
+                          {copiedItems["block-meta"] ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                      <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-100" : "text-slate-700"}`}>
+                        {formatMetaBlock(result)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+
       default:
         return null;
     }
@@ -793,24 +1475,92 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues }: ContentPa
 
       {/* Tab Content */}
       <div className="p-4">
-        {/* Pack Header with Toggle */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
-            {packTabs.find((tab) => tab.id === activePackTab)?.label}
-          </h3>
+        {/* Pack Header with Toggle (hidden for Export Center and Quality Controls) */}
+        {activePackTab !== "export-center" && activePackTab !== "quality-controls" && (
+          <div className="flex items-center justify-between mb-4">
+            <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+              {packTabs.find((tab) => tab.id === activePackTab)?.label}
+            </h3>
+            <button
+              onClick={() => toggleCollapse(activePackTab)}
+              aria-expanded={!isCollapsed}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                isDark
+                  ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+              }`}
+            >
+              {isCollapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
+        )}
+        {renderPackContent()}
+      </div>
+    </div>
+  );
+}
+
+// Loaded Version Banner Component
+interface LoadedVersionBannerProps {
+  versionInfo: { id: string; label: string };
+  isDark: boolean;
+  onClear: () => void;
+  onReset?: () => void;
+}
+
+function LoadedVersionBanner({ versionInfo, isDark, onClear, onReset }: LoadedVersionBannerProps) {
+  const metadata = loadVersionMetadata(versionInfo.id);
+  const tags = metadata?.tags?.trim() || null;
+
+  return (
+    <div className={`rounded-lg border p-3 mb-4 ${
+      isDark
+        ? "bg-blue-900/20 border-blue-700"
+        : "bg-blue-50 border-blue-200"
+    }`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-medium ${
+              isDark ? "text-blue-200" : "text-blue-800"
+            }`}>
+              Loaded Saved Version: {versionInfo.label}
+            </span>
+            {tags && (
+              <span className={`text-xs px-2 py-0.5 rounded ${
+                isDark
+                  ? "bg-blue-900/30 text-blue-300"
+                  : "bg-blue-100 text-blue-700"
+              }`}>
+                {tags}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {onReset && (
+            <button
+              onClick={onReset}
+              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                isDark
+                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                  : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+              }`}
+            >
+              Reset to loaded
+            </button>
+          )}
           <button
-            onClick={() => toggleCollapse(activePackTab)}
-            aria-expanded={!isCollapsed}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+            onClick={onClear}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
               isDark
-                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
-                : "bg-slate-100 text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
             }`}
           >
-            {isCollapsed ? "Expand" : "Collapse"}
+            Clear
           </button>
         </div>
-        {renderPackContent()}
       </div>
     </div>
   );
@@ -942,6 +1692,10 @@ function BusinessDescriptionWriterPage() {
   const [result, setResult] = useState<BusinessDescriptionResponse | null>(null);
   const [lastPayload, setLastPayload] = useState<BusinessDescriptionFormValues | null>(null);
   const [savedVersionsOpen, setSavedVersionsOpen] = useState(false);
+  
+  // Loaded saved version tracking
+  const [loadedSavedVersion, setLoadedSavedVersion] = useState<{ id: string; label: string } | null>(null);
+  const [loadedFormSnapshot, setLoadedFormSnapshot] = useState<BusinessDescriptionFormValues | null>(null);
   
   // V5-2: Edited result state (for fix packs)
   const [editedResult, setEditedResult] = useState<BusinessDescriptionResponse | null>(null);
@@ -1136,8 +1890,11 @@ function BusinessDescriptionWriterPage() {
   };
 
   // V4: Load inputs from saved version
-  const handleLoadInputs = (inputs: SavedVersion["inputs"]) => {
-    setFormValues({
+  const handleLoadInputs = (
+    inputs: SavedVersion["inputs"],
+    versionInfo?: { id: string; label: string }
+  ) => {
+    const newFormValues: BusinessDescriptionFormValues = {
       businessName: inputs.businessName || "",
       businessType: inputs.businessType || "",
       services: inputs.services || "",
@@ -1153,6 +1910,72 @@ function BusinessDescriptionWriterPage() {
       includeMetaDescription: inputs.includeMetaDescription ?? true,
       descriptionLength: (inputs.descriptionLength as DescriptionLength) || "Medium",
       language: inputs.language || "English",
+    };
+    
+    setFormValues(newFormValues);
+    
+    // Track loaded version and snapshot
+    if (versionInfo) {
+      setLoadedSavedVersion(versionInfo);
+      setLoadedFormSnapshot(newFormValues);
+    }
+  };
+  
+  // Clear loaded version state
+  const handleClearLoadedVersion = () => {
+    setLoadedSavedVersion(null);
+    setLoadedFormSnapshot(null);
+  };
+  
+  // Reset form to loaded snapshot
+  const handleResetToLoaded = () => {
+    if (loadedFormSnapshot) {
+      setFormValues(loadedFormSnapshot);
+    }
+  };
+
+  // Brand Profile: Apply profile to form
+  const handleApplyBrandProfile = (profile: BrandProfile, fillEmptyOnly: boolean) => {
+    setFormValues((prev) => {
+      const updates: Partial<BusinessDescriptionFormValues> = {};
+
+      if (profile.brandVoice) {
+        if (!fillEmptyOnly || !prev.brandVoice.trim()) {
+          updates.brandVoice = profile.brandVoice;
+        }
+      }
+
+      if (profile.targetAudience) {
+        if (!fillEmptyOnly || !prev.targetAudience.trim()) {
+          updates.targetAudience = profile.targetAudience;
+        }
+      }
+
+      if (profile.uniqueSellingPoints) {
+        if (!fillEmptyOnly || !prev.uniqueSellingPoints.trim()) {
+          updates.uniqueSellingPoints = profile.uniqueSellingPoints;
+        }
+      }
+
+      if (profile.services) {
+        if (!fillEmptyOnly || !prev.services.trim()) {
+          updates.services = profile.services;
+        }
+      }
+
+      if (profile.city) {
+        if (!fillEmptyOnly || !prev.city.trim()) {
+          updates.city = profile.city;
+        }
+      }
+
+      if (profile.state) {
+        if (!fillEmptyOnly || !prev.state.trim()) {
+          updates.state = profile.state;
+        }
+      }
+
+      return { ...prev, ...updates };
     });
   };
 
@@ -1351,6 +2174,23 @@ function BusinessDescriptionWriterPage() {
       title="AI Business Description Writer"
       tagline="Create compelling business descriptions tailored to your Ocala business that capture your unique value proposition."
     >
+      {/* Brand Profile Panel */}
+      <BrandProfilePanel
+        isDark={isDark}
+        businessName={formValues.businessName}
+        onApplyToForm={handleApplyBrandProfile}
+      />
+
+      {/* Loaded Version Banner */}
+      {loadedSavedVersion && (
+        <LoadedVersionBanner
+          versionInfo={loadedSavedVersion}
+          isDark={isDark}
+          onClear={handleClearLoadedVersion}
+          onReset={loadedFormSnapshot ? handleResetToLoaded : undefined}
+        />
+      )}
+
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         {/* V4 INSERTION POINT: Add V4 form enhancements here when flags.bdwV4 is true */}
@@ -1716,6 +2556,7 @@ function BusinessDescriptionWriterPage() {
                     isDark={isDark}
                     isV4Enabled={isV4Enabled}
                     formValues={formValues}
+                    onApplyFix={handleApplyFix}
                   />
 
                   {/* V4: Description Health Check - Only shown when flags.bdwV4 is true */}

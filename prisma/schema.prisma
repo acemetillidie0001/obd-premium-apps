@@ -821,3 +821,54 @@ model SchedulerBusyBlock {
   @@index([businessId, start])
   @@index([businessId, end])
 }
+
+model SocialAccountConnection {
+  id                String   @id @default(cuid())
+  userId            String
+  platform          String
+  providerAccountId String
+  displayName       String?
+  accessToken       String
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+  metaJson          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, platform, providerAccountId], name: "userId_platform_providerAccountId")
+  @@index([userId])
+  @@index([userId, platform])
+}
+
+model SocialPostingDestination {
+  id                  String   @id @default(cuid())
+  userId              String
+  platform            String
+  selectedAccountId   String?
+  selectedDisplayName String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([userId, platform], name: "userId_platform")
+  @@index([userId])
+  @@index([userId, platform])
+}
+
+model SocialPublishAttempt {
+  id                String   @id @default(cuid())
+  userId            String
+  platform          String
+  kind              String   @default("test") // "test" | "scheduled" | "manual"
+  status            String   @default("pending") // "pending" | "success" | "failed"
+  providerPostId    String?
+  providerPermalink String?
+  errorMessage      String?  @db.Text
+  responseData      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, platform])
+  @@index([userId, createdAt])
+  @@index([status])
+}

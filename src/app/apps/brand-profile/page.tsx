@@ -147,6 +147,44 @@ export default function BrandProfilePage() {
     setProfile((prev) => (prev ? { ...prev, [key]: value } : null));
   };
 
+  const saveSection = async (sectionKey: string, sectionValue: unknown): Promise<void> => {
+    const payload = { sectionKey, sectionValue };
+    const payloadSize = new Blob([JSON.stringify(payload)]).size;
+
+    const res = await fetch("/api/brand-profile", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseBodyText = await res.text();
+    let errorData: { requestId?: string; message?: string; details?: unknown } = {};
+    
+    try {
+      errorData = JSON.parse(responseBodyText);
+    } catch {
+      // Response is not JSON, keep errorData as empty object
+    }
+
+    if (!res.ok) {
+      console.error({
+        section: sectionKey,
+        requestId: errorData.requestId || null,
+        status: res.status,
+        responseBody: responseBodyText,
+        payloadSizeBytes: payloadSize,
+      });
+      
+      let errorMessage = `Failed to save ${sectionKey}. Please try again.`;
+      if (errorData.requestId) {
+        errorMessage += ` (Request ID: ${errorData.requestId})`;
+      }
+      throw new Error(errorMessage);
+    }
+  };
+
   const handleSave = async () => {
     if (!profile) return;
 
@@ -155,59 +193,68 @@ export default function BrandProfilePage() {
     setError(null);
 
     try {
-      // Prepare save data - only include fields that have values
-      const saveData: Record<string, unknown> = {};
+      // Build sections array - only include fields that have values
+      const sections: Array<{ key: string; value: unknown }> = [];
 
-      if (profile.businessName?.trim()) saveData.businessName = profile.businessName.trim();
-      if (profile.businessType?.trim()) saveData.businessType = profile.businessType.trim();
-      if (profile.city?.trim()) saveData.city = profile.city.trim();
-      if (profile.state?.trim()) saveData.state = profile.state.trim();
-      if (profile.brandPersonality) saveData.brandPersonality = profile.brandPersonality;
-      if (profile.targetAudience?.trim()) saveData.targetAudience = profile.targetAudience.trim();
-      if (profile.differentiators?.trim()) saveData.differentiators = profile.differentiators.trim();
-      if (profile.inspirationBrands?.trim()) saveData.inspirationBrands = profile.inspirationBrands.trim();
-      if (profile.avoidStyles?.trim()) saveData.avoidStyles = profile.avoidStyles.trim();
-      if (profile.brandVoice?.trim()) saveData.brandVoice = profile.brandVoice.trim();
-      if (profile.toneNotes?.trim()) saveData.toneNotes = profile.toneNotes.trim();
-      if (profile.language) saveData.language = profile.language;
-      if (profile.industryKeywords?.trim()) saveData.industryKeywords = profile.industryKeywords.trim();
-      if (profile.vibeKeywords?.trim()) saveData.vibeKeywords = profile.vibeKeywords.trim();
-      if (profile.variationMode) saveData.variationMode = profile.variationMode;
-      if (profile.hashtagStyle) saveData.hashtagStyle = profile.hashtagStyle;
-      
-      saveData.includeHashtags = Boolean(profile.includeHashtags);
-      saveData.includeSocialPostTemplates = Boolean(profile.includeSocialPostTemplates);
-      saveData.includeFAQStarter = Boolean(profile.includeFAQStarter);
-      saveData.includeGBPDescription = Boolean(profile.includeGBPDescription);
-      saveData.includeMetaDescription = Boolean(profile.includeMetaDescription);
+      // Business Basics
+      if (profile.businessName?.trim()) sections.push({ key: "businessName", value: profile.businessName.trim() });
+      if (profile.businessType?.trim()) sections.push({ key: "businessType", value: profile.businessType.trim() });
+      if (profile.city?.trim()) sections.push({ key: "city", value: profile.city.trim() });
+      if (profile.state?.trim()) sections.push({ key: "state", value: profile.state.trim() });
 
-      if (profile.colorsJson) saveData.colorsJson = profile.colorsJson;
-      if (profile.typographyJson) saveData.typographyJson = profile.typographyJson;
-      if (profile.messagingJson) saveData.messagingJson = profile.messagingJson;
-      if (profile.kitJson) saveData.kitJson = profile.kitJson;
+      // Brand Direction
+      if (profile.brandPersonality) sections.push({ key: "brandPersonality", value: profile.brandPersonality });
+      if (profile.targetAudience?.trim()) sections.push({ key: "targetAudience", value: profile.targetAudience.trim() });
+      if (profile.differentiators?.trim()) sections.push({ key: "differentiators", value: profile.differentiators.trim() });
+      if (profile.inspirationBrands?.trim()) sections.push({ key: "inspirationBrands", value: profile.inspirationBrands.trim() });
+      if (profile.avoidStyles?.trim()) sections.push({ key: "avoidStyles", value: profile.avoidStyles.trim() });
 
-      const res = await fetch("/api/brand-profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(saveData),
-      });
+      // Voice & Language
+      if (profile.brandVoice?.trim()) sections.push({ key: "brandVoice", value: profile.brandVoice.trim() });
+      if (profile.toneNotes?.trim()) sections.push({ key: "toneNotes", value: profile.toneNotes.trim() });
+      if (profile.language) sections.push({ key: "language", value: profile.language });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to save brand profile");
+      // Output Controls
+      if (profile.industryKeywords?.trim()) sections.push({ key: "industryKeywords", value: profile.industryKeywords.trim() });
+      if (profile.vibeKeywords?.trim()) sections.push({ key: "vibeKeywords", value: profile.vibeKeywords.trim() });
+      if (profile.variationMode) sections.push({ key: "variationMode", value: profile.variationMode });
+      sections.push({ key: "includeHashtags", value: Boolean(profile.includeHashtags) });
+      if (profile.hashtagStyle) sections.push({ key: "hashtagStyle", value: profile.hashtagStyle });
+
+      // Extras toggles
+      sections.push({ key: "includeSocialPostTemplates", value: Boolean(profile.includeSocialPostTemplates) });
+      sections.push({ key: "includeFAQStarter", value: Boolean(profile.includeFAQStarter) });
+      sections.push({ key: "includeGBPDescription", value: Boolean(profile.includeGBPDescription) });
+      sections.push({ key: "includeMetaDescription", value: Boolean(profile.includeMetaDescription) });
+
+      // JSON fields
+      if (profile.colorsJson) sections.push({ key: "colorsJson", value: profile.colorsJson });
+      if (profile.typographyJson) sections.push({ key: "typographyJson", value: profile.typographyJson });
+      if (profile.messagingJson) sections.push({ key: "messagingJson", value: profile.messagingJson });
+      if (profile.kitJson) sections.push({ key: "kitJson", value: profile.kitJson });
+
+      // Save each section sequentially, stop on first error
+      for (const section of sections) {
+        await saveSection(section.key, section.value);
       }
 
-      const response = await res.json();
-      if (response.profile) {
-        setProfile(response.profile);
-        // Extract businessId from API response if available
-        const businessId = (response.profile as { businessId?: string }).businessId;
-        // Cache the saved profile using scoped key if businessId is available
-        saveBrandProfileToStorage(response.profile, businessId);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+      // Fetch updated profile after all sections are saved
+      const profileRes = await fetch("/api/brand-profile");
+      if (profileRes.ok) {
+        const updatedProfile = await profileRes.json();
+        if (updatedProfile) {
+          setProfile(updatedProfile);
+          // Extract businessId from API response if available
+          const businessId = (updatedProfile as { businessId?: string }).businessId;
+          // Cache the saved profile using scoped key if businessId is available
+          saveBrandProfileToStorage(updatedProfile, businessId);
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        }
+      } else {
+        const errorData = await profileRes.json().catch(() => ({}));
+        const errorMessage = errorData.message || "Failed to fetch updated profile after save.";
+        setError(errorMessage + (errorData.requestId ? ` (Request ID: ${errorData.requestId})` : ""));
       }
     } catch (err) {
       console.error("Failed to save brand profile:", err);

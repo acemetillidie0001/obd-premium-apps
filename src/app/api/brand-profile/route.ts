@@ -103,17 +103,17 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   const requestId = randomUUID();
-  const raw = await request.text();
-  console.log("[brand-kit-save]", { requestId, bytes: raw.length });
-
-  let body: any;
+  
   try {
-    body = JSON.parse(raw);
-  } catch {
-    return NextResponse.json({ ok: false, requestId, message: "Invalid JSON" }, { status: 400 });
-  }
+    const raw = await request.text();
+    console.log("[brand-kit-save]", { requestId, bytes: raw.length });
 
-  try {
+    let body: any;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return NextResponse.json({ ok: false, requestId, message: "Invalid JSON" }, { status: 400 });
+    }
     // Authentication check
     const session = await auth();
     if (!session?.user?.id) {

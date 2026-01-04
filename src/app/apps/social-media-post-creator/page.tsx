@@ -326,7 +326,7 @@ export default function SocialMediaPostCreatorPage() {
     storageKey: "social-post-brand-hydrate-v1",
     once: "per-page-load",
     fillEmptyOnly: true,
-    map: (formKey: keyof FormData, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
       if (formKey === "businessName") return "businessName";
       if (formKey === "businessType") return "businessType";
       if (formKey === "brandVoice") return "brandVoice";

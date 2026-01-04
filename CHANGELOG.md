@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
+## 2026-01-04
+
+### Integration #3 — ACW → Website/Blog Draft Export
+- AI Content Writer: added Export Center action **Send Website / Blog Draft** (web-draft handoff)
+- Added receiver app: `/apps/website-draft-import` with Import Ready banner + review modal + explicit accept
+- Added Markdown + HTML export (copy + download) via shared serializers
+- Hardened handoff import:
+  - Enforces 150KB max payload size before JSON parsing (base64url decode + localStorage string checks)
+  - Replay protection (refuses re-import if already marked imported)
+  - URL cleanup removes only `handoff`, `handoffId`, `mode`, `source` while preserving other query params
+  - Cleanup guaranteed via `try/finally`
+  - Dev-only log outputs metadata only (`handoffId`, `source`, `version`)
+
 ## AI FAQ Generator — Tier 4 + Tier 5A + Tier 5C (2026-01-03)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

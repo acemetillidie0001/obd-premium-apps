@@ -199,8 +199,20 @@ src/lib/apps/content-writer/
   - Destination Exports: GBP, Divi, Directory
   - Download Options: .txt, .md
   - Individual Section Copy
+  - **Send Website / Blog Draft** (Integration #3): See below
 - Secondary: Download MD button in sticky bar
 - Per-section copy buttons throughout output sections
+
+### Send Website / Blog Draft (Integration #3)
+
+The Export Center includes **Send Website / Blog Draft**, which builds a `web-draft` handoff payload from the canonical active content and sends it to:
+
+- `/apps/website-draft-import`
+
+Safety:
+- Payload validated via Zod (`web-draft` schema)
+- 150KB size limit enforced
+- No network calls; uses the shared handoff transport (URL + localStorage fallback)
 
 ## Technical Notes
 

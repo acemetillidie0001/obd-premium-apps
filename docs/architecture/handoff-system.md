@@ -416,6 +416,25 @@ const newSchema = mergeSchemas(existingSchema, handoffPayload.jsonLd);
 4. Apply FAQs to content (canonical state)
 5. Clean URL and show success
 
+### Mode: `web-draft` (AI Content Writer → Website Draft Import)
+
+**Source:** `ai-content-writer`  
+**Version:** `1.0`  
+**Purpose:** Transfer long-form website/blog drafts for preview + export (no publishing).
+
+**Payload (high level):**
+- `content.title`
+- `content.excerpt?`
+- `content.sections[]` (heading/paragraph/list)
+- `content.callToAction?`
+- `meta?` (seoTitle/seoDescription/canonicalUrl)
+
+**Limits & safety:**
+- **Max size:** 150KB enforced **before JSON parsing** (decoded base64url or localStorage raw string).
+- **Replay protection:** imports are blocked if the `handoffId` is already marked imported.
+- **Cleanup:** on Accept, receiver clears handoff URL params and related localStorage keys, and marks the handoff imported.
+- **URL cleanup:** removes only `handoff`, `handoffId`, `mode`, `source` and preserves other query parameters.
+
 ## Error Handling
 
 ### Parse Errors

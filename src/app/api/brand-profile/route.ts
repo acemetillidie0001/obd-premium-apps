@@ -3,13 +3,15 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 
-// Generate request ID for error tracking
-function generateRequestId(): string {
-  return `bp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-}
+// Validation schema for section-based PUT request
+const SectionSaveSchema = z.object({
+  sectionKey: z.string(),
+  sectionValue: z.unknown(),
+});
 
-// Validation schema for PUT request
+// Validation schema for full PUT request (legacy support)
 const BrandProfileUpdateSchema = z.object({
   // Business Basics
   businessName: z.string().optional(),
@@ -60,7 +62,7 @@ const BrandProfileUpdateSchema = z.object({
 });
 
 export async function GET() {
-  const requestId = generateRequestId();
+  const requestId = randomUUID();
 
   try {
     // Authentication check
@@ -69,8 +71,9 @@ export async function GET() {
       return NextResponse.json(
         {
           ok: false,
-          error: "Authentication required",
           requestId,
+          message: "Authentication required",
+          code: "AUTH_REQUIRED",
         },
         { status: 401 }
       );
@@ -86,12 +89,12 @@ export async function GET() {
     // Return null if no profile exists (not an error)
     return NextResponse.json(profile);
   } catch (error) {
-    console.error("[Brand Profile API] GET error:", error);
+    console.error(`[Brand Profile API] GET error [${requestId}]:`, error);
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to fetch brand profile",
         requestId,
+        message: "Failed to fetch brand profile",
       },
       { status: 500 }
     );
@@ -99,7 +102,16 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
-  const requestId = generateRequestId();
+  const requestId = randomUUID();
+  const raw = await request.text();
+  console.log("[brand-kit-save]", { requestId, bytes: raw.length });
+
+  let body: any;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return NextResponse.json({ ok: false, requestId, message: "Invalid JSON" }, { status: 400 });
+  }
 
   try {
     // Authentication check
@@ -108,19 +120,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Authentication required",
           requestId,
+          message: "Authentication required",
+          code: "AUTH_REQUIRED",
         },
         { status: 401 }
       );
     }
 
     const userId = session.user.id;
-
-    // Parse and validate request body
-    const body = await request.json();
-    const validated = BrandProfileUpdateSchema.parse(body);
-
+    
     // Prepare data for upsert
     const updateData: {
       businessName?: string | null;
@@ -150,65 +159,61 @@ export async function PUT(request: NextRequest) {
       kitJson?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
     } = {};
 
-    // Map validated fields to update data
-    if (validated.businessName !== undefined)
-      updateData.businessName = validated.businessName || null;
-    if (validated.businessType !== undefined)
-      updateData.businessType = validated.businessType || null;
-    if (validated.city !== undefined) updateData.city = validated.city || null;
-    if (validated.state !== undefined)
-      updateData.state = validated.state || null;
-    if (validated.brandPersonality !== undefined)
-      updateData.brandPersonality = validated.brandPersonality || null;
-    if (validated.targetAudience !== undefined)
-      updateData.targetAudience = validated.targetAudience || null;
-    if (validated.differentiators !== undefined)
-      updateData.differentiators = validated.differentiators || null;
-    if (validated.inspirationBrands !== undefined)
-      updateData.inspirationBrands = validated.inspirationBrands || null;
-    if (validated.avoidStyles !== undefined)
-      updateData.avoidStyles = validated.avoidStyles || null;
-    if (validated.brandVoice !== undefined)
-      updateData.brandVoice = validated.brandVoice || null;
-    if (validated.toneNotes !== undefined)
-      updateData.toneNotes = validated.toneNotes || null;
-    if (validated.language !== undefined)
-      updateData.language = validated.language || null;
-    if (validated.industryKeywords !== undefined)
-      updateData.industryKeywords = validated.industryKeywords || null;
-    if (validated.vibeKeywords !== undefined)
-      updateData.vibeKeywords = validated.vibeKeywords || null;
-    if (validated.variationMode !== undefined)
-      updateData.variationMode = validated.variationMode || null;
-    if (validated.includeHashtags !== undefined)
-      updateData.includeHashtags = validated.includeHashtags;
-    if (validated.hashtagStyle !== undefined)
-      updateData.hashtagStyle = validated.hashtagStyle || null;
-    if (validated.includeSocialPostTemplates !== undefined)
-      updateData.includeSocialPostTemplates =
-        validated.includeSocialPostTemplates;
-    if (validated.includeFAQStarter !== undefined)
-      updateData.includeFAQStarter = validated.includeFAQStarter;
-    if (validated.includeGBPDescription !== undefined)
-      updateData.includeGBPDescription = validated.includeGBPDescription;
-    if (validated.includeMetaDescription !== undefined)
-      updateData.includeMetaDescription = validated.includeMetaDescription;
-    if (validated.colorsJson !== undefined)
-      updateData.colorsJson = validated.colorsJson
-        ? (validated.colorsJson as Prisma.InputJsonValue)
+    // Check if this is a section-based save
+    const sectionSave = SectionSaveSchema.safeParse(body);
+    if (!sectionSave.success) {
+      return NextResponse.json(
+        {
+          ok: false,
+          requestId,
+          message: "Invalid section save payload",
+          details: sectionSave.error.issues,
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Handle section-based save
+    const { sectionKey, sectionValue } = sectionSave.data;
+    
+    // Map sectionKey to updateData
+    const validSectionKeys = [
+      "businessName", "businessType", "city", "state",
+      "brandPersonality", "targetAudience", "differentiators", "inspirationBrands", "avoidStyles",
+      "brandVoice", "toneNotes", "language",
+      "industryKeywords", "vibeKeywords", "variationMode", "includeHashtags", "hashtagStyle",
+      "includeSocialPostTemplates", "includeFAQStarter", "includeGBPDescription", "includeMetaDescription",
+      "colorsJson", "typographyJson", "messagingJson", "kitJson"
+    ];
+    
+    if (!validSectionKeys.includes(sectionKey)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          requestId,
+          message: `Unknown sectionKey: ${sectionKey}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Map sectionValue to the appropriate field
+    const stringFields = ["businessName", "businessType", "city", "state", "brandPersonality", 
+      "targetAudience", "differentiators", "inspirationBrands", "avoidStyles", "brandVoice", 
+      "toneNotes", "language", "industryKeywords", "vibeKeywords", "variationMode", "hashtagStyle"];
+    const booleanFields = ["includeHashtags", "includeSocialPostTemplates", "includeFAQStarter", 
+      "includeGBPDescription", "includeMetaDescription"];
+    const jsonFields = ["colorsJson", "typographyJson", "messagingJson", "kitJson"];
+    
+    if (stringFields.includes(sectionKey)) {
+      (updateData as Record<string, unknown>)[sectionKey] = (sectionValue as string) || null;
+    } else if (booleanFields.includes(sectionKey)) {
+      (updateData as Record<string, unknown>)[sectionKey] = Boolean(sectionValue);
+    } else if (jsonFields.includes(sectionKey)) {
+      (updateData as Record<string, unknown>)[sectionKey] = sectionValue
+        ? (sectionValue as Prisma.InputJsonValue)
         : Prisma.JsonNull;
-    if (validated.typographyJson !== undefined)
-      updateData.typographyJson = validated.typographyJson
-        ? (validated.typographyJson as Prisma.InputJsonValue)
-        : Prisma.JsonNull;
-    if (validated.messagingJson !== undefined)
-      updateData.messagingJson = validated.messagingJson
-        ? (validated.messagingJson as Prisma.InputJsonValue)
-        : Prisma.JsonNull;
-    if (validated.kitJson !== undefined)
-      updateData.kitJson = validated.kitJson
-        ? (validated.kitJson as Prisma.InputJsonValue)
-        : Prisma.JsonNull;
+    }
 
     // Upsert brand profile
     const profile = await prisma.brandProfile.upsert({
@@ -221,36 +226,31 @@ export async function PUT(request: NextRequest) {
     });
 
     return NextResponse.json({
-      success: true,
+      ok: true,
       profile,
-      requestId,
     });
   } catch (error) {
-    console.error("[Brand Profile API] PUT error:", error);
+    console.error("[brand-kit-save]", { requestId, error });
 
     // Handle validation errors
     if (error instanceof z.ZodError) {
-      const isDev = process.env.NODE_ENV !== "production";
       return NextResponse.json(
         {
           ok: false,
-          error: "Invalid request data. Please check your input and try again.",
-          ...(isDev ? { details: error.issues } : {}),
           requestId,
+          message: "Invalid request data. Please check your input and try again.",
+          code: "VALIDATION_ERROR",
+          details: error.issues,
         },
         { status: 400 }
       );
     }
 
-    const isDev = process.env.NODE_ENV !== "production";
     return NextResponse.json(
       {
         ok: false,
-        error: "Failed to save brand profile. Please try again.",
         requestId,
-        ...(isDev && error instanceof Error
-          ? { details: { message: error.message, stack: error.stack } }
-          : {}),
+        message: "Save failed",
       },
       { status: 500 }
     );

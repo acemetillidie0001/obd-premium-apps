@@ -303,6 +303,44 @@ export default function BrandKitBuilderPage() {
     }
   };
 
+  const saveSection = async (sectionKey: string, sectionValue: unknown): Promise<void> => {
+    const payload = { sectionKey, sectionValue };
+    const payloadSize = new Blob([JSON.stringify(payload)]).size;
+
+    const res = await fetch("/api/brand-profile", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseBodyText = await res.text();
+    let errorData: { requestId?: string; message?: string; details?: unknown } = {};
+    
+    try {
+      errorData = JSON.parse(responseBodyText);
+    } catch {
+      // Response is not JSON, keep errorData as empty object
+    }
+
+    if (!res.ok) {
+      console.error({
+        section: sectionKey,
+        requestId: errorData.requestId || null,
+        status: res.status,
+        responseBody: responseBodyText,
+        payloadSizeBytes: payloadSize,
+      });
+      
+      let errorMessage = `Failed to save ${sectionKey}. Please try again.`;
+      if (errorData.requestId) {
+        errorMessage += ` (Request ID: ${errorData.requestId})`;
+      }
+      throw new Error(errorMessage);
+    }
+  };
+
   const handleSaveToProfile = async () => {
     // Allow saving form data even without result (per button enable logic)
     // Button is enabled when: result exists OR required fields present
@@ -314,69 +352,63 @@ export default function BrandKitBuilderPage() {
     setError(null);
 
     try {
-      // Prepare save data - only include fields that have values (Zod optional fields)
-      const saveData: Record<string, unknown> = {
-        includeHashtags: Boolean(form.includeHashtags),
-        includeSocialPostTemplates: Boolean(form.includeSocialPostTemplates),
-        includeFAQStarter: Boolean(form.includeFAQStarter),
-        includeGBPDescription: Boolean(form.includeGBPDescription),
-        includeMetaDescription: Boolean(form.includeMetaDescription),
-      };
+      // Build sections array
+      const sections: Array<{ key: string; value: unknown }> = [];
 
-      // Add string fields only if they have non-empty values
-      if (form.businessName?.trim()) saveData.businessName = form.businessName.trim();
-      if (form.businessType?.trim()) saveData.businessType = form.businessType.trim();
-      if (form.city?.trim()) saveData.city = form.city.trim();
-      if (form.state?.trim()) saveData.state = form.state.trim();
-      if (form.brandPersonality) saveData.brandPersonality = form.brandPersonality;
-      if (form.targetAudience?.trim()) saveData.targetAudience = form.targetAudience.trim();
-      if (form.differentiators?.trim()) saveData.differentiators = form.differentiators.trim();
-      if (form.inspirationBrands?.trim()) saveData.inspirationBrands = form.inspirationBrands.trim();
-      if (form.avoidStyles?.trim()) saveData.avoidStyles = form.avoidStyles.trim();
-      if (form.brandVoice?.trim()) saveData.brandVoice = form.brandVoice.trim();
-      if (form.toneNotes?.trim()) saveData.toneNotes = form.toneNotes.trim();
-      if (form.language) saveData.language = form.language;
-      if (form.industryKeywords?.trim()) saveData.industryKeywords = form.industryKeywords.trim();
-      if (form.vibeKeywords?.trim()) saveData.vibeKeywords = form.vibeKeywords.trim();
-      if (form.variationMode) saveData.variationMode = form.variationMode;
-      if (form.hashtagStyle) saveData.hashtagStyle = form.hashtagStyle;
-      
+      // Business Basics
+      if (form.businessName?.trim()) sections.push({ key: "businessName", value: form.businessName.trim() });
+      if (form.businessType?.trim()) sections.push({ key: "businessType", value: form.businessType.trim() });
+      if (form.city?.trim()) sections.push({ key: "city", value: form.city.trim() });
+      if (form.state?.trim()) sections.push({ key: "state", value: form.state.trim() });
+
+      // Brand Direction
+      if (form.brandPersonality) sections.push({ key: "brandPersonality", value: form.brandPersonality });
+      if (form.targetAudience?.trim()) sections.push({ key: "targetAudience", value: form.targetAudience.trim() });
+      if (form.differentiators?.trim()) sections.push({ key: "differentiators", value: form.differentiators.trim() });
+      if (form.inspirationBrands?.trim()) sections.push({ key: "inspirationBrands", value: form.inspirationBrands.trim() });
+      if (form.avoidStyles?.trim()) sections.push({ key: "avoidStyles", value: form.avoidStyles.trim() });
+
+      // Voice & Language
+      if (form.brandVoice?.trim()) sections.push({ key: "brandVoice", value: form.brandVoice.trim() });
+      if (form.toneNotes?.trim()) sections.push({ key: "toneNotes", value: form.toneNotes.trim() });
+      if (form.language) sections.push({ key: "language", value: form.language });
+
+      // Output Controls
+      if (form.industryKeywords?.trim()) sections.push({ key: "industryKeywords", value: form.industryKeywords.trim() });
+      if (form.vibeKeywords?.trim()) sections.push({ key: "vibeKeywords", value: form.vibeKeywords.trim() });
+      if (form.variationMode) sections.push({ key: "variationMode", value: form.variationMode });
+      sections.push({ key: "includeHashtags", value: Boolean(form.includeHashtags) });
+      if (form.hashtagStyle) sections.push({ key: "hashtagStyle", value: form.hashtagStyle });
+
+      // Extras toggles
+      sections.push({ key: "includeSocialPostTemplates", value: Boolean(form.includeSocialPostTemplates) });
+      sections.push({ key: "includeFAQStarter", value: Boolean(form.includeFAQStarter) });
+      sections.push({ key: "includeGBPDescription", value: Boolean(form.includeGBPDescription) });
+      sections.push({ key: "includeMetaDescription", value: Boolean(form.includeMetaDescription) });
+
       // Add JSON fields only if they exist (result may be null)
       if (result) {
-        if (result.colorPalette?.colors) saveData.colorsJson = result.colorPalette.colors;
-        if (result.typography) saveData.typographyJson = result.typography;
-        if (result.messaging) saveData.messagingJson = result.messaging;
-        saveData.kitJson = result; // Full kit snapshot
+        if (result.colorPalette?.colors) sections.push({ key: "colorsJson", value: result.colorPalette.colors });
+        if (result.typography) sections.push({ key: "typographyJson", value: result.typography });
+        if (result.messaging) sections.push({ key: "messagingJson", value: result.messaging });
+        sections.push({ key: "kitJson", value: result }); // Full kit snapshot
       }
 
-      const res = await fetch("/api/brand-profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(saveData),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        let errorMessage = errorData.error || "Failed to save brand profile";
-        // Include validation details if available
-        if (errorData.details) {
-          console.error("Validation errors:", errorData.details);
-        }
-        if (errorData.requestId) {
-          errorMessage += ` (Request ID: ${errorData.requestId})`;
-        }
-        console.error("Save profile request failed:", res.status, errorData);
-        throw new Error(errorMessage);
+      // Save each section sequentially, stop on first error
+      for (const section of sections) {
+        await saveSection(section.key, section.value);
       }
 
-      const response = await res.json();
-      if (response.profile) {
-        setBrandProfile(response.profile);
-        setLastSavedAt(response.profile.updatedAt || new Date().toISOString());
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+      // Fetch updated profile after all sections are saved
+      const profileRes = await fetch("/api/brand-profile");
+      if (profileRes.ok) {
+        const profile = await profileRes.json();
+        if (profile) {
+          setBrandProfile(profile);
+          setLastSavedAt(profile.updatedAt || new Date().toISOString());
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        }
       }
     } catch (err) {
       console.error("Failed to save brand profile:", err);

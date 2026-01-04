@@ -286,7 +286,7 @@ export async function PUT(request: NextRequest) {
 
     // Upsert brand profile
     const profile = await prisma.brandProfile.upsert({
-      where: { userId },
+      where: { userId: userId },
       create: {
         userId,
         ...updateData,

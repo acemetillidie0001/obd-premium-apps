@@ -410,6 +410,30 @@ export default function ContentWriterPage() {
   // Determine which content to display (edited if present, otherwise original)
   const displayContent = editedContent ?? contentResponse?.content ?? null;
 
+  // Create safe derived values for null-safe rendering
+  const safeDisplayContent = displayContent ?? {
+    title: "",
+    seoTitle: "",
+    metaDescription: "",
+    slugSuggestion: "",
+    outline: [],
+    sections: [],
+    faq: [],
+    socialBlurb: "",
+    preview: { cardTitle: "", cardSubtitle: "", cardExcerpt: "" },
+    wordCountApprox: 0,
+    keywordsUsed: [],
+  };
+  const hasDisplayContent = displayContent !== null;
+  const safeSeoTitle = safeDisplayContent.seoTitle;
+  const safeMetaDescription = safeDisplayContent.metaDescription;
+  const safeSlugSuggestion = safeDisplayContent.slugSuggestion;
+  const safeOutline = safeDisplayContent.outline;
+  const safeSections = safeDisplayContent.sections;
+  const safeFaq = safeDisplayContent.faq;
+  const safeSocialBlurb = safeDisplayContent.socialBlurb;
+  const safeKeywordsUsed = safeDisplayContent.keywordsUsed;
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -985,43 +1009,43 @@ export default function ContentWriterPage() {
                   )}
 
                   {/* Main Content */}
-                  {contentResponse.mode !== "Ideas" && contentResponse.content.title && (
+                  {contentResponse.mode !== "Ideas" && contentResponse.content.title && hasDisplayContent && (
                     <>
                       <ContentCard title={contentResponse.content.title} isDark={isDark}>
                         <div className="space-y-4">
-                          {displayContent.seoTitle && (
+                          {safeSeoTitle && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>SEO Title:</p>
-                              <p className="text-sm">{displayContent.seoTitle}</p>
+                              <p className="text-sm">{safeSeoTitle}</p>
                             </div>
                           )}
 
-                          {displayContent.metaDescription && (
+                          {safeMetaDescription && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>Meta Description:</p>
-                              <p className="text-sm">{displayContent.metaDescription}</p>
+                              <p className="text-sm">{safeMetaDescription}</p>
                             </div>
                           )}
 
-                          {displayContent.slugSuggestion && (
+                          {safeSlugSuggestion && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>URL Slug:</p>
-                              <p className="text-sm font-mono">{displayContent.slugSuggestion}</p>
+                              <p className="text-sm font-mono">{safeSlugSuggestion}</p>
                             </div>
                           )}
 
-                          {displayContent.outline.length > 0 && (
+                          {safeOutline.length > 0 && (
                             <div>
                               <h4 className={`font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>Outline</h4>
                               <ul className="list-disc list-inside space-y-1 text-sm">
-                                {displayContent.outline.map((item, idx) => (
+                                {safeOutline.map((item, idx) => (
                                   <li key={idx}>{item}</li>
                                 ))}
                               </ul>
                             </div>
                           )}
 
-                          {displayContent.sections.map((section, idx) => (
+                          {safeSections.map((section, idx) => (
                             <div key={idx} className="space-y-2">
                               <h4 className={`text-base font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                                 {section.heading}
@@ -1037,10 +1061,10 @@ export default function ContentWriterPage() {
                       </ContentCard>
 
                       {/* FAQ Section */}
-                      {displayContent.faq.length > 0 && (
+                      {safeFaq.length > 0 && (
                         <ContentCard title="Suggested FAQs" isDark={isDark}>
                           <div className="space-y-4">
-                            {displayContent.faq.map((faq, idx) => (
+                            {safeFaq.map((faq, idx) => (
                               <div key={idx} className={idx > 0 ? "pt-4 mt-4 border-t border-slate-300 dark:border-slate-600" : ""}>
                                 <p className={`font-medium mb-2 ${isDark ? "text-slate-200" : "text-slate-800"}`}>
                                   Q: {faq.question}
@@ -1055,21 +1079,21 @@ export default function ContentWriterPage() {
                       )}
 
                       {/* Social Blurb */}
-                      {displayContent.socialBlurb && (
+                      {safeSocialBlurb && (
                         <ContentCard title="Social Teaser" isDark={isDark}>
                           <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-700/50 border-slate-600" : "bg-white border-slate-300"}`}>
                             <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-200" : "text-slate-700"}`}>
-                              {displayContent.socialBlurb}
+                              {safeSocialBlurb}
                             </p>
                           </div>
                         </ContentCard>
                       )}
 
                       {/* Keywords Used */}
-                      {displayContent.keywordsUsed.length > 0 && (
+                      {safeKeywordsUsed.length > 0 && (
                         <ContentCard title="Keywords Used" isDark={isDark}>
                           <div className="flex flex-wrap gap-2">
-                            {displayContent.keywordsUsed.map((keyword, idx) => (
+                            {safeKeywordsUsed.map((keyword, idx) => (
                               <span key={idx} className={`px-2 py-1 rounded text-xs ${isDark ? "bg-slate-700 text-slate-200" : "bg-slate-200 text-slate-700"}`}>
                                 {keyword}
                               </span>
@@ -1081,7 +1105,7 @@ export default function ContentWriterPage() {
                   )}
 
                   {/* BDW Tools Panel */}
-                  {contentResponse.mode !== "Ideas" && displayContent && (
+                  {contentResponse.mode !== "Ideas" && hasDisplayContent && displayContent && (
                     <>
                       {/* Copy Bundles */}
                       <CWCopyBundles content={displayContent} isDark={isDark} storageKey="cw-analytics" />

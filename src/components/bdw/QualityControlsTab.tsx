@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import QualityPreviewModal from "./QualityPreviewModal";
 import {
   runQualityAnalysis,
@@ -34,6 +34,9 @@ export default function QualityControlsTab({
     targetKeys: string[];
     proposed: Partial<BusinessDescriptionResponse>;
   } | null>(null);
+  
+  // Track trigger button for focus return
+  const triggerButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Run quality analysis
   const analysis = runQualityAnalysis(result, formValues.services, formValues.keywords);
@@ -41,8 +44,14 @@ export default function QualityControlsTab({
   const handlePreviewFix = (
     fixId: string,
     fixTitle: string,
-    proposed: Partial<BusinessDescriptionResponse>
+    proposed: Partial<BusinessDescriptionResponse>,
+    buttonRef?: HTMLButtonElement | null
   ) => {
+    // Store trigger button for focus return
+    if (buttonRef) {
+      triggerButtonRef.current = buttonRef;
+    }
+
     const targetKeys = Object.keys(proposed);
     if (targetKeys.length === 0) {
       alert("No changes to preview.");
@@ -239,11 +248,11 @@ export default function QualityControlsTab({
           </h4>
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => {
+              onClick={(e) => {
                 const proposed = generateSoftenHypeWordsFix(result);
                 const hasChanges = Object.keys(proposed).length > 0;
                 if (hasChanges) {
-                  handlePreviewFix("soften-hype-words", "Soften Hype Words", proposed);
+                  handlePreviewFix("soften-hype-words", "Soften Hype Words", proposed, e.currentTarget);
                 } else {
                   alert("No hype words found to soften.");
                 }
@@ -257,11 +266,11 @@ export default function QualityControlsTab({
               Soften Hype Words
             </button>
             <button
-              onClick={() => {
+              onClick={(e) => {
                 const proposed = generateRemoveDuplicatesFix(result);
                 const hasChanges = Object.keys(proposed).length > 0;
                 if (hasChanges) {
-                  handlePreviewFix("remove-duplicates", "Remove Duplicate Sentences", proposed);
+                  handlePreviewFix("remove-duplicates", "Remove Duplicate Sentences", proposed, e.currentTarget);
                 } else {
                   alert("No duplicate sentences found.");
                 }
@@ -286,6 +295,7 @@ export default function QualityControlsTab({
           onClose={handleClosePreview}
           onApply={handleApplyFix}
           isDark={isDark}
+          triggerElement={triggerButtonRef.current}
         />
       )}
     </div>

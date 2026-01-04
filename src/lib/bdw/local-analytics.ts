@@ -95,7 +95,11 @@ export type ExportEventType =
   | "block:website"
   | "block:social-bio"
   | "block:faq"
-  | "block:meta";
+  | "block:meta"
+  // Destination exports (Tier 4B)
+  | "dest:gbp"
+  | "dest:divi"
+  | "dest:directory";
 
 /**
  * Normalize export type string to standardized format
@@ -166,6 +170,13 @@ export function normalizeExportType(input: string): ExportEventType | string {
     if (lower.includes("social") || lower.includes("bio")) return "block:social-bio";
     if (lower.includes("faq")) return "block:faq";
     if (lower.includes("meta")) return "block:meta";
+  }
+  
+  // Destination exports (Tier 4B)
+  if (lower.includes("dest") || lower.includes("destination") || lower.includes("for ")) {
+    if (lower.includes("gbp") || lower.includes("google business")) return "dest:gbp";
+    if (lower.includes("divi")) return "dest:divi";
+    if (lower.includes("directory")) return "dest:directory";
   }
   
   // Legacy: "Copy All Posts", "Copy by Platform", etc.
@@ -330,6 +341,11 @@ export function formatExportTypeLabel(t: string): string {
   if (t === "block:social-bio") return "Copy Block (Social Bio)";
   if (t === "block:faq") return "Copy Block (FAQ)";
   if (t === "block:meta") return "Copy Block (Meta)";
+  
+  // Destination exports (Tier 4B)
+  if (t === "dest:gbp") return "Copy for GBP";
+  if (t === "dest:divi") return "Copy for Divi";
+  if (t === "dest:directory") return "Copy for Directory";
   
   // Unknown type - return original (backward compatibility)
   return t;

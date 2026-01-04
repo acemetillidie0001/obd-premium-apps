@@ -854,6 +854,9 @@ function BusinessDescriptionWriterPage() {
   
   // V5-2: Edited result state (for fix packs)
   const [editedResult, setEditedResult] = useState<BusinessDescriptionResponse | null>(null);
+
+  // V5-2: Determine which result to display (edited if present, otherwise original)
+  const displayResult = editedResult ?? result;
   
   // V5-4: Edit history stack for undo
   const [editHistory, setEditHistory] = useState<BusinessDescriptionResponse[]>([]);
@@ -1269,8 +1272,6 @@ function BusinessDescriptionWriterPage() {
     setEditedResult(previousState === result ? null : previousState);
   };
 
-  // V5-2: Determine which result to display (edited if present, otherwise original)
-  const displayResult = editedResult ?? result;
 
   // V5-2: Push improved content to Help Desk
   const [helpDeskPushingImproved, setHelpDeskPushingImproved] = useState(false);
@@ -1734,10 +1735,10 @@ function BusinessDescriptionWriterPage() {
                   />
 
                   {/* V4: Description Health Check - Only shown when flags.bdwV4 is true */}
-                  {isV4Enabled && result && (
+                  {isV4Enabled && displayResult && (
                     <DescriptionHealthCheck
                       formValues={formValues}
-                      result={result}
+                      result={displayResult}
                       isDark={isDark}
                       isV4Enabled={isV4Enabled}
                     />

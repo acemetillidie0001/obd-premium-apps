@@ -3,6 +3,75 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { buildFixSuggestions, previewFixPack, getFixEligibility, type FixSuggestion, type FixPreview, type FixPackId } from "@/lib/utils/bdw-fix-packs";
 import { runBDWHealthCheck } from "@/lib/utils/bdw-health-check";
+import { useFocusTrap } from "@/lib/hooks/useFocusTrap";
+
+// Type-safe helper for accessing BusinessDescriptionResponse fields
+type BusinessDescriptionResponseKey = keyof BusinessDescriptionResponse;
+
+/**
+ * Type guard to check if a string is a valid key of BusinessDescriptionResponse
+ */
+function isValidResponseKey(key: string): key is BusinessDescriptionResponseKey {
+  const validKeys: BusinessDescriptionResponseKey[] = [
+    'obdListingDescription',
+    'websiteAboutUs',
+    'googleBusinessDescription',
+    'socialBioPack',
+    'taglineOptions',
+    'elevatorPitch',
+    'faqSuggestions',
+    'metaDescription',
+  ];
+  return validKeys.includes(key as BusinessDescriptionResponseKey);
+}
+
+/**
+ * Type-safe getter for BusinessDescriptionResponse fields
+ * Returns the value as a string or empty string if not found/invalid
+ * Used for display purposes (converts all types to string)
+ */
+function getResponseFieldValue(
+  obj: BusinessDescriptionResponse | Partial<BusinessDescriptionResponse>,
+  key: string
+): string {
+  if (!isValidResponseKey(key)) {
+    return "";
+  }
+  const value = obj[key];
+  if (value === null || value === undefined) {
+    return "";
+  }
+  // Handle complex types (arrays, objects) by converting to string
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+/**
+ * Type-safe setter for BusinessDescriptionResponse fields
+ * Preserves the original type of the value
+ */
+function setResponseFieldValue(
+  obj: Partial<BusinessDescriptionResponse>,
+  key: string,
+  value: unknown
+): void {
+  if (!isValidResponseKey(key)) {
+    return;
+  }
+  // TypeScript now knows key is valid, so we can safely assign
+  // Use type assertion since we've validated the key and value comes from the same source
+  const typedKey = key as BusinessDescriptionResponseKey;
+  // Safe assignment: value is from the same object type, so it's compatible
+  (obj as Record<string, unknown>)[typedKey] = value;
+}
 
 interface BusinessDescriptionFormValues {
   businessName: string;
@@ -295,6 +364,7 @@ interface FixPreviewModalProps {
   onSaveAsNewVersion?: () => void;
   isDark: boolean;
   getFieldName: (field: string) => string;
+  triggerElement?: HTMLElement | null;
 }
 
 function FixPreviewModal({
@@ -305,19 +375,16 @@ function FixPreviewModal({
   onSaveAsNewVersion,
   isDark,
   getFieldName,
+  triggerElement,
 }: FixPreviewModalProps) {
   if (!previewState || !previewState.isOpen) return null;
 
-  // Close on Escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [onClose]);
+  // Focus trap hook
+  const modalRef = useFocusTrap({
+    isOpen: previewState.isOpen,
+    onClose,
+    triggerElement,
+  });
 
   // Prevent body scroll when modal is open
   useEffect(() => {
@@ -340,19 +407,23 @@ function FixPreviewModal({
       
       {/* Modal */}
       <div
+        ref={modalRef}
         className={`relative z-10 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border shadow-xl ${
           isDark
             ? "bg-slate-800 border-slate-700"
             : "bg-white border-slate-200"
         }`}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="fix-preview-title"
       >
         {/* Header */}
         <div className={`sticky top-0 flex items-center justify-between p-4 border-b ${
           isDark ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"
         }`}>
           <div>
-            <h3 className={`text-lg font-semibold ${
+            <h3 id="fix-preview-title" className={`text-lg font-semibold ${
               isDark ? "text-white" : "text-slate-900"
             }`}>
               {previewState.fixTitle} Preview
@@ -391,8 +462,8 @@ function FixPreviewModal({
         {/* Content */}
         <div className="p-4 space-y-4">
           {previewState.targetKeys.map((key) => {
-            const originalValue = (baseResult as any)[key] || "";
-            const proposedValue = (previewState.proposed as any)[key] || "";
+            const originalValue = getResponseFieldValue(baseResult, key);
+            const proposedValue = getResponseFieldValue(previewState.proposed, key);
             
             return (
               <BeforeAfterView
@@ -480,6 +551,9 @@ export default function FixPacks({
   // Tier 2A: Undo snapshot and toast state
   const [lastDisplayResultBeforeApply, setLastDisplayResultBeforeApply] = useState<BusinessDescriptionResponse | null>(null);
   const [toast, setToast] = useState<{ message: string; action?: { label: string; onClick: () => void } } | null>(null);
+  
+  // Track trigger button for focus return
+  const triggerButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Use provided health report or generate one
   const healthCheckReport = useMemo(() => {
@@ -622,8 +696,13 @@ export default function FixPacks({
   }, [suggestions, formValues, baseResult]);
 
   // Tier 2A: Handle preview - opens modal with proposed changes
-  const handlePreview = (packId: FixPackId, suggestion: FixSuggestion) => {
+  const handlePreview = (packId: FixPackId, suggestion: FixSuggestion, buttonRef?: HTMLButtonElement | null) => {
     try {
+      // Store trigger button for focus return
+      if (buttonRef) {
+        triggerButtonRef.current = buttonRef;
+      }
+
       // Tier 2B-1: Check eligibility first
       const eligibility = fixEligibilities.get(packId);
       if (!eligibility || !eligibility.eligible) {
@@ -735,9 +814,11 @@ export default function FixPacks({
     
     // Only restore fields that were changed
     Object.keys(lastDisplayResultBeforeApply).forEach((key) => {
-      const typedKey = key as keyof BusinessDescriptionResponse;
+      if (!isValidResponseKey(key)) return;
+      
+      const typedKey = key as BusinessDescriptionResponseKey;
       if (currentDisplayResult[typedKey] !== lastDisplayResultBeforeApply[typedKey]) {
-        (restoredFields as any)[key] = lastDisplayResultBeforeApply[typedKey];
+        setResponseFieldValue(restoredFields, key, lastDisplayResultBeforeApply[typedKey]);
       }
     });
     
@@ -835,7 +916,7 @@ export default function FixPacks({
         }
       );
 
-      const updatedText = (preview.updated as any)[fieldKey];
+      const updatedText = getResponseFieldValue(preview.updated, fieldKey);
       if (updatedText) {
         await navigator.clipboard.writeText(updatedText);
         if (onCopyUpdated) {
@@ -865,8 +946,13 @@ export default function FixPacks({
   const canPushToHelpDesk = hasEdits && businessId && onPushImprovedToHelpDesk;
 
   // Tier 2A: Handle "Apply AI Recommended" - opens preview modal instead of applying directly
-  const handlePreviewAllRecommended = () => {
+  const handlePreviewAllRecommended = (buttonRef?: HTMLButtonElement | null) => {
     if (suggestions.length === 0) return;
+    
+    // Store trigger button for focus return
+    if (buttonRef) {
+      triggerButtonRef.current = buttonRef;
+    }
     
     // Tier 2B-1: Check eligibility first
     if (!aiRecommendedEligibility.eligible || aiRecommendedEligibility.changedKeys.length === 0) {
@@ -975,7 +1061,7 @@ export default function FixPacks({
           {suggestions.length > 0 && (
             <div className="flex flex-col items-end gap-1">
               <button
-                onClick={handlePreviewAllRecommended}
+                onClick={(e) => handlePreviewAllRecommended(e.currentTarget)}
                 disabled={!aiRecommendedEligibility.eligible}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isDark
@@ -1079,7 +1165,7 @@ export default function FixPacks({
                     )}
                   </div>
                   <button
-                    onClick={() => handlePreview(suggestion.id, suggestion)}
+                    onClick={(e) => handlePreview(suggestion.id, suggestion, e.currentTarget)}
                     disabled={!isEligible}
                     className={`ml-3 px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       isDark
@@ -1106,6 +1192,7 @@ export default function FixPacks({
         onSaveAsNewVersion={onSaveImproved ? handleSaveAsNewVersion : undefined}
         isDark={isDark}
         getFieldName={getFieldName}
+        triggerElement={triggerButtonRef.current}
       />
 
       {/* Tier 2A: Toast Notification */}

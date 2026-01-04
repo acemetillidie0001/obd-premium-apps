@@ -31,6 +31,15 @@ export {
   type BusinessDescriptionResponse as BusinessDescriptionResponseExport,
 } from "@/lib/utils/bdw-export-formatters";
 
+// Destination Export Helpers (Tier 4B)
+export {
+  formatForGBP,
+  type DestinationInput,
+} from "@/lib/bdw/destinations/formatForGBP";
+export { formatForDivi } from "@/lib/bdw/destinations/formatForDivi";
+export { formatForDirectory } from "@/lib/bdw/destinations/formatForDirectory";
+export { convertToDestinationInput } from "@/lib/bdw/destinations/convertToDestinationInput";
+
 // Quality Controls
 export {
   runQualityAnalysis,

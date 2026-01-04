@@ -5,7 +5,174 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## AI Business Description Writer — V5.0.0 (2025-01-XX)
+## AI FAQ Generator — Tier 4 + Tier 5A + Tier 5C (2026-01-03)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Added - Tier 4 Hardening
+
+- **Canonical FAQ Selector**: `getActiveFaqs()` function provides single source of truth
+  - Returns `editedFAQs ?? parsedFAQs` (edited content takes precedence)
+  - All downstream operations use this selector consistently
+  - Removed duplicate FAQ rendering logic
+- **Toast System & Action Guardrails**: Non-overlapping toast notifications with guardrails
+  - Fixed position above sticky action bar (`bottom-24`)
+  - Auto-clear after 1200ms
+  - Guardrails prevent actions on invalid/empty FAQs
+  - Consistent error messaging: "Generate FAQs to enable this." / "Fix empty questions or answers to enable"
+- **Inline Editing System**: Full CRUD operations for FAQs
+  - Edit/Save/Cancel workflow with per-FAQ editing state
+  - Add new FAQ with automatic editing mode activation
+  - Delete FAQ with last-item protection (prevents deleting the only FAQ)
+  - Automatic renumbering after delete operations
+  - Character count tracking per FAQ answer
+
+### Added - Export Center
+
+- **Multi-Format Export**: Five export formats available
+  - Plain Text: Simple Q&A format
+  - Markdown: Formatted for documentation
+  - HTML: Ready-to-paste HTML with styling
+  - JSON-LD: Structured data for schema markup
+  - Divi Builder: WordPress Divi module format
+- **Export Validation**: `validateFAQsForExport()` function
+  - Checks for empty FAQs before export
+  - Validates all questions and answers are non-empty
+  - Provides specific error messages with FAQ numbers
+  - Prevents invalid exports with clear user feedback
+
+### Added - Tier 5A UX Consistency
+
+- **Accordion Input Sections**: Collapsible form sections with summaries
+  - Business Basics, Topic Details, Tone & Personality, FAQ Settings
+  - Summary lines show key values when collapsed
+  - Expand/Collapse buttons with clear labels
+- **Sticky Action Bar**: Form-level and scroll-based sticky bars
+  - Form sticky bar with "Generate FAQs" button
+  - Scroll-based sticky bar appears when form scrolls out of view
+  - Shows FAQ state chip (Generated/Edited)
+  - Canonical buttons: Copy Full, Export, Download MD
+- **Standardized Buttons**: Consistent button styling across all actions
+  - Primary, secondary, and subtle button variants
+  - Disabled states with clear messaging
+  - Loading states during generation
+- **Empty/Loading/Error States**: Comprehensive state handling
+  - Empty state: "Generate FAQs to get started"
+  - Loading state: Skeleton loaders during generation
+  - Error state: Clear error messages with retry options
+  - Results panel with proper state indicators
+
+### Added - Tier 5C Next Steps Ecosystem Panel
+
+- **Next Steps Panel**: Disabled-not-hidden panel for cross-app integrations
+  - Always visible in Export Center (not conditionally hidden)
+  - Disabled state when FAQs are invalid or empty
+  - Clear messaging explaining why actions are disabled
+  - Three integration options: AI Help Desk, Schema Generator, Content Writer
+- **Integration Handlers**: Tied to existing cross-app handoff handlers
+  - Help Desk: Opens import modal with FAQ preview
+  - Schema Generator: Sends FAQPage schema to @graph (additive)
+  - Content Writer: Imports FAQs as new draft or appends to existing content
+  - All handlers use shared handoff utilities for consistency
+
+### Technical Notes
+
+- **No breaking changes**: All features are additive and backward compatible
+- **Canonical state management**: Single source of truth via `getActiveFaqs()` selector
+- **No API changes**: Existing API endpoints unchanged
+- **No DB changes**: Uses existing patterns (no new migrations)
+- **Client-side only**: All editing and export operations are client-side
+
+## Cross-App Handoff Integrations — Shared Platform Utilities (2026-01-03)
+
+**Status:** ✅ Production Ready (STABLE / LIVE)
+
+### Added - Shared Handoff Parsing Utility
+
+- **`src/lib/utils/parse-handoff.ts`**: Unified handoff payload parsing
+  - Supports both URL query parameters (`?handoff=...`) and localStorage (`?handoffId=...`)
+  - Base64url encoding/decoding with proper Unicode handling
+  - SSR-safe implementation (returns null if window is undefined)
+  - Automatic localStorage cleanup after successful read
+  - Type-safe validation with custom type guards
+  - Error handling with descriptive error messages
+
+### Added - Shared Handoff Guard Utility
+
+- **`src/lib/utils/handoff-guard.ts`**: Anti-double-import protection
+  - Payload hashing using DJB2-style hash function (base36 output)
+  - SessionStorage-based tracking of imported payloads
+  - Prevents accidental duplicate imports across page reloads
+  - Per-app tracking (separate storage keys per application)
+  - Automatic cleanup (maintains max 25 entries per app)
+  - Graceful degradation if sessionStorage unavailable
+
+### Added - Shared URL Cleanup Utility
+
+- **`src/lib/utils/clear-handoff-params.ts`**: Handoff parameter cleanup
+  - Removes `handoff` and `handoffId` query parameters from URLs
+  - Preserves all other query parameters and hash fragments
+  - Supports both absolute and relative URLs
+  - SSR-safe `replaceUrlWithoutReload()` function
+  - Uses `history.replaceState` for non-reloading URL updates
+  - Fallback regex-based cleanup for edge cases
+
+### Added - Cross-App Integration: AI FAQ Generator → AI Help Desk
+
+- **FAQ Import to Help Desk**: Direct import of FAQs as Q&A pairs or documents
+  - Banner notification when arriving from FAQ Generator
+  - Import modal with FAQ preview and format selection (Q&A pairs or document)
+  - Uses shared `parse-handoff` utility for payload parsing
+  - Uses shared `handoff-guard` to prevent duplicate imports
+  - Automatic URL cleanup after successful import
+  - Tenant-safe with businessId validation
+
+### Added - Cross-App Integration: AI FAQ Generator → Business Schema Generator
+
+- **FAQPage Schema Insert**: Additive FAQPage schema to @graph
+  - Sends FAQs as structured FAQPage schema markup
+  - Additive operation (does not overwrite existing schema)
+  - Uses shared handoff utilities for payload transfer
+  - Duplicate guard prevents re-importing same FAQs
+  - URL cleanup after successful handoff
+
+### Added - Cross-App Integration: AI FAQ Generator → AI Content Writer
+
+- **FAQ Import to Content Writer**: Import FAQs as new draft or append to existing
+  - New draft mode: Creates new content with imported FAQs
+  - Append mode: Adds FAQs to existing content's FAQ section
+  - Uses canonical state management (`getActiveContent()` pattern)
+  - Banner notification when arriving from FAQ Generator
+  - Uses shared parsing, duplicate guard, and URL cleanup utilities
+  - Preserves existing content structure and formatting
+
+### Migration Status
+
+**Migrated Receivers:**
+- AI Help Desk: Migrated to shared `parse-handoff` + `handoff-guard` + `clear-handoff-params`
+- Business Schema Generator: Migrated to shared utilities
+- AI Content Writer: Migrated to shared utilities
+
+### Technical Notes
+
+- **No breaking changes**: All utilities are additive and backward compatible
+- **SSR-safe**: All utilities handle server-side rendering gracefully
+- **Type-safe**: Full TypeScript support with proper type guards
+- **Tenant-safe**: All integrations respect business isolation
+- **No coupling**: Apps remain independent; handoffs are one-way data transfers
+- **No DB changes**: All handoff operations are client-side only
+- **Reversible**: All handoff operations can be undone by user action
+
+### Safety/Compatibility Notes
+
+- **No database/schema changes**: All features are client-side only
+- **Tenant-safe**: All operations respect business isolation boundaries
+- **Additive**: All features add new functionality without modifying existing behavior
+- **Reversible**: All handoff operations can be cancelled or undone
+- **No coupling**: Apps remain independent; handoffs are stateless data transfers
+- **Backward compatible**: Existing functionality remains unchanged
+
+## AI Business Description Writer — V5.0.0 (2026-01-03)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)
 
@@ -73,7 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - See [Business Description Writer V5 Release Notes](docs/releases/business-description-writer-v5.md) for detailed release information
 - See [Business Description Writer Changelog](docs/changelogs/business-description-writer.md) for version history
 
-## AI Content Writer — Tier 4 + Tier 5A (2025-01-XX)
+## AI Content Writer — Tier 4 + Tier 5A (2026-01-03)
 
 **Status:** ✅ Production Ready (Tier 4 + Tier 5A Complete)
 
@@ -142,7 +309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - See [AI Content Writer Documentation](docs/apps/ai-content-writer.md) for detailed implementation notes
 
-## UI Standardization — Shared Components (2025-01-XX)
+## UI Standardization — Shared Components (2026-01-03)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)
 
@@ -257,7 +424,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BookingRequestAuditLog Migration**: New table for audit log tracking
 - **RateLimitEvent Migration**: New table for rate limit event tracking
 
-## OBD Scheduler & Booking — Short Booking Links & UI Polish (2026-01-XX)
+## OBD Scheduler & Booking — Short Booking Links & UI Polish (2026-01-03)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)
 
@@ -407,7 +574,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - V3 structure supports future enhancements (pipelines, automations, email sync) while maintaining clear guardrails
 - Production-ready with comprehensive testing checklist
 
-## AI Help Desk — V3 — 2025-01-XX
+## AI Help Desk — V3 — 2026-01-03
 
 **Status:** ✅ Production Ready (STABLE / LIVE)
 
@@ -475,7 +642,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No breaking changes
 - All features are additive
 
-## Local Keyword Research Tool — V3 — 2025-01-XX
+## Local Keyword Research Tool — V3 — 2026-01-03
 
 **Status:** Production Ready (Pre-Google Ads Live Metrics) — Google Basic Access Pending
 
@@ -530,7 +697,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release-scoped lint enforcement added
 - Global lint backlog documented (non-blocking)
 
-## [3.6.0] - 2025-01-XX
+## [3.6.0] - 2026-01-03
 
 ### Added - Review Request Automation (Email Sending)
 

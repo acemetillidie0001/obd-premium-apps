@@ -11,6 +11,10 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass, getSecondaryButtonClasses, getSubtleButtonSmallClasses } from "@/lib/obd-framework/layout-helpers";
 import BrandProfilePanel from "@/components/bdw/BrandProfilePanel";
 import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { applyBrandProfileToForm } from "@/lib/brand/applyBrandProfile";
+import { loadBrandProfile, hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import CWFixPacks from "@/components/cw/CWFixPacks";
 import CWQualityControlsTab from "@/components/cw/CWQualityControlsTab";
 import CWExportCenterPanel from "@/components/cw/CWExportCenterPanel";
@@ -337,6 +341,119 @@ function ContentWriterPageContent() {
       setActionToast(null);
     }, 1200);
   };
+
+  // Brand Profile auto-import toggle with localStorage persistence
+  // Default will be set to ON if brandFound after hook detects it
+  const [useBrandProfileToggle, setUseBrandProfileToggle] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const stored = localStorage.getItem("obd.acw.useBrandProfile");
+      if (stored !== null) {
+        return stored === "true";
+      }
+      // Default: OFF initially, will be set to ON if brandFound
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
+  // Fill empty only checkbox with localStorage persistence
+  const [fillEmptyOnly, setFillEmptyOnly] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const stored = localStorage.getItem("obd.acw.fillEmptyOnly");
+      if (stored !== null) {
+        return stored === "true";
+      }
+      return true; // Default: ON
+    } catch {
+      return true;
+    }
+  });
+
+  // Persist toggle state to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("obd.acw.useBrandProfile", String(useBrandProfileToggle));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [useBrandProfileToggle]);
+
+  // Persist fillEmptyOnly state to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("obd.acw.fillEmptyOnly", String(fillEmptyOnly));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [fillEmptyOnly]);
+
+  // Field mapping between ContentWriterFormValues and BrandProfile
+  // Note: Some mappings may reference form fields that don't exist yet;
+  // the merge engine will safely skip those during application.
+  const brandProfileMap: Record<string, keyof BrandProfileType> = {
+    businessName: "businessName",
+    businessType: "businessType",
+    city: "city",
+    state: "state",
+    brandVoice: "brandVoice",
+    targetAudience: "targetAudience",
+    keywords: "industryKeywords",
+    language: "language",
+    // Additional mappings (fields may not exist in form yet)
+    uniqueSellingPoints: "differentiators",
+    toneNotes: "toneNotes",
+    vibeKeywords: "vibeKeywords",
+    variationMode: "variationMode",
+    hashtagStyle: "hashtagStyle",
+    includeHashtags: "includeHashtags",
+  };
+
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfileToggle,
+    form: formValues as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        setFormValues((prev) => formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as ContentWriterFormValues);
+      } else {
+        setFormValues(formOrUpdater as unknown as ContentWriterFormValues);
+      }
+    },
+    storageKey: "acw-brand-hydrate-v1",
+    fillEmptyOnly,
+    once: "per-page-load",
+    map: brandProfileMap,
+  });
+
+  // Update toggle default to ON when brand profile is found (first time only)
+  useEffect(() => {
+    if (brandFound && !useBrandProfileToggle && typeof window !== "undefined") {
+      // Only update if user hasn't explicitly set it
+      try {
+        const stored = localStorage.getItem("obd.acw.useBrandProfile");
+        if (stored === null) {
+          // User hasn't set it yet, default to ON if brandFound
+          setUseBrandProfileToggle(true);
+        }
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [brandFound]);
+
+  // Show one-time toast when brand profile is applied
+  const toastShownRef = useRef(false);
+  useEffect(() => {
+    if (applied && !toastShownRef.current) {
+      toastShownRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [applied]);
 
   // Handle handoff on page load
   useEffect(() => {
@@ -692,43 +809,30 @@ function ContentWriterPageContent() {
     await processRequest(lastPayload);
   };
 
-  // Brand Profile: Apply profile to form
-  const handleApplyBrandProfile = (profile: BrandProfile, fillEmptyOnly: boolean) => {
-    setFormValues((prev) => {
-      const updates: Partial<ContentWriterFormValues> = {};
+  // Brand Profile: Apply profile to form (manual apply button)
+  const handleApplyBrandProfile = (profile: BrandProfile, _fillEmptyOnlyFromPanel: boolean) => {
+    // Use the fillEmptyOnly state from our checkbox, not from the panel
+    const profileFromStorage = loadBrandProfile();
+    if (!profileFromStorage) {
+      showToast("No brand profile found. Please create one first.");
+      return;
+    }
 
-      if (profile.brandVoice) {
-        if (!fillEmptyOnly || !prev.brandVoice.trim()) {
-          updates.brandVoice = profile.brandVoice;
-        }
-      }
-
-      if (profile.targetAudience) {
-        if (!fillEmptyOnly || !prev.targetAudience.trim()) {
-          updates.targetAudience = profile.targetAudience;
-        }
-      }
-
-      if (profile.services) {
-        if (!fillEmptyOnly || !prev.services.trim()) {
-          updates.services = profile.services;
-        }
-      }
-
-      if (profile.city) {
-        if (!fillEmptyOnly || !prev.city.trim()) {
-          updates.city = profile.city;
-        }
-      }
-
-      if (profile.state) {
-        if (!fillEmptyOnly || !prev.state.trim()) {
-          updates.state = profile.state;
-        }
-      }
-
-      return { ...prev, ...updates };
+    const mode = fillEmptyOnly ? "fill-empty-only" : "overwrite";
+    const merged = applyBrandProfileToForm({
+      form: formValues as unknown as Record<string, unknown>,
+      brand: profileFromStorage,
+      map: brandProfileMap,
+      mode,
     });
+
+    setFormValues(merged as unknown as ContentWriterFormValues);
+
+    showToast(
+      mode === "fill-empty-only"
+        ? "Brand Profile applied to empty fields."
+        : "Brand Profile applied (overwrote existing fields)."
+    );
   };
 
   // Fix Packs: Handle applying fixes
@@ -1146,11 +1250,56 @@ function ContentWriterPageContent() {
       title="AI Content Writer"
       tagline="Write high-quality content for your business needs, from blog posts and service pages to emails, bios, policies, and job posts—all tailored for your Ocala business."
     >
-      {/* Brand Profile Panel */}
+      {/* Brand Profile Auto-Import Panel */}
+      <OBDPanel isDark={isDark} className="mt-7">
+        <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+          <div className="p-4 space-y-4">
+            {/* Toggle: Use Brand Profile */}
+            <div className="pb-3 border-b border-slate-200 dark:border-slate-700">
+              <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+                <input
+                  type="checkbox"
+                  checked={useBrandProfileToggle}
+                  onChange={(e) => setUseBrandProfileToggle(e.target.checked)}
+                  className="rounded"
+                  disabled={!brandFound && !hasBrandProfile()}
+                />
+                <span className="text-sm font-medium">
+                  Use Brand Profile (auto-fill empty fields)
+                </span>
+              </label>
+              <p className={`text-xs mt-1 ml-6 ${themeClasses.mutedText}`}>
+                {brandFound || hasBrandProfile()
+                  ? "When enabled, your saved brand profile will automatically fill empty form fields on page load."
+                  : "No brand profile found. Create one to enable auto-fill."}
+              </p>
+            </div>
+
+            {/* Fill Empty Only Checkbox */}
+            <div className="flex items-center gap-2">
+              <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+                <input
+                  type="checkbox"
+                  checked={fillEmptyOnly}
+                  onChange={(e) => setFillEmptyOnly(e.target.checked)}
+                  className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                />
+                <span className="text-sm">Fill empty only</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </OBDPanel>
       <BrandProfilePanel
         isDark={isDark}
         businessName={formValues.businessName}
         onApplyToForm={handleApplyBrandProfile}
+        brandFound={brandFound}
+        applied={applied}
+        useBrandProfileToggle={useBrandProfileToggle}
+        onUseBrandProfileToggleChange={setUseBrandProfileToggle}
+        fillEmptyOnly={fillEmptyOnly}
+        onFillEmptyOnlyChange={setFillEmptyOnly}
       />
 
       {/* Workflow Guidance */}

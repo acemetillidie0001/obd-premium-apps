@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -11,6 +11,9 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSecondaryButtonClasses, getSubtleButtonMediumClasses } from "@/lib/obd-framework/layout-helpers";
 import FAQExportCenterPanel from "@/components/faq/FAQExportCenterPanel";
 import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 
 export default function FAQGeneratorPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -53,6 +56,95 @@ export default function FAQGeneratorPage() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editQuestion, setEditQuestion] = useState("");
   const [editAnswer, setEditAnswer] = useState("");
+
+  // Brand Profile auto-apply toggle
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+
+  // Form object wrapper for brand-related fields
+  type FormData = {
+    businessName: string;
+    businessType: string;
+    brandVoice: string;
+  };
+
+  const form: FormData = {
+    businessName,
+    businessType,
+    brandVoice,
+  };
+
+  const setForm = (updater: Partial<FormData> | ((prev: FormData) => Partial<FormData>)) => {
+    if (typeof updater === "function") {
+      const updates = updater(form);
+      if (updates.businessName !== undefined) setBusinessName(updates.businessName);
+      if (updates.businessType !== undefined) setBusinessType(updates.businessType);
+      if (updates.brandVoice !== undefined) setBrandVoice(updates.brandVoice);
+    } else {
+      if (updater.businessName !== undefined) setBusinessName(updater.businessName);
+      if (updater.businessType !== undefined) setBusinessType(updater.businessType);
+      if (updater.brandVoice !== undefined) setBrandVoice(updater.brandVoice);
+    }
+  };
+
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: form as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        const updated = formOrUpdater(form as unknown as Record<string, unknown>);
+        setForm(updated as Partial<FormData>);
+      } else {
+        setForm(formOrUpdater as Partial<FormData>);
+      }
+    },
+    storageKey: "faq-generator-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "brandVoice") return "brandVoice";
+      return undefined;
+    },
+  });
+
+  // Show one-time toast when brand profile is applied
+  const toastShownRef = useRef(false);
+  useEffect(() => {
+    if (applied && !toastShownRef.current) {
+      toastShownRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [applied]);
+
+  // Handle personalityStyle mapping from brandPersonality (special case)
+  useEffect(() => {
+    if (personalityStyle) return; // Don't overwrite if already set
+    
+    import("@/lib/brand/brandProfileStorage").then(({ loadBrandProfile }) => {
+      const profile = loadBrandProfile();
+      if (profile?.brandPersonality) {
+        const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+          "Soft": "Soft",
+          "Bold": "Bold",
+          "High-Energy": "High-Energy",
+          "Luxury": "Luxury",
+        };
+        const mapped = personalityMap[profile.brandPersonality];
+        if (mapped) {
+          setPersonalityStyle(mapped);
+        }
+      }
+    });
+  }, [personalityStyle, useBrandProfile]);
 
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
@@ -489,6 +581,15 @@ export default function FAQGeneratorPage() {
       title="AI FAQ Generator"
       tagline="Create comprehensive FAQ sections for your business website that answer common customer questions."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>

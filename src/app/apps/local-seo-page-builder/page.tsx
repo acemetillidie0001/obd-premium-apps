@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -23,9 +23,11 @@ import { type BrandProfile } from "@/lib/bdw";
 import WorkflowGuidance from "@/components/bdw/WorkflowGuidance";
 import { recordGeneration, recordExport } from "@/lib/bdw/local-analytics";
 import AnalyticsDetails from "@/components/bdw/AnalyticsDetails";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
-const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
 
 const defaultFormValues: LocalSEOPageBuilderRequest = {
   businessName: "",
@@ -59,12 +61,26 @@ export default function LocalSEOPageBuilderPage() {
   const [result, setResult] = useState<LocalSEOPageBuilderResponse | null>(null);
   const [editedPageCopy, setEditedPageCopy] = useState<string | null>(null); // For in-memory edits
   const [undoStack, setUndoStack] = useState<string[]>([]); // 1-deep undo stack
-  const [useBrandProfile, setUseBrandProfile] = useState(true);
-  const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
-  const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
   const [lastPayload, setLastPayload] = useState<LocalSEOPageBuilderRequest | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
   const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">("Combined");
+
+  // Helper to show toast and auto-clear
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
+  };
 
   // Get current page copy (edited or original)
   const currentPageCopy = editedPageCopy !== null ? editedPageCopy : (result?.pageCopy || "");
@@ -89,96 +105,39 @@ export default function LocalSEOPageBuilderPage() {
 
   const canUndo = undoStack.length > 0;
 
-  // Load "use brand profile" preference from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem(USE_BRAND_PROFILE_KEY);
-      if (stored !== null) {
-        setUseBrandProfile(JSON.parse(stored));
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: form as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        setForm((prev) => formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as LocalSEOPageBuilderRequest);
+      } else {
+        setForm(formOrUpdater as unknown as LocalSEOPageBuilderRequest);
       }
-    } catch (err) {
-      console.error("Failed to load useBrandProfile preference:", err);
-    }
-  }, []);
+    },
+    storageKey: "local-seo-page-builder-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "city") return "city";
+      if (formKey === "state") return "state";
+      if (formKey === "targetAudience") return "targetAudience";
+      if (formKey === "uniqueSellingPoints") return "differentiators";
+      return undefined;
+    },
+  });
 
-  // Save "use brand profile" preference to localStorage
+  // Show one-time toast when brand profile is applied
+  const didToastRef = useRef(false);
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(USE_BRAND_PROFILE_KEY, JSON.stringify(useBrandProfile));
-    } catch (err) {
-      console.error("Failed to save useBrandProfile preference:", err);
+    if (applied && !didToastRef.current) {
+      didToastRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
     }
-  }, [useBrandProfile]);
-
-  // Load brand profile on mount
-  useEffect(() => {
-    if (brandProfileLoaded || !useBrandProfile) {
-      setBrandProfileLoaded(true);
-      return;
-    }
-
-    let mounted = true;
-    const loadBrandProfile = async () => {
-      try {
-        const res = await fetch("/api/brand-profile");
-        if (res.ok && mounted) {
-          const profile = await res.json();
-          if (profile && mounted) {
-            const newAutoFilled = new Set<string>();
-            setForm((currentForm) => {
-              const newForm = { ...currentForm };
-              // Only prefill if field is empty
-              if (!newForm.businessName && profile.businessName) {
-                newForm.businessName = profile.businessName;
-                newAutoFilled.add("businessName");
-              }
-              if (!newForm.businessType && profile.businessType) {
-                newForm.businessType = profile.businessType;
-                newAutoFilled.add("businessType");
-              }
-              if (!newForm.city && profile.city) {
-                newForm.city = profile.city;
-                newAutoFilled.add("city");
-              }
-              if (!newForm.state && profile.state) {
-                newForm.state = profile.state;
-                newAutoFilled.add("state");
-              }
-              // Services - map to secondaryServices if provided
-              if ((newForm.secondaryServices?.length ?? 0) === 0 && profile.services) {
-                const servicesArray = Array.isArray(profile.services)
-                  ? profile.services
-                  : typeof profile.services === "string"
-                  ? profile.services.split(",").map((s: string) => s.trim()).filter(Boolean)
-                  : [];
-                if (servicesArray.length > 0) {
-                  newForm.secondaryServices = servicesArray;
-                  setSecondaryServicesInput(servicesArray.join(", "));
-                  newAutoFilled.add("secondaryServices");
-                }
-              }
-              return newForm;
-            });
-            if (newAutoFilled.size > 0) {
-              setAutoFilledFields(newAutoFilled);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load brand profile:", err);
-      } finally {
-        if (mounted) {
-          setBrandProfileLoaded(true);
-        }
-      }
-    };
-    loadBrandProfile();
-    return () => {
-      mounted = false;
-    };
-  }, [useBrandProfile, brandProfileLoaded]);
+  }, [applied]);
 
   // Save to localStorage whenever form changes
   useEffect(() => {
@@ -190,41 +149,20 @@ export default function LocalSEOPageBuilderPage() {
     }
   }, [form]);
 
-  // Clear hint chips when user edits auto-filled fields
+  // Handle field changes
   const handleFieldChange = <K extends keyof LocalSEOPageBuilderRequest>(
     key: K,
     value: LocalSEOPageBuilderRequest[K]
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    if (autoFilledFields.has(key)) {
-      setAutoFilledFields((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
   };
 
   const handleSecondaryServicesChange = (value: string) => {
     setSecondaryServicesInput(value);
-    if (autoFilledFields.has("secondaryServices")) {
-      setAutoFilledFields((prev) => {
-        const next = new Set(prev);
-        next.delete("secondaryServices");
-        return next;
-      });
-    }
   };
 
   const handleNeighborhoodsChange = (value: string) => {
     setNeighborhoodsInput(value);
-    if (autoFilledFields.has("neighborhoods")) {
-      setAutoFilledFields((prev) => {
-        const next = new Set(prev);
-        next.delete("neighborhoods");
-        return next;
-      });
-    }
   };
 
   // Check if pageUrl is valid for schema toggle
@@ -553,6 +491,15 @@ export default function LocalSEOPageBuilderPage() {
       title="Local SEO Page Builder"
       tagline="Generate a complete local landing page pack for a service + city."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+
       {/* Workflow Guidance */}
       <WorkflowGuidance
         isDark={isDark}
@@ -572,7 +519,7 @@ export default function LocalSEOPageBuilderPage() {
           </OBDHeading>
         </div>
 
-        {/* Use saved brand profile toggle */}
+        {/* Use Brand Profile toggle */}
         <div className="mb-4 pb-4 border-b border-slate-200 dark:border-slate-700">
           <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
             <input
@@ -582,7 +529,7 @@ export default function LocalSEOPageBuilderPage() {
               className="rounded"
             />
             <span className="text-sm font-medium">
-              Use saved Brand Profile
+              Use Brand Profile (auto-fill empty fields)
             </span>
           </label>
           <p className={`text-xs mt-1 ml-6 ${themeClasses.mutedText}`}>
@@ -604,15 +551,6 @@ export default function LocalSEOPageBuilderPage() {
                     className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
                     Business Name <span className="text-red-500">*</span>
-                    {autoFilledFields.has("businessName") && (
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                        isDark
-                          ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                          : "bg-teal-50 text-teal-700 border border-teal-200"
-                      }`}>
-                        From Brand Profile
-                      </span>
-                    )}
                   </label>
                   <input
                     type="text"
@@ -631,15 +569,6 @@ export default function LocalSEOPageBuilderPage() {
                     className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
                     Business Type <span className="text-red-500">*</span>
-                    {autoFilledFields.has("businessType") && (
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                        isDark
-                          ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                          : "bg-teal-50 text-teal-700 border border-teal-200"
-                      }`}>
-                        From Brand Profile
-                      </span>
-                    )}
                   </label>
                   <input
                     type="text"
@@ -690,15 +619,6 @@ export default function LocalSEOPageBuilderPage() {
                     >
                       <span>
                         City <span className="text-red-500">*</span>
-                        {autoFilledFields.has("city") && (
-                          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                            isDark
-                              ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                              : "bg-teal-50 text-teal-700 border border-teal-200"
-                          }`}>
-                            From Brand Profile
-                          </span>
-                        )}
                       </span>
                       <span
                         className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
@@ -729,15 +649,6 @@ export default function LocalSEOPageBuilderPage() {
                     >
                       <span>
                         State <span className="text-red-500">*</span>
-                        {autoFilledFields.has("state") && (
-                          <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                            isDark
-                              ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                              : "bg-teal-50 text-teal-700 border border-teal-200"
-                          }`}>
-                            From Brand Profile
-                          </span>
-                        )}
                       </span>
                       <span
                         className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs cursor-help ${
@@ -778,15 +689,6 @@ export default function LocalSEOPageBuilderPage() {
                     className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                   >
                     Secondary Services (comma-separated, max 12)
-                    {autoFilledFields.has("secondaryServices") && (
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                        isDark
-                          ? "bg-teal-900/50 text-teal-200 border border-teal-700/50"
-                          : "bg-teal-50 text-teal-700 border border-teal-200"
-                      }`}>
-                        From Brand Profile
-                      </span>
-                    )}
                   </label>
                   <input
                     type="text"

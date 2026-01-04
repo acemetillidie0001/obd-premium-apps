@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -8,6 +8,9 @@ import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/compon
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 
 export interface ReviewResponderFormValues {
   businessName: string;
@@ -98,84 +101,81 @@ export default function ReviewResponderPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResponderResponse | null>(null);
-  const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
-  const [brandVoiceAutoFilled, setBrandVoiceAutoFilled] = useState(false);
-  const [personalityAutoFilled, setPersonalityAutoFilled] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
 
-  // Helper: Check if we should use brand profile (defaults to true if missing)
-  const shouldUseBrandProfile = (): boolean => {
-    if (typeof window === "undefined") return false;
-    try {
-      const raw = localStorage.getItem("obd.v3.useBrandProfile");
-      if (raw === null) return true; // Default to ON
-      return JSON.parse(raw) === true;
-    } catch {
-      return true; // Safe fallback: default to ON
-    }
+  // Helper to show toast and auto-clear
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
   };
 
-  // Auto-load brand profile on mount (only prefill empty fields, and only if toggle is ON)
+  // Brand Profile auto-apply toggle
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: formValues as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        setFormValues((prev) => formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as ReviewResponderFormValues);
+      } else {
+        setFormValues(formOrUpdater as unknown as ReviewResponderFormValues);
+      }
+    },
+    storageKey: "review-responder-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "city") return "city";
+      if (formKey === "state") return "state";
+      if (formKey === "brandVoice") return "brandVoice";
+      if (formKey === "language") return "language";
+      return undefined;
+    },
+  });
+
+  // Show one-time toast when brand profile is applied
+  const toastShownRef = useRef(false);
   useEffect(() => {
-    if (brandProfileLoaded) return;
+    if (applied && !toastShownRef.current) {
+      toastShownRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [applied]);
+
+  // Handle personalityStyle mapping from brandPersonality (special case)
+  // This runs after brand profile auto-apply to map brandPersonality to personalityStyle
+  useEffect(() => {
+    if (formValues.personalityStyle !== "None") return; // Don't overwrite if already set
     
-    const loadBrandProfile = async () => {
-      // Check localStorage preference: only auto-load if "Use saved brand profile" toggle is ON
-      if (!shouldUseBrandProfile()) {
-        setBrandProfileLoaded(true);
-        return;
-      }
-      
-      try {
-        const res = await fetch("/api/brand-profile");
-        if (res.ok) {
-          const profile = await res.json();
-          if (profile) {
-            setFormValues((prev) => {
-              const updated = { ...prev };
-              // Only set if field is empty (don't overwrite user input)
-              if (!updated.businessName && profile.businessName) {
-                updated.businessName = profile.businessName;
-              }
-              if (!updated.businessType && profile.businessType) {
-                updated.businessType = profile.businessType;
-              }
-              if (!updated.city && profile.city) {
-                updated.city = profile.city;
-              }
-              if (!updated.state && profile.state) {
-                updated.state = profile.state;
-              }
-              if (!updated.brandVoice && profile.brandVoice) {
-                updated.brandVoice = profile.brandVoice;
-                setBrandVoiceAutoFilled(true);
-              }
-              if (updated.personalityStyle === "None" && profile.brandPersonality) {
-                // Map brandPersonality to personalityStyle
-                const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
-                  "Soft": "Soft",
-                  "Bold": "Bold",
-                  "High-Energy": "High-Energy",
-                  "Luxury": "Luxury",
-                };
-                const mapped = personalityMap[profile.brandPersonality];
-                if (mapped) {
-                  updated.personalityStyle = mapped;
-                  setPersonalityAutoFilled(true);
-                }
-              }
-              return updated;
-            });
-          }
+    import("@/lib/brand/brandProfileStorage").then(({ loadBrandProfile }) => {
+      const profile = loadBrandProfile();
+      if (profile?.brandPersonality) {
+        const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+          "Soft": "Soft",
+          "Bold": "Bold",
+          "High-Energy": "High-Energy",
+          "Luxury": "Luxury",
+        };
+        const mapped = personalityMap[profile.brandPersonality];
+        if (mapped) {
+          setFormValues((prev) => ({ ...prev, personalityStyle: mapped }));
         }
-      } catch (err) {
-        console.error("Failed to load brand profile:", err);
-      } finally {
-        setBrandProfileLoaded(true);
       }
-    };
-    
-    loadBrandProfile();
-  }, [brandProfileLoaded]);
+    });
+  }, [formValues.personalityStyle]);
 
   const updateFormValue = <K extends keyof ReviewResponderFormValues>(
     key: K,
@@ -248,6 +248,15 @@ export default function ReviewResponderPage() {
       title="AI Review Responder"
       tagline="Generate polished, professional responses to customer reviews in seconds — tailored to your Ocala business."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
@@ -429,17 +438,11 @@ export default function ReviewResponderPage() {
                   <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Brand Voice (Optional)
                   </label>
-                  {brandVoiceAutoFilled && (
-                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
-                      ✓ Loaded from Brand Profile
-                    </p>
-                  )}
                   <textarea
                     id="brandVoice"
                     value={formValues.brandVoice}
                     onChange={(e) => {
                       updateFormValue("brandVoice", e.target.value);
-                      setBrandVoiceAutoFilled(false); // Clear hint when user edits
                     }}
                     rows={3}
                     className={getInputClasses(isDark, "resize-none")}
@@ -453,17 +456,11 @@ export default function ReviewResponderPage() {
                     <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                       Personality Style
                     </label>
-                    {personalityAutoFilled && (
-                      <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
-                        ✓ Loaded from Brand Profile
-                      </p>
-                    )}
                     <select
                       id="personalityStyle"
                       value={formValues.personalityStyle}
                       onChange={(e) => {
                         updateFormValue("personalityStyle", e.target.value as ReviewResponderFormValues["personalityStyle"]);
-                        setPersonalityAutoFilled(false); // Clear hint when user edits
                       }}
                       className={getInputClasses(isDark)}
                     >

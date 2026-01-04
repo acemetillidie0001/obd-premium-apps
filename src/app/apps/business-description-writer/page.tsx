@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -24,6 +25,9 @@ import ExportCenterPanel from "@/components/bdw/ExportCenterPanel";
 import WorkflowGuidance from "@/components/bdw/WorkflowGuidance";
 import AnalyticsDetails from "@/components/bdw/AnalyticsDetails";
 import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { saveVersion, type SavedVersion } from "@/lib/utils/bdw-saved-versions";
 import { attemptPushToHelpDeskKnowledge } from "@/lib/utils/bdw-help-desk-integration";
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
@@ -845,6 +849,42 @@ function BusinessDescriptionWriterPage() {
   const [helpDeskError, setHelpDeskError] = useState<string | null>(null);
   const [helpDeskSuccess, setHelpDeskSuccess] = useState(false);
 
+  // Toast state
+  const [actionToast, setActionToast] = useState<string | null>(null);
+
+  // Helper to show toast and auto-clear
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
+  };
+
+  // Brand Profile auto-import toggle with localStorage persistence
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const stored = localStorage.getItem("obd.bdw.useBrandProfile");
+      if (stored !== null) {
+        return stored === "true";
+      }
+      // Default: ON if hasBrandProfile() is true
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+
+  // Persist toggle state to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("obd.bdw.useBrandProfile", String(useBrandProfile));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [useBrandProfile]);
+
   const updateFormValue = <K extends keyof BusinessDescriptionFormValues>(
     key: K,
     value: BusinessDescriptionFormValues[K]
@@ -1119,6 +1159,43 @@ function BusinessDescriptionWriterPage() {
     });
   };
 
+  // Auto-apply brand profile to form
+  const { applied: brandApplied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: formValues as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        setFormValues((prev) => formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as BusinessDescriptionFormValues);
+      } else {
+        setFormValues(formOrUpdater as unknown as BusinessDescriptionFormValues);
+      }
+    },
+    storageKey: "business-description-writer-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "city") return "city";
+      if (formKey === "state") return "state";
+      if (formKey === "brandVoice") return "brandVoice";
+      if (formKey === "targetAudience") return "targetAudience";
+      if (formKey === "uniqueSellingPoints") return "differentiators";
+      if (formKey === "keywords") return "industryKeywords";
+      if (formKey === "language") return "language";
+      return undefined;
+    },
+  });
+
+  // Show one-time toast when brand profile is applied
+  const didToastRef = useRef(false);
+  useEffect(() => {
+    if (brandApplied && !didToastRef.current) {
+      didToastRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [brandApplied]);
+
   // V4: Push to AI Help Desk Knowledge
   const handlePushToHelpDesk = async () => {
     if (!result || !resolvedBusinessId) {
@@ -1311,17 +1388,62 @@ function BusinessDescriptionWriterPage() {
   };
 
   return (
-    <OBDPageContainer
-      isDark={isDark}
-      onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-      title="AI Business Description Writer"
-      tagline="Create compelling business descriptions tailored to your Ocala business that capture your unique value proposition."
-    >
+    <>
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+      <OBDPageContainer
+        isDark={isDark}
+        onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
+        title="AI Business Description Writer"
+        tagline="Create compelling business descriptions tailored to your Ocala business that capture your unique value proposition."
+      >
+      {/* Brand Profile Toggle and Status */}
+      <OBDPanel isDark={isDark} className="mt-7">
+        <div className="space-y-2">
+          <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+            <input
+              type="checkbox"
+              checked={useBrandProfile}
+              onChange={(e) => setUseBrandProfile(e.target.checked)}
+              className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+            />
+            <span className="text-sm font-medium">
+              Use Brand Profile (auto-fill empty fields)
+            </span>
+          </label>
+          <div className={`text-xs ${themeClasses.mutedText} ml-6`}>
+            {brandFound ? (
+              <>
+                <div>Saved Brand Profile detected.</div>
+                {brandApplied && (
+                  <div className="mt-0.5">Applied to empty fields.</div>
+                )}
+              </>
+            ) : (
+              <Link
+                href="/apps/brand-profile"
+                className="hover:underline"
+              >
+                Create a Brand Profile →
+              </Link>
+            )}
+          </div>
+        </div>
+      </OBDPanel>
+
       {/* Brand Profile Panel */}
       <BrandProfilePanel
         isDark={isDark}
         businessName={formValues.businessName}
         onApplyToForm={handleApplyBrandProfile}
+        brandFound={brandFound}
+        applied={brandApplied}
       />
 
       {/* Workflow Guidance */}
@@ -1854,6 +1976,7 @@ function BusinessDescriptionWriterPage() {
         />
       )}
     </OBDPageContainer>
+    </>
   );
 }
 

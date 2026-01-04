@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -10,6 +11,9 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import BrandProfilePanel from "@/components/bdw/BrandProfilePanel";
 import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import SMPCFixPacks from "@/components/smpc/SMPCFixPacks";
 import SMPCQualityControlsTab from "@/components/smpc/SMPCQualityControlsTab";
 import SMPCExportCenterPanel from "@/components/smpc/SMPCExportCenterPanel";
@@ -172,6 +176,8 @@ export default function SocialMediaPostCreatorPage() {
 
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [platform, setPlatform] = useState<"all" | "facebook" | "instagram" | "googleBusinessProfile" | "x">("facebook");
   const [topic, setTopic] = useState("");
   const [tone, setTone] = useState<"casual" | "professional" | "engaging">("engaging");
@@ -213,9 +219,73 @@ export default function SocialMediaPostCreatorPage() {
     };
   } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
-  const [brandVoiceAutoFilled, setBrandVoiceAutoFilled] = useState(false);
-  const [personalityAutoFilled, setPersonalityAutoFilled] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  
+  // Brand Profile auto-import toggle
+  const [useBrandProfileToggle, setUseBrandProfileToggle] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+
+  // Brand Profile auto-apply toggle
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+  
+  // Form object wrapper for brand-related fields
+  type FormData = {
+    businessName: string;
+    businessType: string;
+    city: string;
+    state: string;
+    brandVoice: string;
+    personalityStyle: "Soft" | "Bold" | "High-Energy" | "Luxury" | "";
+    hashtagStyle: "None" | "Minimal" | "Normal";
+    emojiStyle: "None" | "Minimal" | "Normal";
+  };
+
+  const form: FormData = {
+    businessName,
+    businessType,
+    city,
+    state,
+    brandVoice,
+    personalityStyle,
+    hashtagStyle,
+    emojiStyle,
+  };
+
+  const setForm = (updater: Partial<FormData> | ((prev: FormData) => Partial<FormData>)) => {
+    if (typeof updater === "function") {
+      const updates = updater(form);
+      if (updates.businessName !== undefined) setBusinessName(updates.businessName);
+      if (updates.businessType !== undefined) setBusinessType(updates.businessType);
+      if (updates.city !== undefined) setCity(updates.city);
+      if (updates.state !== undefined) setState(updates.state);
+      if (updates.brandVoice !== undefined) setBrandVoice(updates.brandVoice);
+      if (updates.personalityStyle !== undefined) setPersonalityStyle(updates.personalityStyle);
+      if (updates.hashtagStyle !== undefined) setHashtagStyle(updates.hashtagStyle);
+      if (updates.emojiStyle !== undefined) setEmojiStyle(updates.emojiStyle);
+    } else {
+      if (updater.businessName !== undefined) setBusinessName(updater.businessName);
+      if (updater.businessType !== undefined) setBusinessType(updater.businessType);
+      if (updater.city !== undefined) setCity(updater.city);
+      if (updater.state !== undefined) setState(updater.state);
+      if (updater.brandVoice !== undefined) setBrandVoice(updater.brandVoice);
+      if (updater.personalityStyle !== undefined) setPersonalityStyle(updater.personalityStyle);
+      if (updater.hashtagStyle !== undefined) setHashtagStyle(updater.hashtagStyle);
+      if (updater.emojiStyle !== undefined) setEmojiStyle(updater.emojiStyle);
+    }
+  };
   
   // BDW Tools: Edited posts state for Fix Packs
   const [editedPosts, setEditedPosts] = useState<GeneratedPost[] | null>(null);
@@ -233,70 +303,101 @@ export default function SocialMediaPostCreatorPage() {
     setShuffledPosts(null);
   }, [aiResponse]);
 
-  // Helper: Check if we should use brand profile (defaults to true if missing)
-  const shouldUseBrandProfile = (): boolean => {
-    if (typeof window === "undefined") return false;
-    try {
-      const raw = localStorage.getItem("obd.v3.useBrandProfile");
-      if (raw === null) return true; // Default to ON
-      return JSON.parse(raw) === true;
-    } catch {
-      return true; // Safe fallback: default to ON
-    }
+  // Helper to show toast and auto-clear
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
   };
 
-  // Auto-load brand profile on mount (only prefill empty fields, and only if toggle is ON)
-  useEffect(() => {
-    if (brandProfileLoaded) return;
-    
-    const loadBrandProfile = async () => {
-      // Check localStorage preference: only auto-load if "Use saved brand profile" toggle is ON
-      if (!shouldUseBrandProfile()) {
-        setBrandProfileLoaded(true);
-        return;
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: form as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        const updated = formOrUpdater(form as unknown as Record<string, unknown>);
+        setForm(updated as Partial<FormData>);
+      } else {
+        setForm(formOrUpdater as Partial<FormData>);
       }
-      
-      try {
-        const res = await fetch("/api/brand-profile");
-        if (res.ok) {
-          const profile = await res.json();
-          if (profile) {
-            // Only set if field is empty (don't overwrite user input)
-            if (!businessName && profile.businessName) {
-              setBusinessName(profile.businessName);
-            }
-            if (!businessType && profile.businessType) {
-              setBusinessType(profile.businessType);
-            }
-            if (!brandVoice && profile.brandVoice) {
-              setBrandVoice(profile.brandVoice);
-              setBrandVoiceAutoFilled(true);
-            }
-            if (!personalityStyle && profile.brandPersonality) {
-              // Map brandPersonality to personalityStyle
-              const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
-                "Soft": "Soft",
-                "Bold": "Bold",
-                "High-Energy": "High-Energy",
-                "Luxury": "Luxury",
-              };
-              const mapped = personalityMap[profile.brandPersonality];
-              if (mapped) {
-                setPersonalityStyle(mapped);
-                setPersonalityAutoFilled(true);
-              }
-            }
-          }
+    },
+    storageKey: "social-post-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: keyof FormData, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "brandVoice") return "brandVoice";
+      if (formKey === "hashtagStyle") return "hashtagStyle";
+      if (formKey === "personalityStyle") {
+        // Map brandPersonality to personalityStyle if it exists in brand
+        if (brand.brandPersonality) {
+          return "brandPersonality";
         }
-      } catch (err) {
-        console.error("Failed to load brand profile:", err);
-      } finally {
-        setBrandProfileLoaded(true);
       }
-    };
+      return undefined;
+    },
+  });
+
+  // Handle personalityStyle mapping from brandPersonality (convert brandPersonality value to personalityStyle)
+  useEffect(() => {
+    if (personalityStyle) return; // Don't overwrite if already set
     
-    loadBrandProfile();
-  }, [brandProfileLoaded]);
+    import("@/lib/brand/brandProfileStorage").then(({ loadBrandProfile }) => {
+      const profile = loadBrandProfile();
+      if (profile?.brandPersonality) {
+        const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+          "Soft": "Soft",
+          "Bold": "Bold",
+          "High-Energy": "High-Energy",
+          "Luxury": "Luxury",
+        };
+        const mapped = personalityMap[profile.brandPersonality];
+        if (mapped) {
+          setPersonalityStyle(mapped);
+        }
+      }
+    });
+  }, [personalityStyle, useBrandProfile]);
+
+  // Update toggle default when brand profile is found
+  useEffect(() => {
+    if (brandFound && !useBrandProfileToggle && typeof window !== "undefined") {
+      setUseBrandProfileToggle(true);
+    }
+  }, [brandFound]);
+
+  // Show one-time toast when brand profile is applied
+  const didToastRef = useRef(false);
+  useEffect(() => {
+    if (applied && !didToastRef.current) {
+      didToastRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [applied]);
+
+  // Handle personalityStyle mapping from brandPersonality (special case)
+  useEffect(() => {
+    if (personalityStyle) return; // Don't overwrite if already set
+    
+    import("@/lib/brand/brandProfileStorage").then(({ loadBrandProfile }) => {
+      const profile = loadBrandProfile();
+      if (profile?.brandPersonality) {
+        const personalityMap: Record<string, "Soft" | "Bold" | "High-Energy" | "Luxury"> = {
+          "Soft": "Soft",
+          "Bold": "Bold",
+          "High-Energy": "High-Energy",
+          "Luxury": "Luxury",
+        };
+        const mapped = personalityMap[profile.brandPersonality];
+        if (mapped) {
+          setPersonalityStyle(mapped);
+        }
+      }
+    });
+  }, [personalityStyle]);
 
   const applyTemplate = (parsed: SocialTemplate) => {
     if (parsed.businessName) setBusinessName(parsed.businessName);
@@ -340,8 +441,8 @@ export default function SocialMediaPostCreatorPage() {
     const template: SocialTemplate = {
       businessName,
       businessType,
-      city: "Ocala",
-      state: "Florida",
+      city: city || "Ocala",
+      state: state || "Florida",
       topic,
       details,
       brandVoice,
@@ -454,8 +555,8 @@ export default function SocialMediaPostCreatorPage() {
     const payload = {
       businessName: businessName || undefined,
       businessType: businessType || undefined,
-      city: "Ocala",
-      state: "Florida",
+      city: city || "Ocala",
+      state: state || "Florida",
       platform,
       topic,
       tone,
@@ -576,6 +677,16 @@ export default function SocialMediaPostCreatorPage() {
       title="AI Social Media Post Creator"
       tagline="Generate engaging social media posts for your Ocala business across multiple platforms with just a few details."
     >
+
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+
       {/* Brand Profile Panel */}
       <BrandProfilePanel
         isDark={isDark}
@@ -699,21 +810,73 @@ export default function SocialMediaPostCreatorPage() {
                   />
                 </div>
 
+                {/* Brand Profile Auto-Import Toggle */}
+                <div className="pb-3 border-b border-slate-200 dark:border-slate-700">
+                  <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+                    <input
+                      type="checkbox"
+                      checked={useBrandProfileToggle}
+                      onChange={(e) => setUseBrandProfileToggle(e.target.checked)}
+                      className="rounded"
+                      disabled={!brandFound}
+                    />
+                    <span className="text-sm font-medium">
+                      Use Brand Profile (auto-fill empty fields)
+                    </span>
+                  </label>
+                  <p className={`text-xs mt-1 ml-6 ${themeClasses.mutedText}`}>
+                    {brandFound
+                      ? "When enabled, your saved brand profile will automatically fill empty form fields on page load."
+                      : "No brand profile found. Create one to enable auto-fill."}
+                  </p>
+                </div>
+
+                {/* Use Brand Profile Toggle */}
+                <div className="pb-3 border-b border-slate-200 dark:border-slate-700">
+                  <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+                    <input
+                      type="checkbox"
+                      checked={useBrandProfile}
+                      onChange={(e) => setUseBrandProfile(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm font-medium">
+                      Use Brand Profile (auto-fill empty fields)
+                    </span>
+                  </label>
+                  {/* Status Indicator */}
+                  <div className="mt-1 ml-6">
+                    {brandFound ? (
+                      <>
+                        <span className={`text-xs ${themeClasses.mutedText}`}>
+                          Saved Brand Profile detected.
+                        </span>
+                        {applied && (
+                          <div className={`text-xs ${themeClasses.mutedText} mt-0.5`}>
+                            Applied to empty fields.
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Link
+                        href="/apps/brand-profile"
+                        className={`text-xs ${themeClasses.mutedText} hover:underline`}
+                      >
+                        Create a Brand Profile →
+                      </Link>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Brand Voice Sample (Optional)
                   </label>
-                  {brandVoiceAutoFilled && (
-                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
-                      ✓ Loaded from Brand Profile
-                    </p>
-                  )}
                   <textarea
                     id="brandVoice"
                     value={brandVoice}
                     onChange={(e) => {
                       setBrandVoice(e.target.value);
-                      setBrandVoiceAutoFilled(false); // Clear hint when user edits
                     }}
                     rows={3}
                     className={getInputClasses(isDark, "resize-none")}
@@ -725,17 +888,11 @@ export default function SocialMediaPostCreatorPage() {
                   <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Personality Style
                   </label>
-                  {personalityAutoFilled && (
-                    <p className={`text-xs mb-1 ${isDark ? "text-teal-400" : "text-teal-600"}`}>
-                      ✓ Loaded from Brand Profile
-                    </p>
-                  )}
                   <select
                     id="personalityStyle"
                     value={personalityStyle}
                     onChange={(e) => {
                       setPersonalityStyle(e.target.value as "Soft" | "Bold" | "High-Energy" | "Luxury" | "");
-                      setPersonalityAutoFilled(false); // Clear hint when user edits
                     }}
                     className={getInputClasses(isDark)}
                   >

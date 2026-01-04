@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
+import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
+import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import type {
   ImageCaptionRequest,
   ImageCaptionResponse,
@@ -53,6 +56,80 @@ export default function ImageCaptionGeneratorPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImageCaptionResponse | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+
+  // Helper to show toast and auto-clear
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
+  };
+
+  // Brand Profile auto-apply toggle
+  const [useBrandProfile, setUseBrandProfile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return hasBrandProfile();
+    } catch {
+      return false;
+    }
+  });
+
+  // Auto-apply brand profile to form
+  const { applied, brandFound } = useAutoApplyBrandProfile({
+    enabled: useBrandProfile,
+    form: form as unknown as Record<string, unknown>,
+    setForm: (formOrUpdater) => {
+      if (typeof formOrUpdater === "function") {
+        setForm((prev) => formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as ImageCaptionRequest);
+      } else {
+        setForm(formOrUpdater as unknown as ImageCaptionRequest);
+      }
+    },
+    storageKey: "image-caption-generator-brand-hydrate-v1",
+    once: "per-page-load",
+    fillEmptyOnly: true,
+    map: (formKey: string, brand: BrandProfileType): keyof BrandProfileType | undefined => {
+      if (formKey === "businessName") return "businessName";
+      if (formKey === "businessType") return "businessType";
+      if (formKey === "city") return "city";
+      if (formKey === "state") return "state";
+      if (formKey === "brandVoice") return "brandVoice";
+      if (formKey === "language") return "language";
+      return undefined;
+    },
+  });
+
+  // Show one-time toast when brand profile is applied
+  const toastShownRef = useRef(false);
+  useEffect(() => {
+    if (applied && !toastShownRef.current) {
+      toastShownRef.current = true;
+      showToast("Brand Profile applied to empty fields.");
+    }
+  }, [applied]);
+
+  // Handle personalityStyle mapping from brandPersonality (special case)
+  useEffect(() => {
+    if (form.personalityStyle) return; // Don't overwrite if already set
+    
+    import("@/lib/brand/brandProfileStorage").then(({ loadBrandProfile }) => {
+      const profile = loadBrandProfile();
+      if (profile?.brandPersonality) {
+        const personalityMap: Record<string, PersonalityStyle> = {
+          "Soft": "Soft",
+          "Bold": "Bold",
+          "High-Energy": "High-Energy",
+          "Luxury": "Luxury",
+        };
+        const mapped = personalityMap[profile.brandPersonality || ""];
+        if (mapped) {
+          setForm((prev) => ({ ...prev, personalityStyle: mapped }));
+        }
+      }
+    });
+  }, [form.personalityStyle]);
 
   const handleChange = <K extends keyof ImageCaptionRequest>(
     key: K,
@@ -136,6 +213,15 @@ export default function ImageCaptionGeneratorPage() {
       title="AI Image Caption Generator"
       tagline="Generate creative captions for your business images that engage your audience and boost social media performance."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+          isDark ? "bg-slate-800 text-white border border-slate-700" : "bg-white text-slate-900 border border-slate-200"
+        }`}>
+          {actionToast}
+        </div>
+      )}
+
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>

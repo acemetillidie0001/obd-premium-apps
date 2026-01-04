@@ -57,8 +57,8 @@ export function parseContentWriterHandoff(
     return result.payload;
   }
 
-  // Log error for debugging (matches previous behavior)
-  if (result.error) {
+  // Only log errors for actual parsing/validation failures, not for missing handoff params
+  if (result.error && result.error !== "No handoff parameter found in URL") {
     console.error("Failed to parse handoff payload:", result.error);
   }
 

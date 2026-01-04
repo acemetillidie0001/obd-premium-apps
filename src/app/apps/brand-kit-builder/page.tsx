@@ -459,7 +459,7 @@ export default function BrandKitBuilderPage() {
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
           if (errorData.requestId) {
-            console.error("Request ID:", errorData.requestId);
+            errorMessage += ` (Request ID: ${errorData.requestId})`;
           }
         } catch {
           errorMessage = `Server error: ${res.status} ${res.statusText || ""}`;
@@ -478,10 +478,10 @@ export default function BrandKitBuilderPage() {
           }
         }, 100);
       } else if (response.ok === false && response.error) {
-        if (response.requestId) {
-          console.error("Request ID:", response.requestId);
-        }
-        throw new Error(response.error);
+        const errorMessage = response.requestId 
+          ? `${response.error} (Request ID: ${response.requestId})`
+          : response.error;
+        throw new Error(errorMessage);
       } else {
         setResult(response);
       }

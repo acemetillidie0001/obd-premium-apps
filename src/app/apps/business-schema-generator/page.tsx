@@ -16,8 +16,10 @@ import {
   SchemaGeneratorRequest,
   SchemaGeneratorResponse,
 } from "./types";
-import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload } from "@/lib/apps/business-schema-generator/handoff-parser";
+import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload, parseContentWriterSchemaHandoff, type ContentWriterSchemaHandoff } from "@/lib/apps/business-schema-generator/handoff-parser";
 import FAQImportBanner from "./components/FAQImportBanner";
+import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
+import ContentWriterSchemaImportModal from "./components/ContentWriterSchemaImportModal";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -112,6 +114,12 @@ function BusinessSchemaGeneratorPageContent() {
   const [showImportBanner, setShowImportBanner] = useState(false);
   const [importedFaqJsonLd, setImportedFaqJsonLd] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  
+  // Content Writer Schema handoff state
+  const [contentWriterSchemaPayload, setContentWriterSchemaPayload] = useState<ContentWriterSchemaHandoff | null>(null);
+  const [contentWriterSchemaHash, setContentWriterSchemaHash] = useState<string | null>(null);
+  const [showContentWriterSchemaBanner, setShowContentWriterSchemaBanner] = useState(false);
+  const [showContentWriterSchemaModal, setShowContentWriterSchemaModal] = useState(false);
 
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
@@ -140,6 +148,7 @@ function BusinessSchemaGeneratorPageContent() {
   useEffect(() => {
     if (searchParams && typeof window !== "undefined") {
       try {
+        // Try FAQ Generator handoff first
         const payload = parseSchemaGeneratorHandoff(searchParams);
         if (payload && payload.type === "faqpage-jsonld") {
           // Compute hash for the payload
@@ -152,6 +161,27 @@ function BusinessSchemaGeneratorPageContent() {
           
           setHandoffPayload(payload);
           setShowImportBanner(true);
+          return;
+        }
+
+        // Try Content Writer Schema handoff
+        const cwPayload = parseContentWriterSchemaHandoff(searchParams);
+        if (cwPayload) {
+          // Compute hash for the payload
+          const hash = getHandoffHash(cwPayload);
+          setContentWriterSchemaHash(hash);
+          
+          // Check if this payload was already imported
+          const alreadyImported = wasHandoffAlreadyImported("business-schema-generator", hash);
+          
+          // Check if banner was dismissed in this session
+          const dismissedKey = "obd_schema_dismissed_handoff:ai-content-writer";
+          const wasDismissed = typeof window !== "undefined" && sessionStorage.getItem(dismissedKey) === "true";
+          
+          if (!alreadyImported && !wasDismissed) {
+            setContentWriterSchemaPayload(cwPayload);
+            setShowContentWriterSchemaBanner(true);
+          }
         }
       } catch (error) {
         console.error("Failed to parse handoff payload:", error);
@@ -513,6 +543,190 @@ function BusinessSchemaGeneratorPageContent() {
     }
   };
 
+  // Content Writer Schema handoff handlers
+  const handleDismissContentWriterSchema = () => {
+    setContentWriterSchemaPayload(null);
+    setContentWriterSchemaHash(null);
+    setShowContentWriterSchemaBanner(false);
+
+    // Set session dismissal key
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("obd_schema_dismissed_handoff:ai-content-writer", "true");
+      
+      // Clear handoff params from URL
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  const handleReviewContentWriterSchema = () => {
+    setShowContentWriterSchemaModal(true);
+  };
+
+  const handleConfirmContentWriterSchemaImport = (importMode: "faqs" | "page-meta") => {
+    if (!contentWriterSchemaPayload || !contentWriterSchemaHash) return;
+
+    // Compute FAQ merge statistics before setForm (for toast message)
+    let addedCount = 0;
+    let skippedCount = 0;
+    let importedPageMeta = false;
+
+    if (importMode === "faqs" && contentWriterSchemaPayload.mode === "faq" && contentWriterSchemaPayload.faqs) {
+      const existingFaqs = form.faqs || [];
+      const incomingFaqs = contentWriterSchemaPayload.faqs;
+      const existingQuestions = new Set(
+        existingFaqs.map((f) => f.question.trim().toLowerCase())
+      );
+
+      incomingFaqs.forEach((faq) => {
+        const questionKey = faq.question.trim().toLowerCase();
+        if (existingQuestions.has(questionKey)) {
+          skippedCount++;
+        } else {
+          addedCount++;
+        }
+      });
+    }
+
+    if (importMode === "page-meta" && contentWriterSchemaPayload.mode === "page-meta") {
+      importedPageMeta = true;
+    }
+
+    setForm((prev) => {
+      const newForm = { ...prev };
+
+      // FAQ import
+      if (importMode === "faqs" && contentWriterSchemaPayload.mode === "faq") {
+        if (contentWriterSchemaPayload.faqs) {
+          // Enable FAQ schema
+          newForm.includeFaqSchema = true;
+
+          // Merge FAQs additively, skip duplicates by question (case-insensitive trim)
+          const existingFaqs = prev.faqs || [];
+          const incomingFaqs = contentWriterSchemaPayload.faqs;
+          const existingQuestions = new Set(
+            existingFaqs.map((f) => f.question.trim().toLowerCase())
+          );
+
+          const newFaqs = incomingFaqs.filter((faq) => {
+            const questionKey = faq.question.trim().toLowerCase();
+            return !existingQuestions.has(questionKey);
+          });
+
+          newForm.faqs = [...existingFaqs, ...newFaqs];
+        }
+      }
+
+      // Page meta import
+      if (importMode === "page-meta" && contentWriterSchemaPayload.mode === "page-meta") {
+        if (contentWriterSchemaPayload.pageMeta) {
+          // Enable WebPage schema
+          newForm.includeWebPageSchema = true;
+
+          const pageMeta = contentWriterSchemaPayload.pageMeta;
+          
+          // Set pageType only if empty
+          if (!prev.pageType || prev.pageType.trim() === "") {
+            newForm.pageType = (pageMeta.pageType || "WebPage") as SchemaGeneratorRequest["pageType"];
+          }
+
+          // Set pageTitle if present
+          if (pageMeta.pageTitle) {
+            newForm.pageTitle = pageMeta.pageTitle;
+          }
+
+          // Set pageDescription if present
+          if (pageMeta.pageDescription) {
+            newForm.pageDescription = pageMeta.pageDescription;
+          }
+
+          // Set pageUrl if present (slug only)
+          if (pageMeta.pageUrl) {
+            newForm.pageUrl = pageMeta.pageUrl;
+          }
+        }
+      }
+
+      // Optional business prefill (only if target fields are empty)
+      if (contentWriterSchemaPayload.businessContext) {
+        const bc = contentWriterSchemaPayload.businessContext;
+
+        if (!prev.businessName.trim() && bc.businessName) {
+          newForm.businessName = bc.businessName;
+        }
+
+        if (!prev.businessType.trim() && bc.businessType) {
+          newForm.businessType = bc.businessType;
+        }
+
+        if ((prev.services?.length ?? 0) === 0 && bc.services) {
+          // Split by comma/newline into array
+          const servicesArray = bc.services
+            .split(/[,\n]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (servicesArray.length > 0) {
+            newForm.services = servicesArray;
+            setServicesInput(servicesArray.join(", "));
+          }
+        }
+      }
+
+      return newForm;
+    });
+
+    // Mark handoff as imported
+    markHandoffImported("business-schema-generator", contentWriterSchemaHash);
+
+    // Clear handoff state
+    setContentWriterSchemaPayload(null);
+    setContentWriterSchemaHash(null);
+    setShowContentWriterSchemaBanner(false);
+    setShowContentWriterSchemaModal(false);
+
+    // Clear handoff params from URL
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+
+      // Clear localStorage handoff if using handoffId (parseHandoffFromUrl should already clear, but ensure)
+      const handoffId = searchParams?.get("handoffId");
+      if (handoffId) {
+        try {
+          localStorage.removeItem(`obd_handoff:${handoffId}`);
+        } catch (error) {
+          // Ignore errors
+        }
+      }
+    }
+
+    // Build toast message with import feedback
+    const toastParts: string[] = [];
+    if (addedCount > 0 || skippedCount > 0) {
+      if (skippedCount > 0) {
+        toastParts.push(`Added ${addedCount} FAQ${addedCount !== 1 ? "s" : ""}, Skipped ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""}`);
+      } else {
+        toastParts.push(`Added ${addedCount} FAQ${addedCount !== 1 ? "s" : ""}`);
+      }
+    }
+    if (importedPageMeta) {
+      toastParts.push("Imported page meta");
+    }
+    const toastMessage = toastParts.length > 0 ? toastParts.join(". ") : "Imported from AI Content Writer";
+
+    // Show success toast
+    setToast(toastMessage);
+    setTimeout(() => setToast(null), 3000);
+
+    // Scroll to form
+    setTimeout(() => {
+      const formElement = document.querySelector("form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+  };
+
   // Build combined JSON-LD including imported FAQ
   const getCombinedJsonLd = (): string | null => {
     if (!result?.data) {
@@ -579,13 +793,34 @@ function BusinessSchemaGeneratorPageContent() {
       title="Business Schema Generator"
       tagline="Generate copy-paste JSON-LD for your website and listings."
     >
-      {/* Import Banner */}
+      {/* FAQ Generator Import Banner */}
       {showImportBanner && handoffPayload && (
         <FAQImportBanner
           isDark={isDark}
           isAlreadyImported={isHandoffAlreadyImported}
           onInsert={handleInsertFaqSchema}
           onDismiss={handleDismissFaqImport}
+        />
+      )}
+
+      {/* Content Writer Schema Import Ready Banner */}
+      {showContentWriterSchemaBanner && contentWriterSchemaPayload && (
+        <ContentWriterSchemaImportReadyBanner
+          isDark={isDark}
+          payload={contentWriterSchemaPayload}
+          onReview={handleReviewContentWriterSchema}
+          onDismiss={handleDismissContentWriterSchema}
+        />
+      )}
+
+      {/* Content Writer Schema Import Modal */}
+      {showContentWriterSchemaModal && contentWriterSchemaPayload && (
+        <ContentWriterSchemaImportModal
+          isDark={isDark}
+          payload={contentWriterSchemaPayload}
+          isAlreadyImported={contentWriterSchemaHash ? wasHandoffAlreadyImported("business-schema-generator", contentWriterSchemaHash) : false}
+          onClose={() => setShowContentWriterSchemaModal(false)}
+          onConfirm={handleConfirmContentWriterSchemaImport}
         />
       )}
 

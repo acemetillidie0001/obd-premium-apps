@@ -287,6 +287,70 @@ export default function CWExportCenterPanel({
     }
   };
 
+  const handleSendFaqsToSchemaGenerator = () => {
+    if (!canUseTools || !content.faq || content.faq.length === 0) {
+      return;
+    }
+
+    try {
+      const payload = {
+        sourceApp: "ai-content-writer",
+        targetApp: "business-schema-generator",
+        createdAt: new Date().toISOString(),
+        mode: "faq",
+        faqs: content.faq.map((faq) => ({
+          question: faq.question,
+          answer: faq.answer,
+        })),
+        businessContext: {
+          businessName: formValues.businessName || undefined,
+          businessType: formValues.businessType || undefined,
+          services: formValues.services || undefined,
+          topic: formValues.topic || undefined,
+        },
+      };
+
+      onToast("Opening Schema Generator…");
+      storeHandoffPayload(payload, "/apps/business-schema-generator");
+    } catch (error) {
+      console.error("Failed to send FAQs to Schema Generator:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
+
+  const handleSendPageMetaToSchemaGenerator = () => {
+    if (!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion)) {
+      return;
+    }
+
+    try {
+      const payload = {
+        sourceApp: "ai-content-writer",
+        targetApp: "business-schema-generator",
+        createdAt: new Date().toISOString(),
+        mode: "page-meta",
+        pageMeta: {
+          pageTitle: content.seoTitle || content.title || undefined,
+          pageDescription: content.metaDescription || undefined,
+          pageUrl: content.slugSuggestion || undefined,
+          pageType: "WebPage",
+        },
+        businessContext: {
+          businessName: formValues.businessName || undefined,
+          businessType: formValues.businessType || undefined,
+          services: formValues.services || undefined,
+          topic: formValues.topic || undefined,
+        },
+      };
+
+      onToast("Opening Schema Generator…");
+      storeHandoffPayload(payload, "/apps/business-schema-generator");
+    } catch (error) {
+      console.error("Failed to send page meta to Schema Generator:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
+
   const handleCopy = async (itemId: string, content: string, exportType?: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -528,6 +592,87 @@ export default function CWExportCenterPanel({
             >
               Send
             </button>
+          </div>
+
+          {/* Schema Generator */}
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+            <h5 className={`text-sm font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+              Schema Generator
+            </h5>
+            <p className={`text-xs mb-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+              Turn FAQs and page meta into schema markup for SEO.
+            </p>
+            <div className="space-y-3">
+              {/* Send FAQs to Schema Generator */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <button
+                    onClick={handleSendFaqsToSchemaGenerator}
+                    disabled={!canUseTools || !content.faq || content.faq.length === 0}
+                    className={`text-left text-sm font-medium transition-colors ${
+                      canUseTools && content.faq && content.faq.length > 0
+                        ? isDark
+                          ? "text-slate-200 hover:text-white"
+                          : "text-slate-700 hover:text-slate-900"
+                        : isDark
+                        ? "text-slate-500 cursor-not-allowed"
+                        : "text-slate-400 cursor-not-allowed"
+                    }`}
+                    title={!canUseTools || !content.faq || content.faq.length === 0 ? "Generate content to enable this." : undefined}
+                  >
+                    Send FAQs to Schema Generator
+                  </button>
+                  {(!canUseTools || !content.faq || content.faq.length === 0) && (
+                    <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                      Generate content to enable this.
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleSendFaqsToSchemaGenerator}
+                  disabled={!canUseTools || !content.faq || content.faq.length === 0}
+                  className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+                  title={!canUseTools || !content.faq || content.faq.length === 0 ? "Generate content to enable this." : undefined}
+                >
+                  Send
+                </button>
+              </div>
+
+              {/* Send Page Meta to Schema Generator */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <button
+                    onClick={handleSendPageMetaToSchemaGenerator}
+                    disabled={!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion)}
+                    className={`text-left text-sm font-medium transition-colors ${
+                      canUseTools && (content.title || content.seoTitle || content.metaDescription || content.slugSuggestion)
+                        ? isDark
+                          ? "text-slate-200 hover:text-white"
+                          : "text-slate-700 hover:text-slate-900"
+                        : isDark
+                        ? "text-slate-500 cursor-not-allowed"
+                        : "text-slate-400 cursor-not-allowed"
+                    }`}
+                    title={!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion) ? "Generate content to enable this." : undefined}
+                  >
+                    Send Page Meta to Schema Generator
+                  </button>
+                  {(!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion)) && (
+                    <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                      Generate content to enable this.
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={handleSendPageMetaToSchemaGenerator}
+                  disabled={!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion)}
+                  className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+                  title={!canUseTools || !(content.title || content.seoTitle || content.metaDescription || content.slugSuggestion) ? "Generate content to enable this." : undefined}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

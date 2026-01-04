@@ -359,13 +359,13 @@ export default function BrandKitBuilderPage() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        const errorMessage = errorData.error || "Failed to save brand profile";
+        let errorMessage = errorData.error || "Failed to save brand profile";
         // Include validation details if available
         if (errorData.details) {
           console.error("Validation errors:", errorData.details);
         }
         if (errorData.requestId) {
-          console.error("Request ID:", errorData.requestId);
+          errorMessage += ` (Request ID: ${errorData.requestId})`;
         }
         console.error("Save profile request failed:", res.status, errorData);
         throw new Error(errorMessage);
@@ -532,7 +532,7 @@ export default function BrandKitBuilderPage() {
           const errorData = await res.json();
           errorMessage = errorData.error || errorMessage;
           if (errorData.requestId) {
-            console.error("Request ID:", errorData.requestId);
+            errorMessage += ` (Request ID: ${errorData.requestId})`;
           }
         } catch {
           errorMessage = `Server error: ${res.status} ${res.statusText || ""}`;
@@ -550,10 +550,10 @@ export default function BrandKitBuilderPage() {
           }
         }, 100);
       } else if (response.ok === false && response.error) {
-        if (response.requestId) {
-          console.error("Request ID:", response.requestId);
-        }
-        throw new Error(response.error);
+        const errorMessage = response.requestId 
+          ? `${response.error} (Request ID: ${response.requestId})`
+          : response.error;
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error("Brand Kit Builder Regenerate Error:", error);
@@ -705,12 +705,11 @@ export default function BrandKitBuilderPage() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        let errorMessage = errorData.error || `Failed to generate PDF: ${res.status}`;
         if (errorData.requestId) {
-          console.error("Request ID:", errorData.requestId);
+          errorMessage += ` (Request ID: ${errorData.requestId})`;
         }
-        throw new Error(
-          errorData.error || `Failed to generate PDF: ${res.status}`
-        );
+        throw new Error(errorMessage);
       }
 
       const blob = await res.blob();

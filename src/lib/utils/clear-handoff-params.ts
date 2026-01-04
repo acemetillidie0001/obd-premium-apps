@@ -8,7 +8,7 @@
 /**
  * Clear handoff-related query parameters from a URL string
  * 
- * Removes ONLY "handoff" and "handoffId" query parameters while preserving:
+ * Removes ONLY "handoff", "handoffId", "mode", and "source" query parameters while preserving:
  * - All other query parameters
  * - Hash fragments (#...)
  * - URL path and protocol
@@ -17,11 +17,11 @@
  * @returns The cleaned URL string with handoff params removed
  * 
  * @example
- * // Input: "https://example.com/app?handoff=abc&other=123&handoffId=xyz#section"
+ * // Input: "https://example.com/app?handoff=abc&other=123&handoffId=xyz&mode=web-draft#section"
  * // Output: "https://example.com/app?other=123#section"
  * 
  * @example
- * // Input: "/apps/content-writer?handoff=xyz&from=crm"
+ * // Input: "/apps/content-writer?handoff=xyz&from=crm&source=ai-content-writer"
  * // Output: "/apps/content-writer?from=crm"
  * 
  * @example
@@ -32,9 +32,11 @@ export function clearHandoffParamsFromUrl(url: string): string {
   try {
     const urlObj = new URL(url, typeof window !== "undefined" ? window.location.origin : "http://localhost");
     
-    // Remove only handoff-related params
+    // Remove only known handoff-related params: handoffId, mode, source (and legacy handoff)
     urlObj.searchParams.delete("handoff");
     urlObj.searchParams.delete("handoffId");
+    urlObj.searchParams.delete("mode");
+    urlObj.searchParams.delete("source");
     
     // Reconstruct URL preserving hash
     const pathname = urlObj.pathname;
@@ -57,17 +59,14 @@ export function clearHandoffParamsFromUrl(url: string): string {
     // Simple regex-based fallback
     let cleaned = url;
     
-    // Remove handoff param (with or without value)
-    cleaned = cleaned.replace(/[?&]handoff=[^&]*/g, (match, offset) => {
-      // If this is the first param (starts with ?), keep the ?
-      return offset === 0 || cleaned[offset - 1] === "?" ? "?" : "";
-    });
-    
-    // Remove handoffId param (with or without value)
-    cleaned = cleaned.replace(/[?&]handoffId=[^&]*/g, (match, offset) => {
-      // If this is the first param (starts with ?), keep the ?
-      return offset === 0 || cleaned[offset - 1] === "?" ? "?" : "";
-    });
+    // Remove known handoff params (with or without value): handoff, handoffId, mode, source
+    const paramsToRemove = ["handoff", "handoffId", "mode", "source"];
+    for (const param of paramsToRemove) {
+      cleaned = cleaned.replace(new RegExp(`[?&]${param}=[^&]*`, "g"), (match, offset) => {
+        // If this is the first param (starts with ?), keep the ?
+        return offset === 0 || cleaned[offset - 1] === "?" ? "?" : "";
+      });
+    }
     
     // Clean up double question marks or trailing ?/&
     cleaned = cleaned.replace(/\?&/g, "?").replace(/[?&]$/, "");
@@ -106,13 +105,13 @@ export function replaceUrlWithoutReload(cleanUrl: string): void {
 /**
  * Self-check examples (for manual verification):
  * 
- * clearHandoffParamsFromUrl("https://example.com/app?handoff=abc&other=123&handoffId=xyz#section")
+ * clearHandoffParamsFromUrl("https://example.com/app?handoff=abc&other=123&handoffId=xyz&mode=web-draft#section")
  *   → "https://example.com/app?other=123#section"
  * 
- * clearHandoffParamsFromUrl("/apps/content-writer?handoff=xyz&from=crm")
+ * clearHandoffParamsFromUrl("/apps/content-writer?handoff=xyz&from=crm&source=ai-content-writer")
  *   → "/apps/content-writer?from=crm"
  * 
- * clearHandoffParamsFromUrl("?handoff=abc&other=123")
+ * clearHandoffParamsFromUrl("?handoff=abc&other=123&mode=test")
  *   → "?other=123"
  * 
  * clearHandoffParamsFromUrl("?handoff=abc")

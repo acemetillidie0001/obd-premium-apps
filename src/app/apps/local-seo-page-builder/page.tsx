@@ -18,6 +18,11 @@ import {
   OutputFormat,
   TonePreset,
 } from "./types";
+import LocalSEOPageBuilderTools from "@/components/bdw/LocalSEOPageBuilderTools";
+import { type BrandProfile } from "@/lib/bdw";
+import WorkflowGuidance from "@/components/bdw/WorkflowGuidance";
+import { recordGeneration, recordExport } from "@/lib/bdw/local-analytics";
+import AnalyticsDetails from "@/components/bdw/AnalyticsDetails";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
 const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
@@ -52,12 +57,57 @@ export default function LocalSEOPageBuilderPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LocalSEOPageBuilderResponse | null>(null);
+  const [editedPageCopy, setEditedPageCopy] = useState<string | null>(null); // For in-memory edits
+  const [undoStack, setUndoStack] = useState<string[]>([]); // 1-deep undo stack
   const [useBrandProfile, setUseBrandProfile] = useState(true);
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
   const [lastPayload, setLastPayload] = useState<LocalSEOPageBuilderRequest | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">("Combined");
+
+  // Get current page copy (edited or original)
+  const currentPageCopy = editedPageCopy !== null ? editedPageCopy : (result?.pageCopy || "");
+
+  // Handle page copy change with undo stack
+  const handlePageCopyChange = (newCopy: string) => {
+    const current = editedPageCopy !== null ? editedPageCopy : (result?.pageCopy || "");
+    if (newCopy !== current) {
+      setUndoStack([current]); // Store previous state (1-deep)
+      setEditedPageCopy(newCopy);
+    }
+  };
+
+  // Handle undo
+  const handleUndo = () => {
+    if (undoStack.length > 0) {
+      const previous = undoStack[undoStack.length - 1];
+      setEditedPageCopy(previous);
+      setUndoStack([]); // Clear undo stack after undo
+    }
+  };
+
+  const canUndo = undoStack.length > 0;
+
+  // Handle page copy change with undo stack
+  const handlePageCopyChange = (newCopy: string) => {
+    const current = editedPageCopy !== null ? editedPageCopy : (result?.pageCopy || "");
+    if (newCopy !== current) {
+      setUndoStack([current]); // Store previous state (1-deep)
+      setEditedPageCopy(newCopy);
+    }
+  };
+
+  // Handle undo
+  const handleUndo = () => {
+    if (undoStack.length > 0) {
+      const previous = undoStack[undoStack.length - 1];
+      setEditedPageCopy(previous);
+      setUndoStack([]); // Clear undo stack after undo
+    }
+  };
+
+  const canUndo = undoStack.length > 0;
 
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
@@ -313,6 +363,8 @@ export default function LocalSEOPageBuilderPage() {
 
       if (response.ok && response.data) {
         setResult(response.data);
+        setEditedPageCopy(null); // Reset edits on new generation
+        setUndoStack([]); // Clear undo stack on new generation
         setLastPayload(apiPayload);
         setTimeout(() => {
           const resultsElement = document.getElementById("seo-page-results");
@@ -372,6 +424,11 @@ export default function LocalSEOPageBuilderPage() {
 
       if (response.ok && response.data) {
         setResult(response.data);
+        setEditedPageCopy(null); // Reset edits on regenerate
+        
+        // Record generation in local analytics
+        recordGeneration("lseo-analytics");
+        
         setTimeout(() => {
           const resultsElement = document.getElementById("seo-page-results");
           if (resultsElement) {
@@ -396,6 +453,8 @@ export default function LocalSEOPageBuilderPage() {
 
   const handleExportTxt = () => {
     if (!result) return;
+    recordExport("lseo-analytics", "download:txt");
+    const pageCopyToUse = editedPageCopy !== null ? editedPageCopy : result.pageCopy;
 
     let text = `LOCAL SEO PAGE BUILDER OUTPUT\n`;
     text += `Generated: ${new Date(result.meta.createdAtISO).toLocaleString()}\n`;
@@ -409,7 +468,7 @@ export default function LocalSEOPageBuilderPage() {
     text += `H1: ${result.seoPack.h1}\n\n`;
 
     text += `FULL PAGE COPY\n${"-".repeat(50)}\n`;
-    text += `${result.pageCopy}\n\n`;
+    text += `${pageCopyToUse}\n\n`;
 
     text += `FAQ SECTION\n${"-".repeat(50)}\n`;
     result.faqs.forEach((faq, i) => {
@@ -437,6 +496,8 @@ export default function LocalSEOPageBuilderPage() {
 
   const handleExportHtml = () => {
     if (!result || form.outputFormat !== "HTML") return;
+    recordExport("lseo-analytics", "download:html");
+    const pageCopyToUse = editedPageCopy !== null ? editedPageCopy : result.pageCopy;
 
     // HTML escape function for meta tags
     const escapeHtml = (text: string): string => {
@@ -456,7 +517,7 @@ export default function LocalSEOPageBuilderPage() {
     html += `  <title>${escapeHtml(result.seoPack.metaTitle)}</title>\n`;
     html += `  <meta name="description" content="${escapeHtml(result.seoPack.metaDescription)}">\n`;
     html += `</head>\n<body>\n`;
-    html += result.pageCopy;
+    html += pageCopyToUse;
     html += `\n\n<h2>Frequently Asked Questions</h2>\n`;
     result.faqs.forEach((faq) => {
       html += `\n<h3>${faq.question}</h3>\n`;
@@ -483,6 +544,7 @@ export default function LocalSEOPageBuilderPage() {
 
   const handleExportJson = () => {
     if (!result || !result.schemaJsonLd) return;
+    recordExport("lseo-analytics", "download:json");
 
     try {
       const schemaData = JSON.parse(result.schemaJsonLd);
@@ -511,6 +573,17 @@ export default function LocalSEOPageBuilderPage() {
       title="Local SEO Page Builder"
       tagline="Generate a complete local landing page pack for a service + city."
     >
+      {/* Workflow Guidance */}
+      <WorkflowGuidance
+        isDark={isDark}
+        currentStep={
+          result ? 3 : // Step 3: Fix & Export (page generated)
+          form.businessName.trim() && form.primaryService.trim() ? 2 : // Step 2: Generate (form filled)
+          1 // Step 1: Business details (form empty)
+        }
+        storageKey="lseo-workflow-guidance-dismissed"
+      />
+
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
         <div className="flex items-center justify-between mb-6">
@@ -1087,6 +1160,53 @@ export default function LocalSEOPageBuilderPage() {
         </OBDPanel>
       )}
 
+      {/* BDW Tools Panel */}
+      {result && (
+        <LocalSEOPageBuilderTools
+          pageCopy={currentPageCopy}
+          onPageCopyChange={handlePageCopyChange}
+          onUndo={handleUndo}
+          canUndo={canUndo}
+          seoPack={result.seoPack}
+          faqs={result.faqs}
+          formValues={{
+            businessName: form.businessName,
+            services: form.secondaryServices?.join(", ") || form.primaryService,
+            keywords: form.primaryService, // Use primaryService as keywords proxy
+            primaryService: form.primaryService,
+            city: form.city,
+            state: form.state,
+          }}
+          isDark={isDark}
+          onApplyBrandProfile={(profile: BrandProfile, fillEmptyOnly: boolean) => {
+            setForm((prev) => {
+              const updates: Partial<LocalSEOPageBuilderRequest> = {};
+              
+              if (profile.city && (!fillEmptyOnly || !prev.city.trim())) {
+                updates.city = profile.city;
+              }
+              if (profile.state && (!fillEmptyOnly || !prev.state.trim())) {
+                updates.state = profile.state;
+              }
+              if (profile.services && (!fillEmptyOnly || !prev.secondaryServices?.length)) {
+                const servicesArray = typeof profile.services === "string"
+                  ? profile.services.split(",").map((s) => s.trim()).filter(Boolean)
+                  : [];
+                if (servicesArray.length > 0) {
+                  updates.secondaryServices = servicesArray;
+                  setSecondaryServicesInput(servicesArray.join(", "));
+                }
+              }
+              if (profile.uniqueSellingPoints && (!fillEmptyOnly || !prev.uniqueSellingPoints?.trim())) {
+                updates.uniqueSellingPoints = profile.uniqueSellingPoints;
+              }
+              
+              return { ...prev, ...updates };
+            });
+          }}
+        />
+      )}
+
       {/* Results */}
       {result && (
         <OBDPanel isDark={isDark} className="mt-7 sm:mt-8" id="seo-page-results">
@@ -1161,7 +1281,7 @@ export default function LocalSEOPageBuilderPage() {
               },
               {
                 label: "City mentioned in content",
-                passed: result.pageCopy.toLowerCase().includes(form.city.toLowerCase()),
+                passed: currentPageCopy.toLowerCase().includes(form.city.toLowerCase()),
               },
               {
                 label: "FAQ count ≥ 5",
@@ -1339,16 +1459,16 @@ export default function LocalSEOPageBuilderPage() {
               <ResultCard
                 title="Full Page Copy"
                 isDark={isDark}
-                copyText={result.pageCopy}
+                copyText={currentPageCopy}
               >
                 {form.outputFormat === "HTML" ? (
                   <div className="overflow-x-auto">
                     <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
-                      <code>{result.pageCopy}</code>
+                      <code>{currentPageCopy}</code>
                     </pre>
                   </div>
                 ) : (
-                  <div className="whitespace-pre-wrap">{result.pageCopy}</div>
+                  <div className="whitespace-pre-wrap">{currentPageCopy}</div>
                 )}
               </ResultCard>
             ) : (

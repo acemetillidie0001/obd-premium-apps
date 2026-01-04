@@ -8,6 +8,15 @@ import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/lib/obd-framework/layout-helpers";
+import BrandProfilePanel from "@/components/bdw/BrandProfilePanel";
+import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
+import CWFixPacks from "@/components/cw/CWFixPacks";
+import CWQualityControlsTab from "@/components/cw/CWQualityControlsTab";
+import CWExportCenterPanel from "@/components/cw/CWExportCenterPanel";
+import CWCopyBundles from "@/components/cw/CWCopyBundles";
+import WorkflowGuidance from "@/components/bdw/WorkflowGuidance";
+import AnalyticsDetails from "@/components/bdw/AnalyticsDetails";
+import { recordGeneration, recordFixPackApplied } from "@/lib/bdw/local-analytics";
 
 interface ContentWriterFormValues {
   businessName: string;
@@ -132,6 +141,91 @@ function ContentCard({ title, children, isDark }: ContentCardProps) {
   );
 }
 
+// BDW Tools Tabs Component
+interface BDWToolsTabsProps {
+  content: ContentOutput;
+  formValues: { services: string; keywords: string };
+  baseContent: ContentOutput;
+  editedContent: ContentOutput | null;
+  isDark: boolean;
+  onApplyFix: (partialUpdated: Partial<ContentOutput>) => void;
+  onReset: () => void;
+  onUndo?: () => void;
+}
+
+function BDWToolsTabs({
+  content,
+  formValues,
+  baseContent,
+  editedContent,
+  isDark,
+  onApplyFix,
+  onReset,
+  onUndo,
+}: BDWToolsTabsProps) {
+  const [activeTab, setActiveTab] = useState<string>("fix-packs");
+
+  const tabs = [
+    { id: "fix-packs", label: "Fix Packs" },
+    { id: "quality-controls", label: "Quality Controls" },
+    { id: "export-center", label: "Export Center" },
+  ];
+
+  return (
+    <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      {/* Tab Headers */}
+      <div className={`flex flex-wrap gap-2 p-4 border-b items-center justify-between ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                activeTab === tab.id
+                  ? "bg-[#29c4a9] text-white"
+                  : isDark
+                  ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <AnalyticsDetails storageKey="cw-analytics" isDark={isDark} />
+      </div>
+
+      {/* Tab Content */}
+      <div className="p-4">
+        {activeTab === "fix-packs" && (
+          <CWFixPacks
+            formValues={formValues}
+            baseContent={baseContent}
+            editedContent={editedContent}
+            isDark={isDark}
+            onApply={onApplyFix}
+            onReset={onReset}
+            onUndo={onUndo}
+          />
+        )}
+        {activeTab === "quality-controls" && (
+          <CWQualityControlsTab
+            content={content}
+            formValues={formValues}
+            isDark={isDark}
+            onApplyFix={onApplyFix}
+          />
+        )}
+        {activeTab === "export-center" && (
+          <CWExportCenterPanel content={content} isDark={isDark} storageKey="cw-analytics" />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ContentWriterPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
@@ -142,6 +236,10 @@ export default function ContentWriterPage() {
   const [error, setError] = useState("");
   const [contentResponse, setContentResponse] = useState<ContentWriterResponse | null>(null);
   const [lastPayload, setLastPayload] = useState<ContentWriterFormValues | null>(null);
+  
+  // BDW Tools: Edited content state for Fix Packs
+  const [editedContent, setEditedContent] = useState<ContentOutput | null>(null);
+  const [editHistory, setEditHistory] = useState<ContentOutput[]>([]);
 
   const updateFormValue = <K extends keyof ContentWriterFormValues>(
     key: K,
@@ -202,6 +300,11 @@ export default function ContentWriterPage() {
       // Handle standardized response format: { ok: true, data: ContentWriterResponse }
       const response: ContentWriterResponse = jsonResponse.data || jsonResponse;
       setContentResponse(response);
+      setEditedContent(null); // Reset edited content when generating new content
+      setEditHistory([]); // Clear edit history on new generation
+      
+      // Record generation in local analytics
+      recordGeneration("cw-analytics");
     } catch (error) {
       console.error("Error:", error);
       const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
@@ -230,6 +333,83 @@ export default function ContentWriterPage() {
     await processRequest(lastPayload);
   };
 
+  // Brand Profile: Apply profile to form
+  const handleApplyBrandProfile = (profile: BrandProfile, fillEmptyOnly: boolean) => {
+    setFormValues((prev) => {
+      const updates: Partial<ContentWriterFormValues> = {};
+
+      if (profile.brandVoice) {
+        if (!fillEmptyOnly || !prev.brandVoice.trim()) {
+          updates.brandVoice = profile.brandVoice;
+        }
+      }
+
+      if (profile.targetAudience) {
+        if (!fillEmptyOnly || !prev.targetAudience.trim()) {
+          updates.targetAudience = profile.targetAudience;
+        }
+      }
+
+      if (profile.services) {
+        if (!fillEmptyOnly || !prev.services.trim()) {
+          updates.services = profile.services;
+        }
+      }
+
+      if (profile.city) {
+        if (!fillEmptyOnly || !prev.city.trim()) {
+          updates.city = profile.city;
+        }
+      }
+
+      if (profile.state) {
+        if (!fillEmptyOnly || !prev.state.trim()) {
+          updates.state = profile.state;
+        }
+      }
+
+      return { ...prev, ...updates };
+    });
+  };
+
+  // Fix Packs: Handle applying fixes
+  const handleApplyFix = (updatedFields: Partial<ContentOutput>, fixPackId?: string) => {
+    if (!contentResponse?.content) return;
+    
+    // Push current state to history before applying
+    const currentState = editedContent ?? contentResponse.content;
+    setEditHistory((prev) => [...prev, currentState]);
+    
+    // Merge updated fields into a new edited content
+    setEditedContent((prev) => ({
+      ...(prev ?? contentResponse.content),
+      ...updatedFields,
+    }));
+    
+    // Record fix pack application in local analytics
+    if (fixPackId) {
+      recordFixPackApplied("cw-analytics", fixPackId);
+    }
+  };
+
+  // Fix Packs: Reset edited content to original
+  const handleResetEdits = () => {
+    setEditedContent(null);
+    setEditHistory([]);
+  };
+
+  // Fix Packs: Undo last edit
+  const handleUndoLastEdit = () => {
+    if (editHistory.length === 0) return;
+    
+    const previousState = editHistory[editHistory.length - 1];
+    setEditHistory((prev) => prev.slice(0, -1));
+    setEditedContent(previousState === contentResponse?.content ? null : previousState);
+  };
+
+  // Determine which content to display (edited if present, otherwise original)
+  const displayContent = editedContent ?? contentResponse?.content ?? null;
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -237,6 +417,24 @@ export default function ContentWriterPage() {
       title="AI Content Writer"
       tagline="Write high-quality content for your business needs, from blog posts and service pages to emails, bios, policies, and job posts—all tailored for your Ocala business."
     >
+      {/* Brand Profile Panel */}
+      <BrandProfilePanel
+        isDark={isDark}
+        businessName={formValues.businessName}
+        onApplyToForm={handleApplyBrandProfile}
+      />
+
+      {/* Workflow Guidance */}
+      <WorkflowGuidance
+        isDark={isDark}
+        currentStep={
+          displayContent ? 3 : // Step 3: Fix & Export (content generated)
+          formValues.topic.trim() ? 2 : // Step 2: Generate (topic filled)
+          1 // Step 1: Business details (form empty)
+        }
+        storageKey="cw-workflow-guidance-dismissed"
+      />
+
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
@@ -791,39 +989,39 @@ export default function ContentWriterPage() {
                     <>
                       <ContentCard title={contentResponse.content.title} isDark={isDark}>
                         <div className="space-y-4">
-                          {contentResponse.content.seoTitle && (
+                          {displayContent.seoTitle && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>SEO Title:</p>
-                              <p className="text-sm">{contentResponse.content.seoTitle}</p>
+                              <p className="text-sm">{displayContent.seoTitle}</p>
                             </div>
                           )}
 
-                          {contentResponse.content.metaDescription && (
+                          {displayContent.metaDescription && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>Meta Description:</p>
-                              <p className="text-sm">{contentResponse.content.metaDescription}</p>
+                              <p className="text-sm">{displayContent.metaDescription}</p>
                             </div>
                           )}
 
-                          {contentResponse.content.slugSuggestion && (
+                          {displayContent.slugSuggestion && (
                             <div>
                               <p className={`text-xs font-medium mb-1 ${themeClasses.mutedText}`}>URL Slug:</p>
-                              <p className="text-sm font-mono">{contentResponse.content.slugSuggestion}</p>
+                              <p className="text-sm font-mono">{displayContent.slugSuggestion}</p>
                             </div>
                           )}
 
-                          {contentResponse.content.outline.length > 0 && (
+                          {displayContent.outline.length > 0 && (
                             <div>
                               <h4 className={`font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>Outline</h4>
                               <ul className="list-disc list-inside space-y-1 text-sm">
-                                {contentResponse.content.outline.map((item, idx) => (
+                                {displayContent.outline.map((item, idx) => (
                                   <li key={idx}>{item}</li>
                                 ))}
                               </ul>
                             </div>
                           )}
 
-                          {contentResponse.content.sections.map((section, idx) => (
+                          {displayContent.sections.map((section, idx) => (
                             <div key={idx} className="space-y-2">
                               <h4 className={`text-base font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                                 {section.heading}
@@ -839,10 +1037,10 @@ export default function ContentWriterPage() {
                       </ContentCard>
 
                       {/* FAQ Section */}
-                      {contentResponse.content.faq.length > 0 && (
+                      {displayContent.faq.length > 0 && (
                         <ContentCard title="Suggested FAQs" isDark={isDark}>
                           <div className="space-y-4">
-                            {contentResponse.content.faq.map((faq, idx) => (
+                            {displayContent.faq.map((faq, idx) => (
                               <div key={idx} className={idx > 0 ? "pt-4 mt-4 border-t border-slate-300 dark:border-slate-600" : ""}>
                                 <p className={`font-medium mb-2 ${isDark ? "text-slate-200" : "text-slate-800"}`}>
                                   Q: {faq.question}
@@ -857,21 +1055,21 @@ export default function ContentWriterPage() {
                       )}
 
                       {/* Social Blurb */}
-                      {contentResponse.content.socialBlurb && (
+                      {displayContent.socialBlurb && (
                         <ContentCard title="Social Teaser" isDark={isDark}>
                           <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-700/50 border-slate-600" : "bg-white border-slate-300"}`}>
                             <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-200" : "text-slate-700"}`}>
-                              {contentResponse.content.socialBlurb}
+                              {displayContent.socialBlurb}
                             </p>
                           </div>
                         </ContentCard>
                       )}
 
                       {/* Keywords Used */}
-                      {contentResponse.content.keywordsUsed.length > 0 && (
+                      {displayContent.keywordsUsed.length > 0 && (
                         <ContentCard title="Keywords Used" isDark={isDark}>
                           <div className="flex flex-wrap gap-2">
-                            {contentResponse.content.keywordsUsed.map((keyword, idx) => (
+                            {displayContent.keywordsUsed.map((keyword, idx) => (
                               <span key={idx} className={`px-2 py-1 rounded text-xs ${isDark ? "bg-slate-700 text-slate-200" : "bg-slate-200 text-slate-700"}`}>
                                 {keyword}
                               </span>
@@ -879,6 +1077,26 @@ export default function ContentWriterPage() {
                           </div>
                         </ContentCard>
                       )}
+                    </>
+                  )}
+
+                  {/* BDW Tools Panel */}
+                  {contentResponse.mode !== "Ideas" && displayContent && (
+                    <>
+                      {/* Copy Bundles */}
+                      <CWCopyBundles content={displayContent} isDark={isDark} storageKey="cw-analytics" />
+
+                      {/* BDW Tools Tabs */}
+                      <BDWToolsTabs
+                        content={displayContent}
+                        formValues={{ services: formValues.services, keywords: formValues.keywords }}
+                        baseContent={contentResponse.content}
+                        editedContent={editedContent}
+                        isDark={isDark}
+                        onApplyFix={handleApplyFix}
+                        onReset={handleResetEdits}
+                        onUndo={editHistory.length > 0 ? handleUndoLastEdit : undefined}
+                      />
                     </>
                   )}
                 </div>

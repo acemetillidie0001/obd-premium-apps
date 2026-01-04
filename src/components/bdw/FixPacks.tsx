@@ -57,7 +57,7 @@ interface FixPacksProps {
   formValues: BusinessDescriptionFormValues;
   baseResult: BusinessDescriptionResponse; // Original result
   editedResult: BusinessDescriptionResponse | null; // Current edited state
-  onApply: (partialUpdated: Partial<BusinessDescriptionResponse>) => void;
+  onApply: (partialUpdated: Partial<BusinessDescriptionResponse>, fixPackId?: string) => void;
   onReset: () => void;
   onCopyUpdated?: (text: string) => void;
   onSaveImproved?: () => void;
@@ -692,7 +692,7 @@ export default function FixPacks({
     setLastDisplayResultBeforeApply({ ...currentDisplayResult });
     
     // Apply the proposed changes
-    onApply(previewState.proposed);
+    onApply(previewState.proposed, previewState.fixId);
     
     // If this is "AI Recommended Changes", mark all suggested packs as applied
     if (previewState.fixId === "ai-recommended") {
@@ -742,7 +742,7 @@ export default function FixPacks({
     });
     
     if (Object.keys(restoredFields).length > 0) {
-      onApply(restoredFields);
+      onApply(restoredFields, undefined);
       setToast({
         message: "Changes undone",
       });
@@ -759,7 +759,7 @@ export default function FixPacks({
     setLastDisplayResultBeforeApply({ ...currentDisplayResult });
     
     // Apply changes first
-    onApply(previewState.proposed);
+    onApply(previewState.proposed, previewState.fixId);
     setAppliedPacks(new Set([...appliedPacks, previewState.fixId as FixPackId]));
     setPreviewState(null);
     
@@ -806,7 +806,7 @@ export default function FixPacks({
       );
 
       if (Object.keys(preview.updated).length > 0) {
-        onApply(preview.updated as Partial<BusinessDescriptionResponse>);
+        onApply(preview.updated as Partial<BusinessDescriptionResponse>, packId);
         setAppliedPacks(new Set([...appliedPacks, packId]));
       }
     } catch (error) {

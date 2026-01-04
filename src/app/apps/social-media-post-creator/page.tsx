@@ -8,6 +8,15 @@ import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/compon
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import BrandProfilePanel from "@/components/bdw/BrandProfilePanel";
+import { type BrandProfile } from "@/lib/utils/bdw-brand-profile";
+import SMPCFixPacks from "@/components/smpc/SMPCFixPacks";
+import SMPCQualityControlsTab from "@/components/smpc/SMPCQualityControlsTab";
+import SMPCExportCenterPanel from "@/components/smpc/SMPCExportCenterPanel";
+import SMPCCopyBundles from "@/components/smpc/SMPCCopyBundles";
+import WorkflowGuidance from "@/components/bdw/WorkflowGuidance";
+import AnalyticsDetails from "@/components/bdw/AnalyticsDetails";
+import { recordGeneration, recordFixPackApplied } from "@/lib/bdw/local-analytics";
 
 const PLATFORM_META: Record<string, { label: string; icon: string }> = {
   facebook: { label: "Facebook", icon: "📘" },
@@ -207,6 +216,10 @@ export default function SocialMediaPostCreatorPage() {
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
   const [brandVoiceAutoFilled, setBrandVoiceAutoFilled] = useState(false);
   const [personalityAutoFilled, setPersonalityAutoFilled] = useState(false);
+  
+  // BDW Tools: Edited posts state for Fix Packs
+  const [editedPosts, setEditedPosts] = useState<GeneratedPost[] | null>(null);
+  const [editHistory, setEditHistory] = useState<GeneratedPost[][]>([]);
 
   const parsedPosts = useMemo(
     () => (aiResponse ? parseAiResponse(aiResponse) : []),
@@ -400,6 +413,11 @@ export default function SocialMediaPostCreatorPage() {
       // Handle standardized response format: { ok: true, data: { response: string } }
       const responseData = jsonResponse.data || jsonResponse;
       setAiResponse(responseData.response || "Error generating post");
+      setEditedPosts(null); // Reset edited posts when generating new content
+      setEditHistory([]); // Clear edit history on new generation
+      
+      // Record generation in local analytics
+      recordGeneration("smpc-analytics");
     } catch (error) {
       console.error("Error:", error);
       const { formatUserErrorMessage } = await import("@/lib/api/errorMessages");
@@ -487,6 +505,70 @@ export default function SocialMediaPostCreatorPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Brand Profile: Apply profile to form (UI-only for tone hints)
+  const handleApplyBrandProfile = (profile: BrandProfile, fillEmptyOnly: boolean) => {
+    if (profile.brandVoice) {
+      if (!fillEmptyOnly || !brandVoice.trim()) {
+        setBrandVoice(profile.brandVoice);
+      }
+    }
+    // Note: Brand profile influences tone hints but doesn't directly set tone field
+    // The tone field remains user-controlled
+  };
+
+  // Get tone hint from brand profile (UI-only display)
+  const getToneHint = (): string | null => {
+    if (!brandVoice.trim()) return null;
+    // Simple heuristic: analyze brand voice text for tone hints
+    const lower = brandVoice.toLowerCase();
+    if (lower.includes("casual") || lower.includes("friendly") || lower.includes("relaxed")) {
+      return "Consider 'casual' tone";
+    }
+    if (lower.includes("professional") || lower.includes("formal") || lower.includes("business")) {
+      return "Consider 'professional' tone";
+    }
+    if (lower.includes("engaging") || lower.includes("energetic") || lower.includes("vibrant")) {
+      return "Consider 'engaging' tone";
+    }
+    return null;
+  };
+
+  // Fix Packs: Handle applying fixes
+  const handleApplyFix = (updatedPosts: GeneratedPost[], fixPackId?: string) => {
+    if (!parsedPosts.length) return;
+    
+    // Push current state to history before applying
+    const currentState = editedPosts ?? parsedPosts;
+    setEditHistory((prev) => [...prev, currentState]);
+    
+    // Set edited posts
+    setEditedPosts(updatedPosts);
+    
+    // Record fix pack application in local analytics
+    if (fixPackId) {
+      recordFixPackApplied("smpc-analytics", fixPackId);
+    }
+  };
+
+  // Fix Packs: Reset edited posts to original
+  const handleResetEdits = () => {
+    setEditedPosts(null);
+    setEditHistory([]);
+  };
+
+  // Fix Packs: Undo last edit
+  const handleUndoLastEdit = () => {
+    if (editHistory.length === 0) return;
+    
+    const previousState = editHistory[editHistory.length - 1];
+    setEditHistory((prev) => prev.slice(0, -1));
+    setEditedPosts(previousState === effectivePosts ? null : previousState);
+  };
+
+  // Determine which posts to display (edited if present, otherwise effective/shuffled)
+  const displayPosts = editedPosts ?? effectivePosts;
+
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -494,6 +576,24 @@ export default function SocialMediaPostCreatorPage() {
       title="AI Social Media Post Creator"
       tagline="Generate engaging social media posts for your Ocala business across multiple platforms with just a few details."
     >
+      {/* Brand Profile Panel */}
+      <BrandProfilePanel
+        isDark={isDark}
+        businessName={businessName}
+        onApplyToForm={handleApplyBrandProfile}
+      />
+
+      {/* Workflow Guidance */}
+      <WorkflowGuidance
+        isDark={isDark}
+        currentStep={
+          displayPosts.length > 0 ? 3 : // Step 3: Fix & Export (posts generated)
+          topic.trim() ? 2 : // Step 2: Generate (topic filled)
+          1 // Step 1: Business details (form empty)
+        }
+        storageKey="smpc-workflow-guidance-dismissed"
+      />
+
       {/* Template buttons */}
       <div className="flex justify-end gap-2 mb-4">
         <button
@@ -783,6 +883,11 @@ export default function SocialMediaPostCreatorPage() {
                     <option value="professional">Professional</option>
                     <option value="engaging">Engaging</option>
                   </select>
+                  {getToneHint() && (
+                    <p className={`mt-1 text-xs ${isDark ? "text-blue-400" : "text-blue-600"}`}>
+                      💡 {getToneHint()}
+                    </p>
+                  )}
                 </div>
               </div>
               
@@ -851,10 +956,10 @@ export default function SocialMediaPostCreatorPage() {
                     Download .txt
                   </button>
                 )}
-                {effectivePosts.length > 0 && lastPayload?.outputMode === "ContentCalendar" && (
+                {displayPosts.length > 0 && lastPayload?.outputMode === "ContentCalendar" && (
                   <button
                     onClick={handleShufflePosts}
-                    disabled={!effectivePosts.length || lastPayload?.outputMode !== "ContentCalendar"}
+                    disabled={!displayPosts.length || lastPayload?.outputMode !== "ContentCalendar"}
                     className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
                       isDark
                         ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -873,7 +978,32 @@ export default function SocialMediaPostCreatorPage() {
           emptyDescription="Fill out the form above and click &quot;Create Posts&quot; to generate your social media posts."
           className="mt-8"
         >
-              {effectivePosts.length > 0 && (
+              {/* BDW Tools: Edited posts banner */}
+              {editedPosts && (
+                <div className={`rounded-lg border p-3 mb-4 flex items-center justify-between ${
+                  isDark
+                    ? "bg-slate-800/30 border-slate-700"
+                    : "bg-slate-50 border-slate-200"
+                }`}>
+                  <p className={`text-sm ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    ✓ Showing edited version. Original posts preserved.
+                  </p>
+                  <button
+                    onClick={handleResetEdits}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      isDark
+                        ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                        : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                    }`}
+                  >
+                    Reset to Original
+                  </button>
+                </div>
+              )}
+
+              {displayPosts.length > 0 && (
                 <div className="mb-6">
                   {lastPayload?.outputMode === "ContentCalendar" && (
                     <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
@@ -884,7 +1014,7 @@ export default function SocialMediaPostCreatorPage() {
                     Preview by Platform
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {effectivePosts.map((post, idx) => {
+                    {displayPosts.map((post, idx) => {
                       const normalizedPlatform = post.platform.trim().toLowerCase();
                       const meta = PLATFORM_META[normalizedPlatform] ?? {
                         label: post.platform,
@@ -1000,6 +1130,26 @@ export default function SocialMediaPostCreatorPage() {
                   </div>
                 </div>
               )}
+
+              {/* BDW Tools Panel */}
+              {displayPosts.length > 0 && (
+                <>
+                  {/* Copy Bundles */}
+                  <SMPCCopyBundles posts={displayPosts} isDark={isDark} storageKey="smpc-analytics" />
+
+                  {/* BDW Tools Tabs */}
+                  <BDWToolsTabs
+                    posts={displayPosts}
+                    basePosts={parsedPosts}
+                    editedPosts={editedPosts}
+                    isDark={isDark}
+                    onApplyFix={handleApplyFix}
+                    onReset={handleResetEdits}
+                    onUndo={editHistory.length > 0 ? handleUndoLastEdit : undefined}
+                  />
+                </>
+              )}
+
           <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
             isDark ? "bg-slate-800" : "bg-gray-50"
           }`}>
@@ -1012,6 +1162,88 @@ export default function SocialMediaPostCreatorPage() {
         </OBDResultsPanel>
       )}
     </OBDPageContainer>
+  );
+}
+
+// BDW Tools Tabs Component
+interface BDWToolsTabsProps {
+  posts: GeneratedPost[];
+  basePosts: GeneratedPost[];
+  editedPosts: GeneratedPost[] | null;
+  isDark: boolean;
+  onApplyFix: (updatedPosts: GeneratedPost[]) => void;
+  onReset: () => void;
+  onUndo?: () => void;
+}
+
+function BDWToolsTabs({
+  posts,
+  basePosts,
+  editedPosts,
+  isDark,
+  onApplyFix,
+  onReset,
+  onUndo,
+}: BDWToolsTabsProps) {
+  const [activeTab, setActiveTab] = useState<string>("fix-packs");
+
+  const tabs = [
+    { id: "fix-packs", label: "Fix Packs" },
+    { id: "quality-controls", label: "Quality Controls" },
+    { id: "export-center", label: "Export Center" },
+  ];
+
+  return (
+    <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      {/* Tab Headers */}
+      <div className={`flex flex-wrap gap-2 p-4 border-b items-center justify-between ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+        <div className="flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === tab.id
+                ? "bg-[#29c4a9] text-white"
+                : isDark
+                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+        </div>
+        <AnalyticsDetails storageKey="smpc-analytics" isDark={isDark} />
+      </div>
+
+      {/* Tab Content */}
+      <div className="p-4">
+        {activeTab === "fix-packs" && (
+          <SMPCFixPacks
+            posts={posts}
+            basePosts={basePosts}
+            editedPosts={editedPosts}
+            isDark={isDark}
+            onApply={onApplyFix}
+            onReset={onReset}
+            onUndo={onUndo}
+          />
+        )}
+        {activeTab === "quality-controls" && (
+          <SMPCQualityControlsTab
+            posts={posts}
+            isDark={isDark}
+            onApplyFix={onApplyFix}
+          />
+        )}
+        {activeTab === "export-center" && (
+          <SMPCExportCenterPanel posts={posts} isDark={isDark} storageKey="smpc-analytics" />
+        )}
+      </div>
+    </div>
   );
 }
 

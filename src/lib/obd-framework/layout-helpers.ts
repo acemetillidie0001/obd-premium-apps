@@ -70,3 +70,49 @@ export const SUBMIT_BUTTON_CLASSES =
  */
 export const TABLE_WRAPPER = "overflow-x-auto";
 
+/**
+ * Secondary button classes (for Regenerate, Export, Save, etc.)
+ */
+export function getSecondaryButtonClasses(isDark: boolean): string {
+  return `px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+    isDark
+      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  }`;
+}
+
+/**
+ * Subtle button classes - Small variant (for copy buttons, inline actions)
+ */
+export function getSubtleButtonSmallClasses(isDark: boolean): string {
+  return `px-2 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+    isDark
+      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+  }`;
+}
+
+/**
+ * Subtle button classes - Medium variant (for card actions, section actions)
+ */
+export function getSubtleButtonMediumClasses(isDark: boolean): string {
+  return `px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+    isDark
+      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+      : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+  }`;
+}
+
+/**
+ * Tab button classes
+ */
+export function getTabButtonClasses(isActive: boolean, isDark: boolean): string {
+  return `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+    isActive
+      ? "bg-[#29c4a9] text-white"
+      : isDark
+      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+      : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+  }`;
+}
+

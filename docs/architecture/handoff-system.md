@@ -435,6 +435,11 @@ const newSchema = mergeSchemas(existingSchema, handoffPayload.jsonLd);
 - **Cleanup:** on Accept, receiver clears handoff URL params and related localStorage keys, and marks the handoff imported.
 - **URL cleanup:** removes only `handoff`, `handoffId`, `mode`, `source` and preserves other query parameters.
 
+**CMS Adapters:**
+- CMS adapters (Gutenberg, Divi) are pure transforms of `web-draft` payloads
+- No payload mutation or transport changes
+- Export-only; no publishing or CMS APIs
+
 ## Error Handling
 
 ### Parse Errors

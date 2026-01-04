@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
+### Integration #4 — CMS Adapters (Gutenberg / Divi)
+- Added Gutenberg block export from website drafts
+- Added Divi-optimized HTML export
+- Export-only; no publishing or CMS APIs
+
 ## 2026-01-04
 
 ### Integration #3 — ACW → Website/Blog Draft Export

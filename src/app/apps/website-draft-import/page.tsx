@@ -24,6 +24,10 @@ import {
   webDraftToHtml,
 } from "@/lib/handoff/serializers/webDraftSerializers";
 import {
+  gutenbergAdapter,
+  diviAdapter,
+} from "@/lib/handoff/adapters";
+import {
   getHandoffHash,
   wasHandoffAlreadyImported,
   markHandoffImported,
@@ -55,7 +59,7 @@ function WebDraftImportPageContent() {
   const [toast, setToast] = useState<string | null>(null);
 
   // Copy state
-  const [copiedFormat, setCopiedFormat] = useState<"markdown" | "html" | null>(null);
+  const [copiedFormat, setCopiedFormat] = useState<"markdown" | "html" | "gutenberg" | "divi" | null>(null);
 
   // Parse handoff payload on mount
   useEffect(() => {
@@ -222,17 +226,30 @@ function WebDraftImportPageContent() {
   };
 
   // Handle copy
-  const handleCopy = async (format: "markdown" | "html") => {
+  const handleCopy = async (format: "markdown" | "html" | "gutenberg" | "divi") => {
     if (!acceptedDraft) return;
 
     try {
-      const content = format === "markdown" 
-        ? webDraftToMarkdown(acceptedDraft)
-        : webDraftToHtml(acceptedDraft);
+      let content: string;
+      let toastMessage: string;
+      
+      if (format === "markdown") {
+        content = webDraftToMarkdown(acceptedDraft);
+        toastMessage = "Copied as Markdown";
+      } else if (format === "html") {
+        content = webDraftToHtml(acceptedDraft);
+        toastMessage = "Copied as HTML";
+      } else if (format === "gutenberg") {
+        content = gutenbergAdapter.generate(acceptedDraft);
+        toastMessage = "Copied Gutenberg blocks";
+      } else {
+        content = diviAdapter.generate(acceptedDraft);
+        toastMessage = "Copied Divi HTML";
+      }
       
       await navigator.clipboard.writeText(content);
       setCopiedFormat(format);
-      setToast(format === "markdown" ? "Copied as Markdown" : "Copied as HTML");
+      setToast(toastMessage);
       setTimeout(() => {
         setCopiedFormat(null);
         setToast(null);
@@ -245,16 +262,37 @@ function WebDraftImportPageContent() {
   };
 
   // Handle download
-  const handleDownload = (format: "markdown" | "html") => {
+  const handleDownload = (format: "markdown" | "html" | "gutenberg" | "divi") => {
     if (!acceptedDraft) return;
 
     try {
-      const content = format === "markdown"
-        ? webDraftToMarkdown(acceptedDraft)
-        : webDraftToHtml(acceptedDraft);
+      let content: string;
+      let toastMessage: string;
+      let mimeType: string;
+      let extension: string;
       
-      const mimeType = format === "markdown" ? "text/markdown" : "text/html";
-      const extension = format === "markdown" ? "md" : "html";
+      if (format === "markdown") {
+        content = webDraftToMarkdown(acceptedDraft);
+        toastMessage = "Downloaded .md file";
+        mimeType = "text/markdown";
+        extension = "md";
+      } else if (format === "html") {
+        content = webDraftToHtml(acceptedDraft);
+        toastMessage = "Downloaded .html file";
+        mimeType = "text/html";
+        extension = "html";
+      } else if (format === "gutenberg") {
+        content = gutenbergAdapter.generate(acceptedDraft);
+        toastMessage = "Downloaded Gutenberg HTML";
+        mimeType = "text/html";
+        extension = "html";
+      } else {
+        content = diviAdapter.generate(acceptedDraft);
+        toastMessage = "Downloaded Divi HTML";
+        mimeType = "text/html";
+        extension = "html";
+      }
+      
       const filename = `${acceptedDraft.content.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.${extension}`;
 
       const blob = new Blob([content], { type: mimeType });
@@ -268,7 +306,7 @@ function WebDraftImportPageContent() {
       URL.revokeObjectURL(url);
 
       // Toast for success path
-      setToast(format === "markdown" ? "Downloaded .md file" : "Downloaded .html file");
+      setToast(toastMessage);
       setTimeout(() => setToast(null), 2000);
     } catch (error) {
       console.error("Failed to download:", error);
@@ -409,6 +447,36 @@ function WebDraftImportPageContent() {
                     {copiedFormat === "html" ? "Copied!" : "Copy as HTML"}
                   </button>
                   <button
+                    onClick={() => handleCopy("gutenberg")}
+                    disabled={!acceptedDraft}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      !acceptedDraft
+                        ? "opacity-50 cursor-not-allowed"
+                        : copiedFormat === "gutenberg"
+                        ? "bg-[#29c4a9] text-white"
+                        : isDark
+                        ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                        : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                    }`}
+                  >
+                    {copiedFormat === "gutenberg" ? "Copied!" : "Copy Gutenberg Blocks"}
+                  </button>
+                  <button
+                    onClick={() => handleCopy("divi")}
+                    disabled={!acceptedDraft}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                      !acceptedDraft
+                        ? "opacity-50 cursor-not-allowed"
+                        : copiedFormat === "divi"
+                        ? "bg-[#29c4a9] text-white"
+                        : isDark
+                        ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                        : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                    }`}
+                  >
+                    {copiedFormat === "divi" ? "Copied!" : "Copy Divi HTML"}
+                  </button>
+                  <button
                     onClick={() => handleDownload("markdown")}
                     disabled={!acceptedDraft}
                     className={`${getSecondaryButtonClasses(isDark)} ${!acceptedDraft ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -421,6 +489,20 @@ function WebDraftImportPageContent() {
                     className={`${getSecondaryButtonClasses(isDark)} ${!acceptedDraft ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     Download .html
+                  </button>
+                  <button
+                    onClick={() => handleDownload("gutenberg")}
+                    disabled={!acceptedDraft}
+                    className={`${getSecondaryButtonClasses(isDark)} ${!acceptedDraft ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    Download Gutenberg HTML
+                  </button>
+                  <button
+                    onClick={() => handleDownload("divi")}
+                    disabled={!acceptedDraft}
+                    className={`${getSecondaryButtonClasses(isDark)} ${!acceptedDraft ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    Download Divi HTML
                   </button>
                 </div>
               </div>

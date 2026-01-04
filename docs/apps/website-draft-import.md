@@ -18,8 +18,12 @@ Purpose: Receive `web-draft` handoffs from AI Content Writer for preview + expor
 ## Export Options
 - Copy as Markdown
 - Copy as HTML
+- Copy Gutenberg Blocks
+- Copy Divi HTML
 - Download `.md`
 - Download `.html`
+- Download Gutenberg HTML
+- Download Divi HTML
 
 ## Guardrails
 - Max payload size: 150KB (checked before JSON parsing)

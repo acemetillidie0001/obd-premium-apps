@@ -89,26 +89,6 @@ export default function LocalSEOPageBuilderPage() {
 
   const canUndo = undoStack.length > 0;
 
-  // Handle page copy change with undo stack
-  const handlePageCopyChange = (newCopy: string) => {
-    const current = editedPageCopy !== null ? editedPageCopy : (result?.pageCopy || "");
-    if (newCopy !== current) {
-      setUndoStack([current]); // Store previous state (1-deep)
-      setEditedPageCopy(newCopy);
-    }
-  };
-
-  // Handle undo
-  const handleUndo = () => {
-    if (undoStack.length > 0) {
-      const previous = undoStack[undoStack.length - 1];
-      setEditedPageCopy(previous);
-      setUndoStack([]); // Clear undo stack after undo
-    }
-  };
-
-  const canUndo = undoStack.length > 0;
-
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Divi-optimized HTML export
 - Export-only; no publishing or CMS APIs
 
+### Integration #5 — CMS Import Helpers
+- Added guided paste instructions for Gutenberg and Divi in Website Draft Import
+- Added Copy Instructions actions (per CMS + copy all)
+- Export-only; no publishing or CMS APIs
+
 ## 2026-01-04
 
 ### Integration #3 — ACW → Website/Blog Draft Export

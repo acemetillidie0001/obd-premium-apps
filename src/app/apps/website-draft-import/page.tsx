@@ -27,6 +27,7 @@ import {
   gutenbergAdapter,
   diviAdapter,
 } from "@/lib/handoff/adapters";
+import { getCmsImportInstructions } from "@/lib/handoff/adapters/importHelpers";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -60,6 +61,8 @@ function WebDraftImportPageContent() {
 
   // Copy state
   const [copiedFormat, setCopiedFormat] = useState<"markdown" | "html" | "gutenberg" | "divi" | null>(null);
+  const [copiedInstructions, setCopiedInstructions] = useState<"gutenberg" | "divi" | "all" | null>(null);
+  const [lastCmsExport, setLastCmsExport] = useState<"gutenberg" | "divi" | null>(null);
 
   // Parse handoff payload on mount
   useEffect(() => {
@@ -249,6 +252,10 @@ function WebDraftImportPageContent() {
       
       await navigator.clipboard.writeText(content);
       setCopiedFormat(format);
+      // Track CMS export format for suggestion
+      if (format === "gutenberg" || format === "divi") {
+        setLastCmsExport(format);
+      }
       setToast(toastMessage);
       setTimeout(() => {
         setCopiedFormat(null);
@@ -257,6 +264,74 @@ function WebDraftImportPageContent() {
     } catch (error) {
       console.error("Failed to copy:", error);
       setToast("Failed to copy");
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  // Handle copy instructions
+  const handleCopyInstructions = async (target: "gutenberg" | "divi") => {
+    try {
+      const instructions = getCmsImportInstructions(target);
+      const formattedText = [
+        instructions.title,
+        "",
+        `Best for: ${instructions.bestFor}`,
+        "",
+        "Steps:",
+        ...instructions.steps.map((step, idx) => `${idx + 1}) ${step}`),
+        "",
+        instructions.gotcha ? `Gotcha: ${instructions.gotcha}` : "",
+      ].filter(Boolean).join("\n");
+
+      await navigator.clipboard.writeText(formattedText);
+      setCopiedInstructions(target);
+      setToast(target === "gutenberg" ? "Copied Gutenberg instructions" : "Copied Divi instructions");
+      setTimeout(() => {
+        setCopiedInstructions(null);
+        setToast(null);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy instructions:", error);
+      setToast("Failed to copy instructions");
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  // Handle copy all instructions
+  const handleCopyAllInstructions = async () => {
+    try {
+      const gutenbergInstructions = getCmsImportInstructions("gutenberg");
+      const diviInstructions = getCmsImportInstructions("divi");
+
+      const formatInstructions = (instructions: ReturnType<typeof getCmsImportInstructions>) => [
+        instructions.title,
+        "",
+        `Best for: ${instructions.bestFor}`,
+        "",
+        "Steps:",
+        ...instructions.steps.map((step, idx) => `${idx + 1}) ${step}`),
+        "",
+        instructions.gotcha ? `Gotcha: ${instructions.gotcha}` : "",
+      ].filter(Boolean);
+
+      const allText = [
+        ...formatInstructions(gutenbergInstructions),
+        "",
+        "---",
+        "",
+        ...formatInstructions(diviInstructions),
+      ].join("\n");
+
+      await navigator.clipboard.writeText(allText);
+      setCopiedInstructions("all"); // Show visual feedback
+      setToast("Copied CMS instructions");
+      setTimeout(() => {
+        setCopiedInstructions(null);
+        setToast(null);
+      }, 2000);
+    } catch (error) {
+      console.error("Failed to copy all instructions:", error);
+      setToast("Failed to copy instructions");
       setTimeout(() => setToast(null), 2000);
     }
   };
@@ -304,6 +379,11 @@ function WebDraftImportPageContent() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      // Track CMS export format for suggestion
+      if (format === "gutenberg" || format === "divi") {
+        setLastCmsExport(format);
+      }
 
       // Toast for success path
       setToast(toastMessage);
@@ -505,6 +585,124 @@ function WebDraftImportPageContent() {
                     Download Divi HTML
                   </button>
                 </div>
+              </div>
+
+              {/* CMS Import Helpers */}
+              <div>
+                <h4 className={`text-sm font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+                  CMS Import Helpers
+                </h4>
+                <p className={`text-xs mb-2 ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                  Quick steps to paste your draft into WordPress or Divi.
+                </p>
+                {lastCmsExport && (
+                  <p className={`text-xs mb-4 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                    <span className="font-medium">Which should I use?</span>{" "}
+                    {lastCmsExport === "gutenberg"
+                      ? "Since you generated a Gutenberg export, use WordPress (Gutenberg) if you're using WordPress."
+                      : "Since you generated a Divi export, use Divi Builder if you're using Divi."}
+                  </p>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* Gutenberg Card */}
+                  <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    {(() => {
+                      const instructions = getCmsImportInstructions("gutenberg");
+                      return (
+                        <>
+                          <h5 className={`text-base font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+                            WordPress (Gutenberg)
+                          </h5>
+                          <p className={`text-xs mb-3 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                            {instructions.bestFor}
+                          </p>
+                          <ol className={`list-decimal list-inside space-y-2 mb-4 text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                            {instructions.steps.map((step, idx) => (
+                              <li key={idx}>{step}</li>
+                            ))}
+                          </ol>
+                          {instructions.gotcha && (
+                            <p className={`text-xs italic mb-4 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                              {instructions.gotcha}
+                            </p>
+                          )}
+                          <button
+                            onClick={() => handleCopyInstructions("gutenberg")}
+                            disabled={!acceptedDraft}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors w-full ${
+                              !acceptedDraft
+                                ? "opacity-50 cursor-not-allowed"
+                                : copiedInstructions === "gutenberg"
+                                ? "bg-[#29c4a9] text-white"
+                                : isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                                : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                            }`}
+                          >
+                            {copiedInstructions === "gutenberg" ? "Copied!" : "Copy Instructions"}
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Divi Card */}
+                  <div className={`rounded-lg border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+                    {(() => {
+                      const instructions = getCmsImportInstructions("divi");
+                      return (
+                        <>
+                          <h5 className={`text-base font-semibold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+                            Divi Builder
+                          </h5>
+                          <p className={`text-xs mb-3 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                            {instructions.bestFor}
+                          </p>
+                          <ol className={`list-decimal list-inside space-y-2 mb-4 text-sm ${isDark ? "text-slate-300" : "text-slate-700"}`}>
+                            {instructions.steps.map((step, idx) => (
+                              <li key={idx}>{step}</li>
+                            ))}
+                          </ol>
+                          {instructions.gotcha && (
+                            <p className={`text-xs italic mb-4 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                              {instructions.gotcha}
+                            </p>
+                          )}
+                          <button
+                            onClick={() => handleCopyInstructions("divi")}
+                            disabled={!acceptedDraft}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors w-full ${
+                              !acceptedDraft
+                                ? "opacity-50 cursor-not-allowed"
+                                : copiedInstructions === "divi"
+                                ? "bg-[#29c4a9] text-white"
+                                : isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                                : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                            }`}
+                          >
+                            {copiedInstructions === "divi" ? "Copied!" : "Copy Instructions"}
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+                <button
+                  onClick={handleCopyAllInstructions}
+                  disabled={!acceptedDraft}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors w-full ${
+                    !acceptedDraft
+                      ? "opacity-50 cursor-not-allowed"
+                      : copiedInstructions === "all"
+                      ? "bg-[#29c4a9] text-white"
+                      : isDark
+                      ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                      : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                  }`}
+                >
+                  {copiedInstructions === "all" ? "Copied!" : "Copy All Instructions"}
+                </button>
               </div>
 
               {/* Draft Preview */}

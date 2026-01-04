@@ -25,6 +25,22 @@ Purpose: Receive `web-draft` handoffs from AI Content Writer for preview + expor
 - Download Gutenberg HTML
 - Download Divi HTML
 
+## CMS Import Helpers
+The CMS Import Helpers section provides step-by-step instructions for pasting exported content into WordPress (Gutenberg) or Divi Builder.
+
+### Features
+- **Two instruction cards**: One for WordPress (Gutenberg) and one for Divi Builder
+- **Contextual suggestions**: Shows "Which should I use?" guidance based on which export format was last used
+- **Copy Instructions buttons**: 
+  - Individual buttons per CMS to copy formatted instructions
+  - "Copy All Instructions" button to copy both sets in one block
+- **Formatted output**: Instructions include title, best-for description, numbered steps, and gotcha notes
+
+### Behavior
+- Section is disabled (not hidden) until a draft is accepted
+- Instructions are formatted as plain text with clear structure
+- Toast notifications confirm successful copy operations
+
 ## Guardrails
 - Max payload size: 150KB (checked before JSON parsing)
 - Refuses re-import if already imported

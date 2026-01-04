@@ -134,28 +134,60 @@ export async function PUT(request: NextRequest) {
 
     const userId = session.user.id;
     
-    // Verify user exists in database before attempting upsert
+    // Check if user exists in database before attempting upsert
     // This prevents foreign key constraint violations
-    const userExists = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true },
-    });
+    let user = await prisma.user.findUnique({ where: { id: userId } });
     
-    if (!userExists) {
-      console.error("[brand-kit-save] User not found in database:", {
-        requestId,
-        userId,
-        sessionUserId: session.user.id,
-      });
-      return NextResponse.json(
-        {
-          ok: false,
+    if (!user) {
+      // User doesn't exist - try to create from session data
+      const sessionEmail = session.user.email;
+      const sessionName = session.user.name ?? null;
+      
+      if (sessionEmail) {
+        // Safely create user from session data
+        try {
+          user = await prisma.user.create({
+            data: {
+              id: userId,
+              email: sessionEmail,
+              name: sessionName,
+            },
+          });
+          console.log("[brand-kit-save] Created user from session:", {
+            requestId,
+            userId,
+            email: sessionEmail,
+          });
+        } catch (createError) {
+          console.error("[brand-kit-save] Failed to create user:", {
+            requestId,
+            userId,
+            error: createError,
+          });
+          return NextResponse.json(
+            {
+              ok: false,
+              requestId,
+              message: "User record not found for this session",
+            },
+            { status: 400 }
+          );
+        }
+      } else {
+        // No email in session - cannot create user
+        console.error("[brand-kit-save] User not found and no email in session:", {
           requestId,
-          message: "User account not found. Please sign out and sign in again.",
-          code: "USER_NOT_FOUND",
-        },
-        { status: 400 }
-      );
+          userId,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            message: "User record not found for this session",
+          },
+          { status: 400 }
+        );
+      }
     }
     
     // Prepare data for upsert

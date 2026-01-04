@@ -1,6 +1,6 @@
 # Brand Profile Auto-Import Status
 
-**Date**: 2025-01-XX  
+**Date**: 2026-01-04  
 **Status**: COMPLETE / LOCKED / MAINTENANCE-ONLY
 
 ## Overview
@@ -13,8 +13,8 @@ Brand Profile auto-import system provides suite-wide automatic hydration of bran
 - **Fill-empty-only**: Default merge mode preserves existing form values, only fills empty fields
 - **Once per page load**: Uses sessionStorage to prevent duplicate runs within a page session
 - **Toggle**: User-visible checkbox control per app (persisted to localStorage: `obd.<app>.useBrandProfile`)
-- **Toast notification**: One-time toast shown when brand profile is successfully applied to empty fields
-- **Status indicators**: UI shows "Saved Brand Profile detected", "Applied to empty fields", or "Create a Brand Profile →" link
+- **Toast notification**: One-time toast shown when brand profile is successfully applied: "Brand Profile applied to empty fields."
+- **Status indicators**: UI shows "Saved Brand Profile detected.", "Applied to empty fields.", or "Create a Brand Profile →" link
 
 ## Tenant Safety
 

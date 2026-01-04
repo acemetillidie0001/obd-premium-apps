@@ -10,6 +10,8 @@ import {
 } from "@/lib/bdw";
 import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
 import { getSecondaryButtonClasses } from "@/lib/obd-framework/layout-helpers";
+import { buildWebDraftPayload } from "@/lib/apps/content-writer/webDraft";
+import { validateWebDraftPayload } from "@/lib/handoff/validators";
 
 interface CWExportCenterPanelProps {
   content: ContentOutput;
@@ -351,6 +353,33 @@ export default function CWExportCenterPanel({
     }
   };
 
+  const handleSendWebDraft = () => {
+    if (!canUseTools || !isContentReadyForExport(content)) {
+      return;
+    }
+
+    try {
+      // Build web-draft payload from active content
+      const payload = buildWebDraftPayload(content);
+
+      // Validate with Zod validator
+      const validation = validateWebDraftPayload(payload);
+      if (!validation.success) {
+        // Show first validation issue or friendly fallback
+        const firstError = validation.error.split(";")[0] || validation.error;
+        onToast(`Validation failed: ${firstError}`);
+        return;
+      }
+
+      // Send via handoff transport
+      onToast("Draft sent to Website Draft Export");
+      storeHandoffPayload(payload, "/apps/website-draft-import");
+    } catch (error) {
+      console.error("Failed to send web draft:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
+
   const handleCopy = async (itemId: string, content: string, exportType?: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -588,6 +617,39 @@ export default function CWExportCenterPanel({
             <button
               onClick={handleSendArticleToHelpDesk}
               disabled={!canUseTools || content.sections.length === 0}
+              className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+            >
+              Send
+            </button>
+          </div>
+
+          {/* Send Website / Blog Draft */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <button
+                onClick={handleSendWebDraft}
+                disabled={!canUseTools || !isContentReadyForExport(content)}
+                className={`text-left text-sm font-medium transition-colors ${
+                  canUseTools && isContentReadyForExport(content)
+                    ? isDark
+                      ? "text-slate-200 hover:text-white"
+                      : "text-slate-700 hover:text-slate-900"
+                    : isDark
+                    ? "text-slate-500 cursor-not-allowed"
+                    : "text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                Send Website / Blog Draft
+              </button>
+              {(!canUseTools || !isContentReadyForExport(content)) && (
+                <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                  Generate content to enable
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleSendWebDraft}
+              disabled={!canUseTools || !isContentReadyForExport(content)}
               className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
             >
               Send

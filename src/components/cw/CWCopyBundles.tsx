@@ -2,29 +2,7 @@
 
 import { useState } from "react";
 import { recordExport } from "@/lib/bdw/local-analytics";
-
-interface ContentSection {
-  heading: string;
-  body: string;
-}
-
-interface FAQItem {
-  question: string;
-  answer: string;
-}
-
-interface ContentOutput {
-  title: string;
-  seoTitle: string;
-  metaDescription: string;
-  slugSuggestion: string;
-  outline: string[];
-  sections: ContentSection[];
-  faq: FAQItem[];
-  socialBlurb: string;
-  wordCountApprox: number;
-  keywordsUsed: string[];
-}
+import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
 
 interface CWCopyBundlesProps {
   content: ContentOutput;
@@ -78,6 +56,15 @@ function formatContentOnlyBundle(content: ContentOutput): string {
 export default function CWCopyBundles({ content, isDark, storageKey }: CWCopyBundlesProps) {
   const [copiedBundle, setCopiedBundle] = useState<string | null>(null);
 
+  // Guard: Prevent operations on empty/placeholder content
+  if (!isContentReadyForExport(content)) {
+    return (
+      <div className={`text-center py-4 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className="text-xs">Generate content to enable Copy & Export</p>
+      </div>
+    );
+  }
+
   const handleCopy = async (bundleId: string, content: string, exportType?: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -96,48 +83,46 @@ export default function CWCopyBundles({ content, isDark, storageKey }: CWCopyBun
   };
 
   return (
-    <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-      <div className="flex flex-wrap gap-3 items-center">
-        <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>
-          Copy Bundles:
-        </span>
-        <button
-          onClick={() => handleCopy("seo", formatSEOBundle(content), "bundle:seo")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            copiedBundle === "seo"
-              ? "bg-[#29c4a9] text-white"
-              : isDark
-              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
-              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
-          }`}
-        >
-          {copiedBundle === "seo" ? "Copied!" : "Copy SEO Bundle"}
-        </button>
-        <button
-          onClick={() => handleCopy("content", formatContentOnlyBundle(content), "bundle:content")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            copiedBundle === "content"
-              ? "bg-[#29c4a9] text-white"
-              : isDark
-              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
-              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
-          }`}
-        >
-          {copiedBundle === "content" ? "Copied!" : "Copy Content Bundle"}
-        </button>
-        <button
-          onClick={() => handleCopy("full", formatFullContentBundle(content), "bundle:full")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            copiedBundle === "full"
-              ? "bg-[#29c4a9] text-white"
-              : isDark
-              ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
-              : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
-          }`}
-        >
-          {copiedBundle === "full" ? "Copied!" : "Copy Full Bundle"}
-        </button>
-      </div>
+    <div className="flex flex-wrap gap-2 items-center">
+      <span className={`text-xs font-medium ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+        Copy Bundles:
+      </span>
+      <button
+        onClick={() => handleCopy("seo", formatSEOBundle(content), "bundle:seo")}
+        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+          copiedBundle === "seo"
+            ? "bg-[#29c4a9] text-white"
+            : isDark
+            ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+            : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+        }`}
+      >
+        {copiedBundle === "seo" ? "Copied!" : "SEO Bundle"}
+      </button>
+      <button
+        onClick={() => handleCopy("content", formatContentOnlyBundle(content), "bundle:content")}
+        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+          copiedBundle === "content"
+            ? "bg-[#29c4a9] text-white"
+            : isDark
+            ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+            : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+        }`}
+      >
+        {copiedBundle === "content" ? "Copied!" : "Content Bundle"}
+      </button>
+      <button
+        onClick={() => handleCopy("full", formatFullContentBundle(content), "bundle:full")}
+        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+          copiedBundle === "full"
+            ? "bg-[#29c4a9] text-white"
+            : isDark
+            ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+            : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+        }`}
+      >
+        {copiedBundle === "full" ? "Copied!" : "Full Bundle"}
+      </button>
     </div>
   );
 }

@@ -10,6 +10,12 @@ import AnalyticsDetails from "./AnalyticsDetails";
 import { type BrandProfile } from "@/lib/bdw";
 import { safeTrimToLimit } from "@/lib/bdw";
 import { recordExport } from "@/lib/bdw/local-analytics";
+import {
+  formatForGBP,
+  formatForDivi,
+  formatForDirectory,
+  type DestinationInput,
+} from "@/lib/bdw";
 
 interface LocalSEOPageBuilderToolsProps {
   pageCopy: string;
@@ -86,6 +92,53 @@ export default function LocalSEOPageBuilderTools({
     if (exportType) {
       recordExport("lseo-analytics", exportType);
     }
+  };
+
+  // Convert Local SEO data to DestinationInput
+  const buildDestinationInput = (): DestinationInput => {
+    // Build sections from page copy
+    const sections: Array<{ heading?: string; body: string }> = [];
+    
+    // Split page copy into paragraphs (simple approach)
+    const paragraphs = pageCopy.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+    paragraphs.forEach((para, idx) => {
+      // Check if paragraph looks like a heading (short, no period)
+      const isHeading = para.length < 100 && !para.includes(".");
+      if (isHeading && idx === 0) {
+        // First short paragraph might be a heading
+        sections.push({
+          heading: para.trim(),
+          body: "",
+        });
+      } else {
+        // Add to last section or create new one
+        if (sections.length > 0 && !sections[sections.length - 1].body) {
+          sections[sections.length - 1].body = para.trim();
+        } else {
+          sections.push({
+            body: para.trim(),
+          });
+        }
+      }
+    });
+
+    // Convert FAQs
+    const convertedFaqs = faqs?.map((faq) => ({
+      q: faq.question,
+      a: faq.answer,
+    })) || [];
+
+    // Build description from page copy
+    const description = pageCopy || "";
+
+    return {
+      title: seoPack?.h1 || formValues.businessName,
+      slug: seoPack?.slug,
+      metaDescription: seoPack?.metaDescription,
+      description,
+      sections: sections.length > 0 ? sections : undefined,
+      faqs: convertedFaqs.length > 0 ? convertedFaqs : undefined,
+    };
   };
 
   // Build export content
@@ -268,6 +321,60 @@ export default function LocalSEOPageBuilderTools({
                       }`}
                     >
                       {copiedItem === "html" ? "Copied!" : "Copy as HTML"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Destination Exports */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Destination Exports
+                  </h4>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={() => {
+                        const input = buildDestinationInput();
+                        handleCopy(formatForGBP(input), "dest-gbp", "dest:gbp");
+                      }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItem === "dest-gbp"
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItem === "dest-gbp" ? "Copied!" : "Copy for GBP"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const input = buildDestinationInput();
+                        handleCopy(formatForDivi(input), "dest-divi", "dest:divi");
+                      }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItem === "dest-divi"
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItem === "dest-divi" ? "Copied!" : "Copy for Divi"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const input = buildDestinationInput();
+                        handleCopy(formatForDirectory(input), "dest-directory", "dest:directory");
+                      }}
+                      className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                        copiedItem === "dest-directory"
+                          ? "bg-[#29c4a9] text-white"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                          : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+                      }`}
+                    >
+                      {copiedItem === "dest-directory" ? "Copied!" : "Copy for Directory"}
                     </button>
                   </div>
                 </div>

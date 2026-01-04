@@ -2,29 +2,7 @@
 
 import { useState } from "react";
 import { runQualityAnalysis, generateSoftenHypeWordsFix, generateRemoveDuplicatesFix } from "@/lib/bdw";
-
-interface ContentSection {
-  heading: string;
-  body: string;
-}
-
-interface FAQItem {
-  question: string;
-  answer: string;
-}
-
-interface ContentOutput {
-  title: string;
-  seoTitle: string;
-  metaDescription: string;
-  slugSuggestion: string;
-  outline: string[];
-  sections: ContentSection[];
-  faq: FAQItem[];
-  socialBlurb: string;
-  wordCountApprox: number;
-  keywordsUsed: string[];
-}
+import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
 
 interface QualityControlsFormValues {
   services: string;
@@ -93,12 +71,11 @@ export default function CWQualityControlsTab({
     setPreviewState(null);
   };
 
-  const hasContent = content.sections.length > 0 || content.metaDescription;
-
-  if (!hasContent) {
+  // Guard: Prevent operations on empty content
+  if (!isContentReadyForExport(content)) {
     return (
       <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-        <p className="text-sm">Generate content to run quality checks.</p>
+        <p className="text-sm">No content available for quality checks.</p>
       </div>
     );
   }

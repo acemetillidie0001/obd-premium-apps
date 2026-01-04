@@ -8,8 +8,9 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
+import OBDStatusBlock from "@/components/obd/OBDStatusBlock";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSecondaryButtonClasses, getSubtleButtonSmallClasses, getSubtleButtonMediumClasses, getTabButtonClasses } from "@/lib/obd-framework/layout-helpers";
 import { flags } from "@/lib/flags";
 import SerpPreview from "@/components/seo/SerpPreview";
 import SavedVersionsPanel from "@/components/bdw/SavedVersionsPanel";
@@ -213,15 +214,7 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
             onClick={() => setActiveTab(tab.id)}
             role="tab"
             aria-selected={activeTab === tab.id}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-              activeTab === tab.id
-                ? isDark
-                  ? "bg-[#29c4a9] text-white"
-                  : "bg-[#29c4a9] text-white"
-                : isDark
-                ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
-            }`}
+            className={`${getTabButtonClasses(activeTab === tab.id, isDark)} flex items-center gap-2`}
           >
             {tab.label}
             {isEdited && (
@@ -243,11 +236,9 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
       <div className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div>
-            <h3 className={`text-sm font-semibold mb-1 ${
-              isDark ? "text-white" : "text-slate-900"
-            }`}>
+            <OBDHeading level={2} isDark={isDark} className="text-sm font-semibold mb-1">
               {activeTabData.label}
-            </h3>
+            </OBDHeading>
             <p className={`text-xs ${
               isDark ? "text-slate-400" : "text-slate-500"
             }`}>
@@ -256,11 +247,7 @@ function UseCaseTabs({ result, isDark, isEdited = false }: UseCaseTabsProps) {
           </div>
           <button
             onClick={() => handleCopy(activeTab, activeTabData.content)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              isDark
-                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
-            }`}
+            className={getSubtleButtonMediumClasses(isDark)}
           >
             {copiedTab === activeTab ? "Copied!" : "Copy"}
           </button>
@@ -382,7 +369,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
                 <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>Facebook:</p>
                 <button
                   onClick={() => handleCopy("social-facebook", result.socialBioPack.facebookBio)}
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  className={getSubtleButtonSmallClasses(isDark)}
                 >
                   {copiedItems["social-facebook"] ? "Copied!" : "Copy"}
                 </button>
@@ -396,7 +383,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
                 <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>Instagram:</p>
                 <button
                   onClick={() => handleCopy("social-instagram", result.socialBioPack.instagramBio)}
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  className={getSubtleButtonSmallClasses(isDark)}
                 >
                   {copiedItems["social-instagram"] ? "Copied!" : "Copy"}
                 </button>
@@ -410,7 +397,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
                 <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>X (Twitter):</p>
                 <button
                   onClick={() => handleCopy("social-x", result.socialBioPack.xBio)}
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  className={getSubtleButtonSmallClasses(isDark)}
                 >
                   {copiedItems["social-x"] ? "Copied!" : "Copy"}
                 </button>
@@ -424,7 +411,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
                 <p className={`font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>LinkedIn Tagline:</p>
                 <button
                   onClick={() => handleCopy("social-linkedin", result.socialBioPack.linkedinTagline)}
-                  className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  className={getSubtleButtonSmallClasses(isDark)}
                 >
                   {copiedItems["social-linkedin"] ? "Copied!" : "Copy"}
                 </button>
@@ -439,9 +426,11 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
       case "taglines":
         if (!result.taglineOptions || result.taglineOptions.length === 0) {
           return (
-            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              <p className="text-sm">No tagline options available.</p>
-            </div>
+            <OBDStatusBlock
+              variant="empty"
+              title="No tagline options available"
+              isDark={isDark}
+            />
           );
         }
         if (isCollapsed) {
@@ -472,9 +461,11 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
       case "elevator-pitch":
         if (!result.elevatorPitch) {
           return (
-            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              <p className="text-sm">No elevator pitch available.</p>
-            </div>
+            <OBDStatusBlock
+              variant="empty"
+              title="No elevator pitch available"
+              isDark={isDark}
+            />
           );
         }
         if (isCollapsed) {
@@ -489,7 +480,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
             <div className="flex items-start justify-end mb-3">
               <button
                 onClick={() => handleCopy("elevator-pitch", result.elevatorPitch)}
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                className={getSubtleButtonMediumClasses(isDark)}
               >
                 {copiedItems["elevator-pitch"] ? "Copied!" : "Copy"}
               </button>
@@ -503,9 +494,11 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
       case "faqs":
         if (!result.faqSuggestions || result.faqSuggestions.length === 0) {
           return (
-            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              <p className="text-sm">No FAQ suggestions available.</p>
-            </div>
+            <OBDStatusBlock
+              variant="empty"
+              title="No FAQ suggestions available"
+              isDark={isDark}
+            />
           );
         }
         if (isCollapsed) {
@@ -524,7 +517,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
                   <div className="flex items-start justify-end mb-3">
                     <button
                       onClick={() => handleCopy(`faq-${idx}`, faqText)}
-                      className={`px-2 py-1 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                      className={getSubtleButtonSmallClasses(isDark)}
                     >
                       {copiedItems[`faq-${idx}`] ? "Copied!" : "Copy"}
                     </button>
@@ -544,9 +537,11 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
       case "meta":
         if (!result.metaDescription) {
           return (
-            <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-              <p className="text-sm">No meta description available.</p>
-            </div>
+            <OBDStatusBlock
+              variant="empty"
+              title="No meta description available"
+              isDark={isDark}
+            />
           );
         }
         if (isCollapsed) {
@@ -576,7 +571,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
               <div className="flex items-start justify-end mb-3">
                 <button
                   onClick={() => handleCopy("meta-description", result.metaDescription || "")}
-                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+                  className={getSubtleButtonMediumClasses(isDark)}
                 >
                   {copiedItems["meta-description"] ? "Copied!" : "Copy"}
                 </button>
@@ -619,7 +614,7 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
             onClick={() => setActivePackTab(tab.id)}
             role="tab"
             aria-selected={activePackTab === tab.id}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${activePackTab === tab.id ? "bg-[#29c4a9] text-white" : isDark ? "bg-slate-700 text-slate-300 hover:bg-slate-600" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"}`}
+            className={getTabButtonClasses(activePackTab === tab.id, isDark)}
           >
             {tab.label}
           </button>
@@ -633,17 +628,13 @@ function ContentPacksTabs({ result, isDark, isV4Enabled, formValues, onApplyFix 
         {/* Pack Header with Toggle (hidden for Export Center and Quality Controls) */}
         {activePackTab !== "export-center" && activePackTab !== "quality-controls" && (
           <div className="flex items-center justify-between mb-4">
-            <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+            <OBDHeading level={2} isDark={isDark} className="text-sm font-semibold">
               {packTabs.find((tab) => tab.id === activePackTab)?.label}
-            </h3>
+            </OBDHeading>
             <button
               onClick={() => toggleCollapse(activePackTab)}
               aria-expanded={!isCollapsed}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                isDark
-                  ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
-              }`}
+              className={getSubtleButtonMediumClasses(isDark)}
             >
               {isCollapsed ? "Expand" : "Collapse"}
             </button>
@@ -696,22 +687,14 @@ function LoadedVersionBanner({ versionInfo, isDark, onClear, onReset }: LoadedVe
           {onReset && (
             <button
               onClick={onReset}
-              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-                isDark
-                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                  : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
-              }`}
+                        className={getSubtleButtonMediumClasses(isDark)}
             >
               Reset to loaded
             </button>
           )}
           <button
             onClick={onClear}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              isDark
-                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
-            }`}
+                        className={getSubtleButtonMediumClasses(isDark)}
           >
             Clear
           </button>
@@ -756,11 +739,7 @@ function RegenerateDropdown({ onRegenerate, loading, isDark }: RegenerateDropdow
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={loading}
-        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 ${
-          isDark
-            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-        }`}
+        className={`${getSecondaryButtonClasses(isDark)} flex items-center gap-2`}
       >
         {loading ? "Regenerating..." : "Regenerate"}
         <svg
@@ -1371,7 +1350,7 @@ function BusinessDescriptionWriterPage() {
         {/* V4 INSERTION POINT: Add V4 form enhancements here when flags.bdwV4 is true */}
         {/* When V4 is enabled, new UI components can be added above or within the form */}
         <form onSubmit={handleSubmit}>
-              <div className={`space-y-4 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
+              <div className={`space-y-6 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
                 <div>
                   <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
                     Business Name
@@ -1641,11 +1620,7 @@ function BusinessDescriptionWriterPage() {
                     <button
                       onClick={handleSaveVersion}
                       disabled={loading}
-                      className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                        isDark
-                          ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      }`}
+                      className={getSecondaryButtonClasses(isDark)}
                     >
                       Save Version
                     </button>
@@ -1676,7 +1651,7 @@ function BusinessDescriptionWriterPage() {
           className="mt-8"
         >
           {displayResult ? (
-                <div className="grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 gap-6">
                   {/* V5-2: Reset edits button - shown when editedResult exists */}
                   {editedResult && isV4Enabled && (
                     <div className={`rounded-lg border p-3 flex items-center justify-between ${

@@ -2,29 +2,7 @@
 
 import { useState } from "react";
 import { runQualityAnalysis, generateSoftenHypeWordsFix, generateRemoveDuplicatesFix } from "@/lib/bdw";
-
-interface ContentSection {
-  heading: string;
-  body: string;
-}
-
-interface FAQItem {
-  question: string;
-  answer: string;
-}
-
-interface ContentOutput {
-  title: string;
-  seoTitle: string;
-  metaDescription: string;
-  slugSuggestion: string;
-  outline: string[];
-  sections: ContentSection[];
-  faq: FAQItem[];
-  socialBlurb: string;
-  wordCountApprox: number;
-  keywordsUsed: string[];
-}
+import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
 
 interface ContentWriterFormValues {
   services: string;
@@ -33,7 +11,8 @@ interface ContentWriterFormValues {
 
 interface CWFixPacksProps {
   formValues: ContentWriterFormValues;
-  baseContent: ContentOutput;
+  baseContent: ContentOutput; // Active content (what user sees)
+  baselineContent: ContentOutput | null; // Original generation (for reset logic)
   editedContent: ContentOutput | null;
   isDark: boolean;
   onApply: (partialUpdated: Partial<ContentOutput>, fixPackId?: string) => void;
@@ -60,6 +39,7 @@ function contentToBDWFormat(content: ContentOutput) {
 export default function CWFixPacks({
   formValues,
   baseContent,
+  baselineContent,
   editedContent,
   isDark,
   onApply,
@@ -73,8 +53,17 @@ export default function CWFixPacks({
     proposed: Partial<ContentOutput>;
   } | null>(null);
 
-  const displayContent = editedContent ?? baseContent;
-  const bdwFormat = contentToBDWFormat(displayContent);
+  // Guard: Prevent operations on empty content
+  if (!isContentReadyForExport(baseContent)) {
+    return (
+      <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className="text-sm">No content available for fix packs.</p>
+      </div>
+    );
+  }
+
+  // Use baseContent (active content) for previews and fix application
+  const bdwFormat = contentToBDWFormat(baseContent);
   const analysis = runQualityAnalysis(bdwFormat, formValues.services, formValues.keywords);
 
   const handlePreviewFix = (fixId: string, fixTitle: string, proposed: Partial<ContentOutput>) => {
@@ -113,7 +102,7 @@ export default function CWFixPacks({
       const proposed: Partial<ContentOutput> = {};
       if (hypeFix.websiteAboutUs && hypeFix.websiteAboutUs !== bdwFormat.websiteAboutUs) {
         // Try to apply to sections
-        const updatedSections = [...displayContent.sections];
+        const updatedSections = [...baseContent.sections];
         // Simple approach: update first section that has hype words
         if (updatedSections.length > 0) {
           updatedSections[0] = {
@@ -143,7 +132,7 @@ export default function CWFixPacks({
     if (dupFix && Object.keys(dupFix).length > 0) {
       const proposed: Partial<ContentOutput> = {};
       if (dupFix.websiteAboutUs && dupFix.websiteAboutUs !== bdwFormat.websiteAboutUs) {
-        const updatedSections = [...displayContent.sections];
+        const updatedSections = [...baseContent.sections];
         if (updatedSections.length > 0) {
           updatedSections[0] = {
             ...updatedSections[0],
@@ -163,7 +152,8 @@ export default function CWFixPacks({
     }
   }
 
-  const hasEdits = editedContent !== null;
+  // Show Reset button if there are edits (editedContent exists) and baseline exists
+  const hasEdits = editedContent !== null && baselineContent !== null;
   const canUndo = !!onUndo;
 
   return (

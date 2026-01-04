@@ -8,7 +8,8 @@ import OBDStickyActionBar from "@/components/obd/OBDStickyActionBar";
 import OBDResultsPanel from "@/components/obd/OBDResultsPanel";
 import OBDResultsActions from "@/components/obd/OBDResultsActions";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSecondaryButtonClasses, getSubtleButtonMediumClasses } from "@/lib/obd-framework/layout-helpers";
+import FAQExportCenterPanel from "@/components/faq/FAQExportCenterPanel";
 
 export default function FAQGeneratorPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -46,6 +47,19 @@ export default function FAQGeneratorPage() {
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [shuffledFAQs, setShuffledFAQs] = useState<Array<{ number: number; question: string; answer: string; characterCount: number }> | null>(null);
+  const [editedFAQs, setEditedFAQs] = useState<FAQItem[] | null>(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editQuestion, setEditQuestion] = useState("");
+  const [editAnswer, setEditAnswer] = useState("");
+
+  // Accordion state for form sections
+  const [accordionState, setAccordionState] = useState({
+    businessBasics: true,
+    topicDetails: true,
+    tonePersonality: false,
+    faqSettings: false,
+  });
 
   type FAQItem = {
     number: number;
@@ -113,11 +127,67 @@ export default function FAQGeneratorPage() {
     [aiResponse]
   );
 
-  const effectiveFAQs = shuffledFAQs ?? parsedFAQs;
+  // Canonical selector: returns edited FAQs if present, otherwise generated FAQs
+  const getActiveFaqs = (): FAQItem[] => {
+    return editedFAQs ?? parsedFAQs;
+  };
+
+  const activeFaqs = useMemo(() => getActiveFaqs(), [editedFAQs, parsedFAQs]);
+  const effectiveFAQs = shuffledFAQs ?? activeFaqs;
 
   useEffect(() => {
     setShuffledFAQs(null);
   }, [aiResponse]);
+
+  useEffect(() => {
+    // Reset edited FAQs when new response arrives
+    setEditedFAQs(null);
+  }, [aiResponse]);
+
+  // Helper to show toast and auto-clear after 1200ms
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => {
+      setActionToast(null);
+    }, 1200);
+  };
+
+  // Toggle accordion section
+  const toggleAccordion = (section: keyof typeof accordionState) => {
+    setAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Summary functions for accordion sections
+  const getBusinessBasicsSummary = (): string => {
+    const parts: string[] = [];
+    if (businessName) parts.push(businessName);
+    if (businessType) parts.push(businessType);
+    return parts.length > 0 ? parts.join(" • ") : "Not filled";
+  };
+
+  const getTopicDetailsSummary = (): string => {
+    const parts: string[] = [];
+    if (topic) parts.push(topic);
+    if (services) parts.push("Details provided");
+    return parts.length > 0 ? parts.join(" • ") : "Not filled";
+  };
+
+  const getTonePersonalitySummary = (): string => {
+    const parts: string[] = [];
+    if (tone) parts.push(tone);
+    if (personalityStyle) parts.push(personalityStyle);
+    if (brandVoice) parts.push("Brand Voice");
+    return parts.length > 0 ? parts.join(" • ") : "Not set";
+  };
+
+  const getFaqSettingsSummary = (): string => {
+    const parts: string[] = [];
+    parts.push(`${faqCount} FAQs`);
+    parts.push(answerLength);
+    parts.push(hasEmoji);
+    if (faqTheme) parts.push(faqTheme);
+    return parts.join(" • ");
+  };
 
   function getCharacterMeta(count: number) {
     if (count < 50) return { label: `${count} chars (short)`, tone: "muted" };
@@ -204,10 +274,118 @@ export default function FAQGeneratorPage() {
     }
   };
 
-  const handleShuffleFAQs = () => {
-    if (parsedFAQs.length < 5) return;
+  // Format FAQs to text for copying
+  const formatFaqsToText = (faqs: FAQItem[]): string => {
+    return faqs.map((faq) => `FAQ ${faq.number}\nQ: ${faq.question}\nA: ${faq.answer}`).join("\n\n");
+  };
 
-    const copy = [...parsedFAQs];
+  // Check if FAQs have been edited
+  const isEdited = useMemo(() => {
+    if (!editedFAQs || editedFAQs.length === 0) return false;
+    if (editedFAQs.length !== parsedFAQs.length) return true;
+    return editedFAQs.some((edited, idx) => {
+      const original = parsedFAQs[idx];
+      return !original || edited.question !== original.question || edited.answer !== original.answer;
+    });
+  }, [editedFAQs, parsedFAQs]);
+
+  // Handlers for inline editing
+  const handleEditStart = (index: number) => {
+    // Clear shuffle when starting to edit to ensure indices match
+    setShuffledFAQs(null);
+    const activeFaqs = getActiveFaqs();
+    const faq = activeFaqs[index];
+    if (faq) {
+      setEditingIndex(index);
+      setEditQuestion(faq.question);
+      setEditAnswer(faq.answer);
+    }
+  };
+
+  const handleEditCancel = () => {
+    setEditingIndex(null);
+    setEditQuestion("");
+    setEditAnswer("");
+  };
+
+  const handleEditSave = () => {
+    if (editingIndex === null) return;
+    
+    const trimmedQuestion = editQuestion.trim();
+    const trimmedAnswer = editAnswer.trim();
+    
+    if (!trimmedQuestion || !trimmedAnswer) {
+      showToast("Question and answer cannot be empty");
+      return;
+    }
+
+    const activeFaqs = getActiveFaqs();
+    const updatedFAQs = [...activeFaqs];
+    const faqToUpdate = updatedFAQs[editingIndex];
+    
+    updatedFAQs[editingIndex] = {
+      ...faqToUpdate,
+      question: trimmedQuestion,
+      answer: trimmedAnswer,
+      characterCount: trimmedAnswer.length,
+    };
+
+    setEditedFAQs(updatedFAQs);
+    setEditingIndex(null);
+    setEditQuestion("");
+    setEditAnswer("");
+    setShuffledFAQs(null); // Clear shuffle when editing
+    showToast("FAQ saved");
+  };
+
+  const handleDeleteFAQ = (index: number) => {
+    const activeFaqs = getActiveFaqs();
+    if (activeFaqs.length <= 1) {
+      showToast("Cannot delete the last FAQ");
+      return;
+    }
+
+    const updatedFAQs = activeFaqs.filter((_, idx) => idx !== index);
+    // Renumber FAQs
+    const renumberedFAQs = updatedFAQs.map((faq, idx) => ({
+      ...faq,
+      number: idx + 1,
+    }));
+
+    setEditedFAQs(renumberedFAQs);
+    setShuffledFAQs(null); // Clear shuffle when deleting
+    if (editingIndex === index) {
+      handleEditCancel();
+    }
+    showToast("FAQ deleted");
+  };
+
+  const handleAddNewFAQ = () => {
+    const activeFaqs = getActiveFaqs();
+    const newFAQ: FAQItem = {
+      number: activeFaqs.length + 1,
+      question: "",
+      answer: "",
+      characterCount: 0,
+    };
+
+    const updatedFAQs = [...activeFaqs, newFAQ];
+    setEditedFAQs(updatedFAQs);
+    setShuffledFAQs(null); // Clear shuffle when adding
+    // Start editing the new FAQ
+    setEditingIndex(activeFaqs.length);
+    setEditQuestion("");
+    setEditAnswer("");
+    showToast("New FAQ added");
+  };
+
+  const handleShuffleFAQs = () => {
+    if (activeFaqs.length < 5) {
+      showToast("Need at least 5 FAQs to shuffle");
+      return;
+    }
+
+    const copy = [...activeFaqs];
     for (let i = copy.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [copy[i], copy[j]] = [copy[j], copy[i]];
@@ -287,12 +465,19 @@ export default function FAQGeneratorPage() {
   };
 
   const handleCopy = async () => {
+    if (activeFaqs.length === 0) {
+      showToast("No FAQs to copy");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(aiResponse);
+      const textToCopy = formatFaqsToText(activeFaqs);
+      await navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       console.error("Failed to copy:", error);
+      showToast("Failed to copy");
     }
   };
 
@@ -306,206 +491,305 @@ export default function FAQGeneratorPage() {
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
-          <div className="flex justify-end gap-2 mb-4">
+          <div className="space-y-4 pb-24">
+            {/* Business Basics Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("businessBasics")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Business Basics
+                  </h3>
+                  {!accordionState.businessBasics && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getBusinessBasicsSummary()}
+                    </p>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={handleLoadTemplate}
-                  className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm ${
-                    isDark
-                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("businessBasics");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
                 >
-                  Load Template
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveTemplate}
-                  className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm ${
-                    isDark
-                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  Save Template
+                  {accordionState.businessBasics ? "Collapse" : "Expand"}
                 </button>
               </div>
-              <div className="space-y-4 pb-24">
-                <div>
-                  <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Name
-                  </label>
-                  <input
-                    type="text"
-                    id="businessName"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Ocala Coffee Shop"
-                  />
+              {accordionState.businessBasics && (
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                        Business Name
+                      </label>
+                      <input
+                        type="text"
+                        id="businessName"
+                        value={businessName}
+                        onChange={(e) => setBusinessName(e.target.value)}
+                        className={getInputClasses(isDark)}
+                        placeholder="e.g., Ocala Coffee Shop"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                        Business Type
+                      </label>
+                      <input
+                        type="text"
+                        id="businessType"
+                        value={businessType}
+                        onChange={(e) => setBusinessType(e.target.value)}
+                        className={getInputClasses(isDark)}
+                        placeholder="e.g., Restaurant, Retail, Service"
+                      />
+                    </div>
+                  </div>
                 </div>
+              )}
+            </div>
 
-                <div>
-                  <label htmlFor="businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Type
-                  </label>
-                  <input
-                    type="text"
-                    id="businessType"
-                    value={businessType}
-                    onChange={(e) => setBusinessType(e.target.value)}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Restaurant, Retail, Service"
-                  />
+            {/* Topic Details Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("topicDetails")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Topic & Details
+                  </h3>
+                  {!accordionState.topicDetails && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getTopicDetailsSummary()}
+                    </p>
+                  )}
                 </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("topicDetails");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.topicDetails ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.topicDetails && (
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label htmlFor="topic" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Main Topic / Service Area <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="topic"
+                      value={topic}
+                      onChange={(e) => setTopic(e.target.value)}
+                      className={getInputClasses(isDark)}
+                      placeholder="e.g., Services, Policies, Hours, Pricing"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Business Details / Services
+                    </label>
+                    <textarea
+                      id="services"
+                      value={services}
+                      onChange={(e) => setServices(e.target.value)}
+                      rows={4}
+                      className={getInputClasses(isDark, "resize-none")}
+                      placeholder="Describe your main services, products, policies, hours, etc..."
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
-                <div>
-                  <label htmlFor="topic" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Main Topic / Service Area
-                  </label>
-                  <input
-                    type="text"
-                    id="topic"
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Services, Policies, Hours, Pricing"
-                    required
-                  />
+            {/* Tone & Personality Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("tonePersonality")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Tone & Personality
+                  </h3>
+                  {!accordionState.tonePersonality && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getTonePersonalitySummary()}
+                    </p>
+                  )}
                 </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("tonePersonality");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.tonePersonality ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.tonePersonality && (
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Brand Voice Sample (Optional)
+                    </label>
+                    <textarea
+                      id="brandVoice"
+                      value={brandVoice}
+                      onChange={(e) => setBrandVoice(e.target.value)}
+                      rows={3}
+                      className={getInputClasses(isDark, "resize-none")}
+                      placeholder="Paste 2–4 sentences that sound like your existing brand voice (website, brochure, etc.)"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Personality Style
+                    </label>
+                    <select
+                      id="personalityStyle"
+                      value={personalityStyle}
+                      onChange={(e) => setPersonalityStyle(e.target.value as "Soft" | "Bold" | "High-Energy" | "Luxury" | "")}
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="">None selected</option>
+                      <option value="Soft">Soft</option>
+                      <option value="Bold">Bold</option>
+                      <option value="High-Energy">High-Energy</option>
+                      <option value="Luxury">Luxury</option>
+                    </select>
+                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>Used only if no brand voice sample is provided.</p>
+                  </div>
+                  <div>
+                    <label htmlFor="tone" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Tone (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      id="tone"
+                      value={tone}
+                      onChange={(e) => setTone(e.target.value)}
+                      className={getInputClasses(isDark)}
+                      placeholder="e.g., friendly, professional, casual"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
-                <div>
-                  <label htmlFor="services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Details / Services
-                  </label>
-                  <textarea
-                    id="services"
-                    value={services}
-                    onChange={(e) => setServices(e.target.value)}
-                    rows={4}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Describe your main services, products, policies, hours, etc..."
-                  />
+            {/* FAQ Settings Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("faqSettings")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    FAQ Settings
+                  </h3>
+                  {!accordionState.faqSettings && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getFaqSettingsSummary()}
+                    </p>
+                  )}
                 </div>
-
-                <div>
-                  <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Brand Voice Sample (Optional)
-                  </label>
-                  <textarea
-                    id="brandVoice"
-                    value={brandVoice}
-                    onChange={(e) => setBrandVoice(e.target.value)}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Paste 2–4 sentences that sound like your existing brand voice (website, brochure, etc.)"
-                  />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("faqSettings");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.faqSettings ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.faqSettings && (
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label htmlFor="faqCount" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Number of FAQs
+                    </label>
+                    <input
+                      type="number"
+                      id="faqCount"
+                      value={faqCount}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "") {
+                          setFaqCount(5);
+                          return;
+                        }
+                        const num = parseInt(val, 10);
+                        if (!isNaN(num)) {
+                          setFaqCount(Math.min(Math.max(3, num), 12));
+                        }
+                      }}
+                      min={3}
+                      max={12}
+                      className={getInputClasses(isDark)}
+                    />
+                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>Generate between 3 and 12 FAQs.</p>
+                  </div>
+                  <div>
+                    <label htmlFor="answerLength" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Answer Length
+                    </label>
+                    <select
+                      id="answerLength"
+                      value={answerLength}
+                      onChange={(e) => setAnswerLength(e.target.value as "Short" | "Medium" | "Long")}
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="Short">Short</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Long">Long</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="hasEmoji" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Emoji Style
+                    </label>
+                    <select
+                      id="hasEmoji"
+                      value={hasEmoji}
+                      onChange={(e) => setHasEmoji(e.target.value as "None" | "Minimal" | "Normal")}
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="None">None</option>
+                      <option value="Minimal">Minimal</option>
+                      <option value="Normal">Normal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="faqTheme" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Theme (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      id="faqTheme"
+                      value={faqTheme}
+                      onChange={(e) => setFaqTheme(e.target.value)}
+                      className={getInputClasses(isDark)}
+                      placeholder="e.g., pricing, services, policies"
+                    />
+                  </div>
                 </div>
-
-                <div>
-                  <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Personality Style
-                  </label>
-                  <select
-                    id="personalityStyle"
-                    value={personalityStyle}
-                    onChange={(e) => setPersonalityStyle(e.target.value as "Soft" | "Bold" | "High-Energy" | "Luxury" | "")}
-                    className={getInputClasses(isDark)}
-                  >
-                    <option value="">None selected</option>
-                    <option value="Soft">Soft</option>
-                    <option value="Bold">Bold</option>
-                    <option value="High-Energy">High-Energy</option>
-                    <option value="Luxury">Luxury</option>
-                  </select>
-                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>Used only if no brand voice sample is provided.</p>
-                </div>
-
-                <div>
-                  <label htmlFor="faqCount" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Number of FAQs
-                  </label>
-                  <input
-                    type="number"
-                    id="faqCount"
-                    value={faqCount}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === "") {
-                        setFaqCount(5);
-                        return;
-                      }
-                      const num = parseInt(val, 10);
-                      if (!isNaN(num)) {
-                        setFaqCount(Math.min(Math.max(3, num), 12));
-                      }
-                    }}
-                    min={3}
-                    max={12}
-                    className={getInputClasses(isDark)}
-                  />
-                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>Generate between 3 and 12 FAQs.</p>
-                </div>
-
-                <div>
-                  <label htmlFor="answerLength" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Answer Length
-                  </label>
-                  <select
-                    id="answerLength"
-                    value={answerLength}
-                    onChange={(e) => setAnswerLength(e.target.value as "Short" | "Medium" | "Long")}
-                    className={getInputClasses(isDark)}
-                  >
-                    <option value="Short">Short</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Long">Long</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="tone" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Tone (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="tone"
-                    value={tone}
-                    onChange={(e) => setTone(e.target.value)}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., friendly, professional, casual"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="hasEmoji" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Emoji Style
-                  </label>
-                  <select
-                    id="hasEmoji"
-                    value={hasEmoji}
-                    onChange={(e) => setHasEmoji(e.target.value as "None" | "Minimal" | "Normal")}
-                    className={getInputClasses(isDark)}
-                  >
-                    <option value="None">None</option>
-                    <option value="Minimal">Minimal</option>
-                    <option value="Normal">Normal</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="faqTheme" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Theme (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="faqTheme"
-                    value={faqTheme}
-                    onChange={(e) => setFaqTheme(e.target.value)}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., pricing, services, policies"
-                  />
-                </div>
+              )}
+            </div>
               </div>
               
               <OBDStickyActionBar isDark={isDark}>
@@ -516,6 +800,24 @@ export default function FAQGeneratorPage() {
                 >
                   {loading ? "Generating..." : "Generate FAQs"}
                 </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadTemplate}
+                    disabled={loading}
+                    className={getSecondaryButtonClasses(isDark)}
+                  >
+                    Load Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTemplate}
+                    disabled={loading}
+                    className={getSecondaryButtonClasses(isDark)}
+                  >
+                    Save Template
+                  </button>
+                </div>
               </OBDStickyActionBar>
             </form>
       </OBDPanel>
@@ -536,37 +838,33 @@ export default function FAQGeneratorPage() {
             (aiResponse || loading || error) ? (
               <OBDResultsActions
                 isDark={isDark}
-                onCopy={aiResponse ? handleCopy : undefined}
+                onCopy={activeFaqs.length > 0 ? handleCopy : undefined}
                 copied={copied}
-                disabled={loading}
+                disabled={loading || activeFaqs.length === 0}
                 extra={
                   <>
                     {aiResponse && (
                       <button
-                        onClick={() => handleRegenerate()}
-                        disabled={loading}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
+                        onClick={() => {
+                          if (activeFaqs.length === 0) {
+                            showToast("No FAQs to regenerate");
+                            return;
+                          }
+                          handleRegenerate();
+                        }}
+                        disabled={loading || activeFaqs.length === 0}
+                        className={getSecondaryButtonClasses(isDark)}
                       >
                         {loading ? "Regenerating..." : "Regenerate"}
                       </button>
                     )}
-                    {parsedFAQs.length >= 5 && (
-                      <button
-                        onClick={handleShuffleFAQs}
-                        disabled={parsedFAQs.length < 5}
-                        className={`px-4 py-2 font-medium rounded-xl transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                          isDark
-                            ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                        }`}
-                      >
-                        Shuffle FAQs
-                      </button>
-                    )}
+                    <button
+                      onClick={handleShuffleFAQs}
+                      disabled={activeFaqs.length < 5}
+                      className={getSecondaryButtonClasses(isDark)}
+                    >
+                      Shuffle FAQs
+                    </button>
                   </>
                 }
               />
@@ -580,11 +878,23 @@ export default function FAQGeneratorPage() {
         >
               {effectiveFAQs.length > 0 && (
                 <div className="mb-6">
-                  <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
-                    FAQ Preview
-                  </h3>
+                  <div className="flex items-center gap-3 mb-4 flex-wrap">
+                    <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                      FAQ Preview
+                    </h3>
+                    {isEdited && (
+                      <span className={`px-2 py-1 text-xs font-medium rounded-md ${
+                        isDark 
+                          ? "bg-amber-600/20 text-amber-400 border border-amber-600/30" 
+                          : "bg-amber-100 text-amber-700 border border-amber-200"
+                      }`}>
+                        Edited
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 gap-4">
                     {effectiveFAQs.map((faq, idx) => {
+                      const isEditing = editingIndex === idx;
                       const charMeta = getCharacterMeta(faq.characterCount);
                       let charClass = `text-xs mt-3 pt-2 border-t ${
                         isDark ? "border-slate-700" : "border-slate-200"
@@ -602,36 +912,136 @@ export default function FAQGeneratorPage() {
                               : "bg-slate-50 border-slate-200"
                           }`}
                         >
-                          <div className="flex items-center gap-2 mb-3">
+                          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
                             <h4 className={`font-semibold ${themeClasses.headingText}`}>
                               FAQ {faq.number}
                             </h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {!isEditing ? (
+                                <>
+                                  <button
+                                    onClick={() => handleEditStart(idx)}
+                                    className={getSubtleButtonMediumClasses(isDark)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteFAQ(idx)}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                      isDark
+                                        ? "bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-600/30"
+                                        : "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200"
+                                    }`}
+                                  >
+                                    Delete
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={handleEditSave}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                      isDark
+                                        ? "bg-green-600 text-white hover:bg-green-700"
+                                        : "bg-green-600 text-white hover:bg-green-700"
+                                    }`}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleEditCancel}
+                                    className={getSubtleButtonMediumClasses(isDark)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className={`mb-2 ${isDark ? "text-slate-100" : "text-gray-900"}`}>
-                            <p className="font-medium mb-1">Q: {faq.question}</p>
-                            <p className={`mt-2 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                              A: {faq.answer}
-                            </p>
-                          </div>
-                          <p className={charClass}>
-                            {charMeta.label}
-                          </p>
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              <div>
+                                <label className={`block text-xs font-medium mb-1.5 ${themeClasses.labelText}`}>
+                                  Question
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editQuestion}
+                                  onChange={(e) => setEditQuestion(e.target.value)}
+                                  className={getInputClasses(isDark)}
+                                  placeholder="Enter question"
+                                />
+                              </div>
+                              <div>
+                                <label className={`block text-xs font-medium mb-1.5 ${themeClasses.labelText}`}>
+                                  Answer
+                                </label>
+                                <textarea
+                                  value={editAnswer}
+                                  onChange={(e) => setEditAnswer(e.target.value)}
+                                  rows={4}
+                                  className={getInputClasses(isDark, "resize-none")}
+                                  placeholder="Enter answer"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className={`mb-2 ${isDark ? "text-slate-100" : "text-gray-900"}`}>
+                                <p className="font-medium mb-1">Q: {faq.question}</p>
+                                <p className={`mt-2 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
+                                  A: {faq.answer}
+                                </p>
+                              </div>
+                              <p className={charClass}>
+                                {charMeta.label}
+                              </p>
+                            </>
+                          )}
                         </div>
                       );
                     })}
                   </div>
+                  <div className="mt-4">
+                    <button
+                      onClick={handleAddNewFAQ}
+                      className={getSecondaryButtonClasses(isDark)}
+                    >
+                      + Add New FAQ
+                    </button>
+                  </div>
                 </div>
               )}
-          <div className={`min-h-[200px] p-4 border ${themeClasses.inputBorder} rounded-xl ${
-            isDark ? "bg-slate-800" : "bg-gray-50"
-          }`}>
-            {aiResponse ? (
-              <p className={`whitespace-pre-wrap ${isDark ? "text-slate-100" : "text-gray-800"}`}>
-                {aiResponse}
-              </p>
-            ) : null}
-          </div>
+
+              {/* Export Center */}
+              {effectiveFAQs.length > 0 && (
+                <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-700">
+                  <FAQExportCenterPanel
+                    faqs={effectiveFAQs}
+                    isDark={isDark}
+                    onValidationError={showToast}
+                    getActiveFaqs={getActiveFaqs}
+                    businessName={businessName}
+                    businessType={businessType}
+                    topic={topic}
+                    services={services}
+                  />
+                </div>
+              )}
         </OBDResultsPanel>
+      )}
+
+      {/* Toast notification */}
+      {actionToast && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+          <div className={`px-4 py-2 rounded-lg text-sm font-medium shadow-lg backdrop-blur-sm transition-opacity ${
+            isDark 
+              ? "bg-slate-800/90 border border-slate-700/50" 
+              : "bg-white/90 border border-slate-200/50"
+          }`}>
+            {actionToast}
+          </div>
+        </div>
       )}
     </OBDPageContainer>
   );

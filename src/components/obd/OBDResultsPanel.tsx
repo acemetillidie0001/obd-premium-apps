@@ -40,7 +40,7 @@ export default function OBDResultsPanel({
   emptyDescription,
   className = "",
 }: {
-  title: string;
+  title: string | React.ReactNode;
   subtitle?: string;
   isDark?: boolean;
   actions?: React.ReactNode;

@@ -2,29 +2,13 @@
 
 import { useState } from "react";
 import { recordExport } from "@/lib/bdw/local-analytics";
-
-interface ContentSection {
-  heading: string;
-  body: string;
-}
-
-interface FAQItem {
-  question: string;
-  answer: string;
-}
-
-interface ContentOutput {
-  title: string;
-  seoTitle: string;
-  metaDescription: string;
-  slugSuggestion: string;
-  outline: string[];
-  sections: ContentSection[];
-  faq: FAQItem[];
-  socialBlurb: string;
-  wordCountApprox: number;
-  keywordsUsed: string[];
-}
+import {
+  formatForGBP,
+  formatForDivi,
+  formatForDirectory,
+  type DestinationInput,
+} from "@/lib/bdw";
+import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
 
 interface CWExportCenterPanelProps {
   content: ContentOutput;
@@ -128,8 +112,48 @@ function formatContentHtml(content: ContentOutput): string {
   return parts.join("\n");
 }
 
+// Convert ContentOutput to DestinationInput
+function convertContentToDestinationInput(content: ContentOutput): DestinationInput {
+  // Build description from sections
+  const description = content.sections
+    .map((s) => {
+      if (s.heading) {
+        return `${s.heading}\n\n${s.body}`;
+      }
+      return s.body;
+    })
+    .join("\n\n");
+
+  // Convert FAQs
+  const faqs = content.faq.map((faq) => ({
+    q: faq.question,
+    a: faq.answer,
+  }));
+
+  return {
+    title: content.title,
+    slug: content.slugSuggestion,
+    metaDescription: content.metaDescription,
+    description,
+    sections: content.sections.map((s) => ({
+      heading: s.heading,
+      body: s.body,
+    })),
+    faqs: faqs.length > 0 ? faqs : undefined,
+  };
+}
+
 export default function CWExportCenterPanel({ content, isDark, storageKey }: CWExportCenterPanelProps) {
   const [copiedItems, setCopiedItems] = useState<Record<string, string>>({});
+
+  // Guard: Prevent operations on empty/placeholder content
+  if (!isContentReadyForExport(content)) {
+    return (
+      <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className="text-sm">Generate content to enable Copy & Export</p>
+      </div>
+    );
+  }
 
   const handleCopy = async (itemId: string, content: string, exportType?: string) => {
     try {
@@ -168,16 +192,6 @@ export default function CWExportCenterPanel({ content, isDark, storageKey }: CWE
       recordExport(storageKey, exportType);
     }
   };
-
-  const hasContent = content.sections.length > 0 || content.metaDescription;
-
-  if (!hasContent) {
-    return (
-      <div className={`text-center py-8 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-        <p className="text-sm">Generate content to enable exports.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -222,6 +236,60 @@ export default function CWExportCenterPanel({ content, isDark, storageKey }: CWE
             }`}
           >
             {copiedItems["export-html"] ? "Copied!" : "Copy as HTML"}
+          </button>
+        </div>
+      </div>
+
+      {/* Destination Exports */}
+      <div>
+        <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+          Destination Exports
+        </h4>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={() => {
+              const input = convertContentToDestinationInput(content);
+              handleCopy("dest-gbp", formatForGBP(input), "dest:gbp");
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              copiedItems["dest-gbp"]
+                ? "bg-[#29c4a9] text-white"
+                : isDark
+                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+            }`}
+          >
+            {copiedItems["dest-gbp"] ? "Copied!" : "Copy for GBP"}
+          </button>
+          <button
+            onClick={() => {
+              const input = convertContentToDestinationInput(content);
+              handleCopy("dest-divi", formatForDivi(input), "dest:divi");
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              copiedItems["dest-divi"]
+                ? "bg-[#29c4a9] text-white"
+                : isDark
+                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+            }`}
+          >
+            {copiedItems["dest-divi"] ? "Copied!" : "Copy for Divi"}
+          </button>
+          <button
+            onClick={() => {
+              const input = convertContentToDestinationInput(content);
+              handleCopy("dest-directory", formatForDirectory(input), "dest:directory");
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              copiedItems["dest-directory"]
+                ? "bg-[#29c4a9] text-white"
+                : isDark
+                ? "bg-slate-700 text-slate-200 hover:bg-[#29c4a9] hover:text-white"
+                : "bg-white text-slate-700 hover:bg-[#29c4a9] hover:text-white border border-slate-200"
+            }`}
+          >
+            {copiedItems["dest-directory"] ? "Copied!" : "Copy for Directory"}
           </button>
         </div>
       </div>

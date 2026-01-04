@@ -22,6 +22,18 @@ import KnowledgeEditor from "./knowledge/components/KnowledgeEditor";
 import InsightsPanel from "./insights/components/InsightsPanel";
 import WebsiteImport from "./knowledge/components/WebsiteImport";
 import WidgetSettings from "./widget/components/WidgetSettings";
+import FAQImportBanner from "./knowledge/components/FAQImportBanner";
+import FAQImportModal from "./knowledge/components/FAQImportModal";
+import { parseHandoffPayload, type HelpDeskHandoffPayload } from "@/lib/apps/ai-help-desk/handoff-parser";
+import {
+  getHandoffHash,
+  wasHandoffAlreadyImported,
+  markHandoffImported,
+} from "@/lib/utils/handoff-guard";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
 
 type ViewMode = "search" | "chat";
 type TabMode = "help-desk" | "knowledge" | "insights" | "widget";
@@ -148,6 +160,14 @@ function AIHelpDeskPageContent() {
   const [crmReturnUrl, setCrmReturnUrl] = useState<string | null>(null);
   const [showCrmBanner, setShowCrmBanner] = useState(true);
 
+  // FAQ Import handoff state
+  const [handoffPayload, setHandoffPayload] = useState<HelpDeskHandoffPayload | null>(null);
+  const [handoffHash, setHandoffHash] = useState<string | null>(null);
+  const [isHandoffAlreadyImported, setIsHandoffAlreadyImported] = useState(false);
+  const [showImportBanner, setShowImportBanner] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importToast, setImportToast] = useState<string | null>(null);
+
   // Handle CRM integration prefill
   useEffect(() => {
     if (searchParams && typeof window !== "undefined") {
@@ -202,6 +222,33 @@ function AIHelpDeskPageContent() {
       }
     }
   }, [searchParams, viewMode]);
+
+  // Handle FAQ import handoff
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined") {
+      try {
+        const payload = parseHandoffPayload(searchParams);
+        if (payload && payload.sourceApp === "ai-faq-generator") {
+          // Compute hash for the payload
+          const hash = getHandoffHash(payload);
+          setHandoffHash(hash);
+          
+          // Check if this payload was already imported
+          const alreadyImported = wasHandoffAlreadyImported("ai-help-desk", hash);
+          setIsHandoffAlreadyImported(alreadyImported);
+          
+          setHandoffPayload(payload);
+          setShowImportBanner(true);
+          // Switch to knowledge tab to show the import
+          setTabMode("knowledge");
+        }
+      } catch (error) {
+        console.error("Failed to parse handoff payload:", error);
+        setImportToast("Failed to load import data. Please try again.");
+        setTimeout(() => setImportToast(null), 3000);
+      }
+    }
+  }, [searchParams]);
 
   // Check if current user is admin
   const checkAdminStatus = async () => {
@@ -991,6 +1038,28 @@ function AIHelpDeskPageContent() {
 
           {tabMode === "knowledge" && (
             <div className="mt-6 space-y-6">
+              {/* FAQ Import Banner */}
+              {showImportBanner && handoffPayload && (
+                <FAQImportBanner
+                  isDark={isDark}
+                  faqCount={handoffPayload.items.length}
+                  isAlreadyImported={isHandoffAlreadyImported}
+                  onImport={() => setShowImportModal(true)}
+                  onDismiss={() => {
+                    setShowImportBanner(false);
+                    setHandoffPayload(null);
+                    setHandoffHash(null);
+                    setIsHandoffAlreadyImported(false);
+                    
+                    // Clear handoff params from URL
+                    if (typeof window !== "undefined") {
+                      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                      replaceUrlWithoutReload(cleanUrl);
+                    }
+                  }}
+                />
+              )}
+
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className={`text-xl font-semibold ${themeClasses.headingText}`}>
@@ -1080,6 +1149,69 @@ function AIHelpDeskPageContent() {
                 setInitialEditorTitle(undefined);
               }}
             />
+          )}
+
+          {/* FAQ Import Modal */}
+          {showImportModal && handoffPayload && handoffHash !== null && (
+            <FAQImportModal
+              payload={handoffPayload}
+              isDark={isDark}
+              businessId={businessId}
+              isAlreadyImported={isHandoffAlreadyImported}
+              onClose={() => {
+                setShowImportModal(false);
+                setShowImportBanner(false);
+                setHandoffPayload(null);
+                setHandoffHash(null);
+                setIsHandoffAlreadyImported(false);
+                
+                // Clear handoff params from URL
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+              }}
+              onSuccess={() => {
+                // Mark handoff as imported
+                markHandoffImported("ai-help-desk", handoffHash);
+                setIsHandoffAlreadyImported(true);
+                
+                // Clear handoff params from URL
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+                
+                setKnowledgeReloadKey((prev) => prev + 1);
+                setImportToast(
+                  `Successfully imported ${handoffPayload.items.length} FAQ${handoffPayload.items.length !== 1 ? "s" : ""}`
+                );
+                setTimeout(() => setImportToast(null), 3000);
+              }}
+              onError={(message) => {
+                setImportToast(message);
+                setTimeout(() => setImportToast(null), 3000);
+              }}
+            />
+          )}
+
+          {/* Toast Notification */}
+          {importToast && (
+            <div
+              className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${
+                isDark ? "text-slate-300" : "text-slate-600"
+              }`}
+            >
+              <div
+                className={`px-4 py-2 rounded-lg text-sm font-medium shadow-lg backdrop-blur-sm transition-opacity ${
+                  isDark
+                    ? "bg-slate-800/90 border border-slate-700/50"
+                    : "bg-white/90 border border-slate-200/50"
+                }`}
+              >
+                {importToast}
+              </div>
+            </div>
           )}
 
           {/* Demo Mode Banner (Dev-only, shown when using fallback workspace) */}

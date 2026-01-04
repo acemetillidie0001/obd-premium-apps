@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -15,6 +16,17 @@ import {
   SchemaGeneratorRequest,
   SchemaGeneratorResponse,
 } from "./types";
+import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload } from "@/lib/apps/business-schema-generator/handoff-parser";
+import FAQImportBanner from "./components/FAQImportBanner";
+import {
+  getHandoffHash,
+  wasHandoffAlreadyImported,
+  markHandoffImported,
+} from "@/lib/utils/handoff-guard";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
 
 const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
 
@@ -77,7 +89,7 @@ const defaultFormValues: SchemaGeneratorRequest = {
   pageType: "Homepage",
 };
 
-export default function BusinessSchemaGeneratorPage() {
+function BusinessSchemaGeneratorPageContent() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -91,6 +103,15 @@ export default function BusinessSchemaGeneratorPage() {
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
   const [faqWarning, setFaqWarning] = useState<string | null>(null);
+  
+  // Handoff state
+  const searchParams = useSearchParams();
+  const [handoffPayload, setHandoffPayload] = useState<SchemaGeneratorHandoffPayload | null>(null);
+  const [handoffHash, setHandoffHash] = useState<string | null>(null);
+  const [isHandoffAlreadyImported, setIsHandoffAlreadyImported] = useState(false);
+  const [showImportBanner, setShowImportBanner] = useState(false);
+  const [importedFaqJsonLd, setImportedFaqJsonLd] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
@@ -114,6 +135,29 @@ export default function BusinessSchemaGeneratorPage() {
       console.error("Failed to save useBrandProfile preference:", err);
     }
   }, [useBrandProfile]);
+
+  // Handle handoff on page load
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined") {
+      try {
+        const payload = parseSchemaGeneratorHandoff(searchParams);
+        if (payload && payload.type === "faqpage-jsonld") {
+          // Compute hash for the payload
+          const hash = getHandoffHash(payload);
+          setHandoffHash(hash);
+          
+          // Check if this payload was already imported
+          const alreadyImported = wasHandoffAlreadyImported("business-schema-generator", hash);
+          setIsHandoffAlreadyImported(alreadyImported);
+          
+          setHandoffPayload(payload);
+          setShowImportBanner(true);
+        }
+      } catch (error) {
+        console.error("Failed to parse handoff payload:", error);
+      }
+    }
+  }, [searchParams]);
 
   // Load brand profile on mount
   useEffect(() => {
@@ -377,9 +421,10 @@ export default function BusinessSchemaGeneratorPage() {
   };
 
   const handleExportJson = () => {
-    if (!result?.data?.combinedJsonLd) return;
+    const combinedJsonLd = getCombinedJsonLd() || result?.data?.combinedJsonLd;
+    if (!combinedJsonLd) return;
     try {
-      const jsonObj = JSON.parse(result.data.combinedJsonLd);
+      const jsonObj = JSON.parse(combinedJsonLd);
       const json = JSON.stringify(jsonObj, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -396,8 +441,9 @@ export default function BusinessSchemaGeneratorPage() {
   };
 
   const handleExportTxt = () => {
-    if (!result?.data?.combinedJsonLd) return;
-    const text = result.data.combinedJsonLd;
+    const combinedJsonLd = getCombinedJsonLd() || result?.data?.combinedJsonLd;
+    if (!combinedJsonLd) return;
+    const text = combinedJsonLd;
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -409,6 +455,123 @@ export default function BusinessSchemaGeneratorPage() {
     URL.revokeObjectURL(url);
   };
 
+  // Handle FAQ import insert
+  const handleInsertFaqSchema = () => {
+    if (!handoffPayload || !handoffHash) return;
+    
+    // Prevent insert if already imported
+    if (isHandoffAlreadyImported) {
+      return;
+    }
+
+    // Store the imported FAQ JSON-LD
+    setImportedFaqJsonLd(handoffPayload.jsonLd);
+
+    // Mark handoff as imported
+    markHandoffImported("business-schema-generator", handoffHash);
+    setIsHandoffAlreadyImported(true);
+
+    // Clear handoff
+    setHandoffPayload(null);
+    setHandoffHash(null);
+    setShowImportBanner(false);
+
+    // Clear handoff params from URL
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+
+    // Show success toast
+    setToast("FAQPage schema imported successfully");
+    setTimeout(() => setToast(null), 3000);
+
+    // Scroll to results if they exist, otherwise scroll to form
+    setTimeout(() => {
+      const resultsElement = document.getElementById("schema-results");
+      if (resultsElement) {
+        resultsElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        const formElement = document.querySelector("form");
+        if (formElement) {
+          formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    }, 100);
+  };
+
+  const handleDismissFaqImport = () => {
+    setHandoffPayload(null);
+    setHandoffHash(null);
+    setIsHandoffAlreadyImported(false);
+    setShowImportBanner(false);
+
+    // Clear handoff params from URL
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  // Build combined JSON-LD including imported FAQ
+  const getCombinedJsonLd = (): string | null => {
+    if (!result?.data) {
+      // If no result yet but we have imported FAQ, return just the FAQ wrapped in @graph
+      if (importedFaqJsonLd) {
+        try {
+          const importedFaq = JSON.parse(importedFaqJsonLd);
+          const combined = {
+            "@context": "https://schema.org",
+            "@graph": [importedFaq],
+          };
+          return JSON.stringify(combined, null, 2);
+        } catch (error) {
+          console.error("Failed to wrap imported FAQ:", error);
+          return null;
+        }
+      }
+      return null;
+    }
+
+    try {
+      // Parse the existing combined JSON-LD
+      const combined = JSON.parse(result.data.combinedJsonLd);
+      
+      // If there's an imported FAQ, add it to the graph
+      if (importedFaqJsonLd) {
+        const importedFaq = JSON.parse(importedFaqJsonLd);
+        
+        // If combined has @graph, add to it; otherwise create @graph
+        if (combined["@graph"] && Array.isArray(combined["@graph"])) {
+          // Check if FAQPage already exists in graph
+          const hasExistingFaq = combined["@graph"].some(
+            (item: unknown) =>
+              typeof item === "object" &&
+              item !== null &&
+              "@type" in item &&
+              item["@type"] === "FAQPage"
+          );
+          
+          // Always add (don't overwrite) - add as second FAQPage if one exists
+          combined["@graph"].push(importedFaq);
+        } else {
+          // Convert single object to graph array
+          const existing = { ...combined };
+          delete existing["@context"];
+          combined["@graph"] = [existing, importedFaq];
+          if ("@type" in combined) {
+            delete combined["@type"];
+          }
+        }
+      }
+
+      return JSON.stringify(combined, null, 2);
+    } catch (error) {
+      console.error("Failed to combine JSON-LD:", error);
+      return result.data.combinedJsonLd;
+    }
+  };
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -416,6 +579,35 @@ export default function BusinessSchemaGeneratorPage() {
       title="Business Schema Generator"
       tagline="Generate copy-paste JSON-LD for your website and listings."
     >
+      {/* Import Banner */}
+      {showImportBanner && handoffPayload && (
+        <FAQImportBanner
+          isDark={isDark}
+          isAlreadyImported={isHandoffAlreadyImported}
+          onInsert={handleInsertFaqSchema}
+          onDismiss={handleDismissFaqImport}
+        />
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${
+            isDark ? "text-slate-300" : "text-slate-600"
+          }`}
+        >
+          <div
+            className={`px-4 py-2 rounded-lg text-sm font-medium shadow-lg backdrop-blur-sm transition-opacity ${
+              isDark
+                ? "bg-slate-800/90 border border-slate-700/50"
+                : "bg-white/90 border border-slate-200/50"
+            }`}
+          >
+            {toast}
+          </div>
+        </div>
+      )}
+
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
         <OBDHeading level={2} isDark={isDark} className="mb-6">
@@ -1089,7 +1281,7 @@ export default function BusinessSchemaGeneratorPage() {
               </pre>
             </ResultCard>
 
-            {/* FAQPage JSON-LD */}
+            {/* FAQPage JSON-LD (from form) */}
             {result.data.faqJsonLd && (
               <ResultCard
                 title="FAQPage JSON-LD"
@@ -1100,6 +1292,28 @@ export default function BusinessSchemaGeneratorPage() {
                   isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
                 }`}>
                   <code>{result.data.faqJsonLd}</code>
+                </pre>
+              </ResultCard>
+            )}
+
+            {/* Imported FAQPage JSON-LD */}
+            {importedFaqJsonLd && (
+              <ResultCard
+                title={`FAQPage JSON-LD ${handoffPayload?.title ? `(${handoffPayload.title})` : "(Imported)"}`}
+                isDark={isDark}
+                copyText={importedFaqJsonLd}
+              >
+                <div className={`mb-2 text-xs px-2 py-1 rounded ${
+                  isDark
+                    ? "bg-teal-900/30 text-teal-200 border border-teal-700/50"
+                    : "bg-teal-50 text-teal-700 border border-teal-200"
+                }`}>
+                  Imported from AI FAQ Generator
+                </div>
+                <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
+                  isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
+                }`}>
+                  <code>{importedFaqJsonLd}</code>
                 </pre>
               </ResultCard>
             )}
@@ -1123,7 +1337,7 @@ export default function BusinessSchemaGeneratorPage() {
             <ResultCard
               title="Full Schema Bundle (Recommended)"
               isDark={isDark}
-              copyText={result.data.combinedJsonLd}
+              copyText={getCombinedJsonLd() || result.data.combinedJsonLd}
             >
               <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
                 Paste this into your website or SEO plugin. This includes everything above.
@@ -1131,7 +1345,7 @@ export default function BusinessSchemaGeneratorPage() {
               <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
                 isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
               }`}>
-                <code>{result.data.combinedJsonLd}</code>
+                <code>{getCombinedJsonLd() || result.data.combinedJsonLd}</code>
               </pre>
               <div className="mt-4 flex gap-2">
                 <button
@@ -1160,6 +1374,14 @@ export default function BusinessSchemaGeneratorPage() {
         </div>
       )}
     </OBDPageContainer>
+  );
+}
+
+export default function BusinessSchemaGeneratorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <BusinessSchemaGeneratorPageContent />
+    </Suspense>
   );
 }
 

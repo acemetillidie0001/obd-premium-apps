@@ -5,6 +5,8 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 
+export const runtime = "nodejs";
+
 // Validation schema for section-based PUT request
 const SectionSaveSchema = z.object({
   sectionKey: z.string(),
@@ -288,13 +290,26 @@ export async function PUT(request: NextRequest) {
         );
       }
 
-      // Generic Prisma error
+      // Generic Prisma error - log full error details for debugging
+      const errorDetails = {
+        code: error.code || "UNKNOWN",
+        message: error.message,
+        meta: error.meta,
+        name: error.name,
+      };
+      console.error("[brand-kit-save] Prisma error details:", {
+        requestId,
+        ...errorDetails,
+      });
+
       return NextResponse.json(
         {
           ok: false,
           requestId,
           message: "Database error occurred. Please try again.",
           code: "DATABASE_ERROR",
+          // Include error code in response for debugging (safe to expose)
+          errorCode: error.code || undefined,
         },
         { status: 500 }
       );

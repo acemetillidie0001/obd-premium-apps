@@ -331,9 +331,21 @@ export default function BrandKitBuilderPage() {
         status: res.status,
         responseBody: responseBodyText,
         payloadSizeBytes: payloadSize,
+        errorCode: errorData.code || null,
+        errorMessage: errorData.message || null,
       });
       
-      let errorMessage = `Failed to save ${sectionKey}. Please try again.`;
+      let errorMessage = `Failed to save ${sectionKey}.`;
+      if (errorData.code) {
+        // Include error code for better debugging
+        errorMessage += ` Error: ${errorData.code}`;
+      }
+      if (errorData.message && errorData.message !== "Save failed") {
+        // Include server message if it's more specific than generic "Save failed"
+        errorMessage += ` ${errorData.message}`;
+      } else {
+        errorMessage += ` Please try again.`;
+      }
       if (errorData.requestId) {
         errorMessage += ` (Request ID: ${errorData.requestId})`;
       }

@@ -316,7 +316,7 @@ export default function BrandKitBuilderPage() {
     });
 
     const responseBodyText = await res.text();
-    let errorData: { requestId?: string; message?: string; details?: unknown } = {};
+    let errorData: { requestId?: string; message?: string; code?: string; details?: unknown } = {};
     
     try {
       errorData = JSON.parse(responseBodyText);

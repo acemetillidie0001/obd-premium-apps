@@ -73,6 +73,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - See [Business Description Writer V5 Release Notes](docs/releases/business-description-writer-v5.md) for detailed release information
 - See [Business Description Writer Changelog](docs/changelogs/business-description-writer.md) for version history
 
+## AI Content Writer — Tier 4 + Tier 5A (2025-01-XX)
+
+**Status:** ✅ Production Ready (Tier 4 + Tier 5A Complete)
+
+### Added - Tier 4 Canonical Patterns
+
+- **Shared Readiness Validator**: Central `isContentReadyForExport()` function in `src/lib/apps/content-writer/content-ready.ts`
+  - Deterministic validation based on content structure
+  - Used consistently across all export/copy operations
+  - Prevents empty/placeholder exports
+- **Canonical Content Selector**: `getActiveContent()` function
+  - Single source of truth: `editedContent ?? contentResponse?.content ?? null`
+  - All downstream tools use this selector
+  - Handles edited vs. original content seamlessly
+- **Tool Availability Guard**: `canUseTools` derived from readiness validator
+  - Disables all export/copy buttons when content is not ready
+  - Consistent disabled state messaging: "Generate content to enable this."
+  - Applied to all copy/export operations
+- **Fix Packs Pattern**: Uses active content for preview/apply, baseline only for reset
+  - Preview and apply operations work on active content
+  - Reset uses baseline (original generation) only
+  - Deterministic undo/reset using `compareContentOutput()`
+  - Truthful "Edited" chip based on comparison with baseline
+- **Export Center Canonicalization**: `CWExportCenterPanel` is the primary export interface
+  - Quick Exports: Plain Text, Markdown, HTML
+  - Destination Exports: GBP, Divi, Directory
+  - Download Options: .txt, .md
+  - Individual Section Copy
+  - "Download MD" button in sticky bar is secondary action
+- **No Database Calls in UI**: Verified no Prisma/database imports in UI components
+  - All data operations are client-side only
+  - API calls only for content generation (server-side)
+
+### Added - Tier 5A UX Consistency
+
+- **Accordion Input Sections**: Collapsible form sections with summaries
+  - Business Basics, Content Basics, Tone & Personality, SEO & Length, Structure & Templates, Options
+  - Summary lines show key values when collapsed
+  - Expand/Collapse buttons with clear labels
+- **Sticky Action Bar**: Form-level and scroll-based sticky bars
+  - Form sticky bar with "Start Writing" button
+  - Scroll-based sticky bar appears when form scrolls out of view
+  - Shows content state chip (Generated/Edited)
+  - Canonical buttons: Copy Full, Export, Download MD
+  - Reset button (only when content is edited)
+- **Collapsible Output Sections**: All output sections are collapsible
+  - SEO Pack, Outline, Article Body, FAQ, Social Blurb, Keywords Used
+  - Per-section copy buttons
+  - Consistent disabled state messaging
+- **Consistent Disabled/Empty Messaging**: Unified messaging pattern
+  - "Generate content to enable this." for all disabled actions
+  - Empty states in Results Panel, Export Center, Fix Packs, Quality Controls
+- **Toast Feedback**: Non-overlapping toast notifications
+  - Fixed position above sticky bar (`bottom-24`)
+  - Auto-clear after 1200ms
+  - Messages: "Copied", "Opened Export Center", "Download started", "Action failed"
+
+### Technical Notes
+
+- **No breaking changes**: All features are additive and backward compatible
+- **Deterministic operations**: Content comparison uses `JSON.stringify` for equality
+- **Single source of truth**: `getActiveContent()` selector ensures consistency
+- **No API changes**: Existing API endpoints unchanged
+- **No DB changes**: Uses existing patterns (no new migrations)
+
+### Documentation
+
+- See [AI Content Writer Documentation](docs/apps/ai-content-writer.md) for detailed implementation notes
+
 ## UI Standardization — Shared Components (2025-01-XX)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

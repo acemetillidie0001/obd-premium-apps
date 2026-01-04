@@ -134,6 +134,30 @@ export async function PUT(request: NextRequest) {
 
     const userId = session.user.id;
     
+    // Verify user exists in database before attempting upsert
+    // This prevents foreign key constraint violations
+    const userExists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    
+    if (!userExists) {
+      console.error("[brand-kit-save] User not found in database:", {
+        requestId,
+        userId,
+        sessionUserId: session.user.id,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          requestId,
+          message: "User account not found. Please sign out and sign in again.",
+          code: "USER_NOT_FOUND",
+        },
+        { status: 400 }
+      );
+    }
+    
     // Prepare data for upsert
     const updateData: {
       businessName?: string | null;
@@ -292,6 +316,24 @@ export async function PUT(request: NextRequest) {
             code: "NOT_FOUND_ERROR",
           },
           { status: 404 }
+        );
+      }
+
+      if (error.code === "P2003") {
+        // Foreign key constraint violation
+        console.error("[brand-kit-save] Foreign key constraint violation:", {
+          requestId,
+          userId,
+          constraint: error.meta?.constraint,
+        });
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            message: "User account not found. Please sign out and sign in again.",
+            code: "FOREIGN_KEY_ERROR",
+          },
+          { status: 400 }
         );
       }
 

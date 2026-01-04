@@ -15,7 +15,7 @@
     "validate:build-no-db": "node tools/validate-build-no-db.cjs",
     "build": "next build",
     "build:prod": "pnpm run build",
-    "build:vercel": "node -e \"console.log('BUILD_SHA=',process.env.VERCEL_GIT_COMMIT_SHA || 'none','ENV=',process.env.VERCEL_ENV || 'none','CWD=',process.cwd())\" && pnpm run prisma:generate && pnpm run build",
+    "build:vercel": "node -e \"console.log('BUILD_SHA=',process.env.VERCEL_GIT_COMMIT_SHA || 'none','ENV=',process.env.VERCEL_ENV || 'none','CWD=',process.cwd())\" && prisma migrate deploy && prisma generate && next build",
     "vercel-build": "pnpm run build:vercel",
     "start": "next start",
     "lint": "eslint src/app/api/social-auto-poster src/app/apps/social-auto-poster src/lib/apps/social-auto-poster src/lib/premium.ts src/lib/auth.ts src/app/api/auth/[...nextauth] --ext .ts,.tsx,.js,.jsx --no-error-on-unmatched-pattern",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import OBDPanel from "@/components/obd/OBDPanel";
 import { getInputClasses } from "@/lib/obd-framework/theme";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
@@ -11,21 +12,43 @@ import {
   BRAND_PROFILE_PRESETS,
   type BrandProfile,
 } from "@/lib/utils/bdw-brand-profile";
+import { hasBrandProfile as hasBrandProfileFromStorage } from "@/lib/brand/brandProfileStorage";
 
 interface BrandProfilePanelProps {
   isDark: boolean;
   businessName: string;
   onApplyToForm: (profile: BrandProfile, fillEmptyOnly: boolean) => void;
+  /** Optional: whether brand profile was found (from useAutoApplyBrandProfile) */
+  brandFound?: boolean;
+  /** Optional: whether brand profile was applied to empty fields */
+  applied?: boolean;
+  /** Optional: "Use Brand Profile" toggle state (for auto-import) */
+  useBrandProfileToggle?: boolean;
+  /** Optional: "Use Brand Profile" toggle setter */
+  onUseBrandProfileToggleChange?: (value: boolean) => void;
+  /** Optional: "Fill empty only" checkbox state */
+  fillEmptyOnly?: boolean;
+  /** Optional: "Fill empty only" checkbox setter */
+  onFillEmptyOnlyChange?: (value: boolean) => void;
 }
 
 export default function BrandProfilePanel({
   isDark,
   businessName,
   onApplyToForm,
+  brandFound: brandFoundProp,
+  applied: appliedProp,
+  useBrandProfileToggle: useBrandProfileToggleProp,
+  onUseBrandProfileToggleChange,
+  fillEmptyOnly: fillEmptyOnlyProp,
+  onFillEmptyOnlyChange,
 }: BrandProfilePanelProps) {
   const themeClasses = getThemeClasses(isDark);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [fillEmptyOnly, setFillEmptyOnly] = useState(true);
+  // Use internal state if prop not provided (for backward compatibility)
+  const [internalFillEmptyOnly, setInternalFillEmptyOnly] = useState(true);
+  const fillEmptyOnly = fillEmptyOnlyProp ?? internalFillEmptyOnly;
+  const setFillEmptyOnly = onFillEmptyOnlyChange ?? setInternalFillEmptyOnly;
   const [profile, setProfile] = useState<BrandProfile>({
     brandVoice: "",
     targetAudience: "",
@@ -34,6 +57,10 @@ export default function BrandProfilePanel({
     city: "",
     state: "",
   });
+
+  // Determine brandFound and applied from props or check internally
+  const brandFound = brandFoundProp ?? (typeof window !== "undefined" ? hasBrandProfileFromStorage() : false);
+  const applied = appliedProp ?? false;
 
   // Load profile from localStorage when business name changes
   useEffect(() => {
@@ -96,33 +123,83 @@ export default function BrandProfilePanel({
       <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
         {/* Header */}
         <div
-          className={`flex items-center justify-between p-4 border-b cursor-pointer ${
+          className={`p-4 border-b cursor-pointer ${
             isDark ? "border-slate-700" : "border-slate-200"
           }`}
           onClick={() => setIsCollapsed(!isCollapsed)}
         >
-          <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
-            Brand Profile
-          </h3>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsCollapsed(!isCollapsed);
-            }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              isDark
-                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
-            }`}
-          >
-            {isCollapsed ? "Expand" : "Collapse"}
-          </button>
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                Brand Profile
+              </h3>
+              {/* Status Indicator */}
+              <div className="mt-1">
+                {brandFound ? (
+                  <>
+                    <span className={`text-xs ${themeClasses.mutedText}`}>
+                      Saved Brand Profile detected.
+                    </span>
+                    {applied && (
+                      <div className={`text-xs ${themeClasses.mutedText} mt-0.5`}>
+                        Applied to empty fields.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <Link
+                    href="/apps/brand-profile"
+                    className={`text-xs ${themeClasses.mutedText} hover:underline`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Create a Brand Profile →
+                  </Link>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(!isCollapsed);
+              }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ml-4 ${
+                isDark
+                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                  : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+              }`}
+            >
+              {isCollapsed ? "Expand" : "Collapse"}
+            </button>
+          </div>
         </div>
 
         {/* Content */}
         {!isCollapsed && (
           <div className="p-4 space-y-4">
+            {/* Auto-import Toggle (if props provided) */}
+            {useBrandProfileToggleProp !== undefined && onUseBrandProfileToggleChange && (
+              <div className="pb-3 border-b border-slate-200 dark:border-slate-700">
+                <label className={`flex items-center gap-2 ${themeClasses.labelText} cursor-pointer`}>
+                  <input
+                    type="checkbox"
+                    checked={useBrandProfileToggleProp}
+                    onChange={(e) => onUseBrandProfileToggleChange(e.target.checked)}
+                    className="rounded"
+                    disabled={!brandFound}
+                  />
+                  <span className="text-sm font-medium">
+                    Use Brand Profile (auto-fill empty fields)
+                  </span>
+                </label>
+                <p className={`text-xs mt-1 ml-6 ${themeClasses.mutedText}`}>
+                  {brandFound
+                    ? "When enabled, your saved brand profile will automatically fill empty form fields on page load."
+                    : "No brand profile found. Create one to enable auto-fill."}
+                </p>
+              </div>
+            )}
+
             {/* Presets */}
             <div>
               <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>

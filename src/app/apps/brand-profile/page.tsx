@@ -13,6 +13,11 @@ import {
   VariationMode,
   HashtagStyle,
 } from "@/app/apps/brand-kit-builder/types";
+import {
+  loadBrandProfile as loadBrandProfileFromStorage,
+  saveBrandProfile as saveBrandProfileToStorage,
+  deleteBrandProfile as deleteBrandProfileFromStorage,
+} from "@/lib/brand/brandProfileStorage";
 
 const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
 
@@ -77,11 +82,29 @@ export default function BrandProfilePage() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
+        // Try localStorage cache first (fast)
+        // Note: businessId will be extracted from API response below
+        const cached = loadBrandProfileFromStorage();
+        if (cached) {
+          setProfile(cached);
+          setLoading(false);
+        }
+
+        // Always fetch from API to ensure we have the latest data
         const res = await fetch("/api/brand-profile");
         if (res.ok) {
           const data = await res.json();
           if (data) {
             setProfile(data);
+            // Extract businessId from API response if available
+            // The API response may contain businessId in the profile object
+            // For now, check if businessId is available in the response
+            const businessId = (data as { businessId?: string }).businessId;
+            // Cache the API response using scoped key if businessId is available
+            saveBrandProfileToStorage(data, businessId);
+          } else {
+            // No profile exists - clear cache
+            deleteBrandProfileFromStorage();
           }
         }
       } catch (err) {
@@ -179,6 +202,10 @@ export default function BrandProfilePage() {
       const response = await res.json();
       if (response.profile) {
         setProfile(response.profile);
+        // Extract businessId from API response if available
+        const businessId = (response.profile as { businessId?: string }).businessId;
+        // Cache the saved profile using scoped key if businessId is available
+        saveBrandProfileToStorage(response.profile, businessId);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       }

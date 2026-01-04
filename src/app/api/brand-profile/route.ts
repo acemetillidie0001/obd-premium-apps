@@ -105,12 +105,9 @@ export async function PUT(request: NextRequest) {
   const requestId = randomUUID();
   
   try {
-    const raw = await request.text();
-    console.log("[brand-kit-save]", { requestId, bytes: raw.length });
-
     let body: any;
     try {
-      body = JSON.parse(raw);
+      body = await request.json();
     } catch {
       return NextResponse.json({ ok: false, requestId, message: "Invalid JSON" }, { status: 400 });
     }

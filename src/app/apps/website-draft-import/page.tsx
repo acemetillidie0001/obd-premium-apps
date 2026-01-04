@@ -39,6 +39,7 @@ import {
 } from "@/lib/utils/clear-handoff-params";
 import WebDraftImportReadyBanner from "./components/WebDraftImportReadyBanner";
 import WebDraftReviewModal from "./components/WebDraftReviewModal";
+import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 
 function WebDraftImportPageContent() {
   const { theme, isDark, setTheme } = useOBDTheme();
@@ -704,6 +705,36 @@ function WebDraftImportPageContent() {
                   {copiedInstructions === "all" ? "Copied!" : "Copy All Instructions"}
                 </button>
               </div>
+
+              {/* Ecosystem Next Steps */}
+              <EcosystemNextSteps
+                title="What would you like to do next?"
+                steps={[
+                  {
+                    id: "faq",
+                    label: "Generate FAQs",
+                    description: "Turn this page into customer-ready FAQs.",
+                    href: "/apps/faq-generator",
+                    cta: "Generate FAQs",
+                  },
+                  {
+                    id: "schema",
+                    label: "Add Page Schema",
+                    description: "Improve search visibility with structured data.",
+                    href: "/apps/business-schema-generator",
+                    cta: "Add Schema",
+                  },
+                  {
+                    id: "helpdesk",
+                    label: "Use in AI Help Desk",
+                    description: "Answer customer questions automatically using this content.",
+                    href: "/apps/ai-help-desk",
+                    cta: "Open Help Desk",
+                  },
+                ]}
+                dismissKey="tier5c-website-draft-next-steps"
+                isDark={isDark}
+              />
 
               {/* Draft Preview */}
               <div>

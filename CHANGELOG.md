@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
+### Tier 5C — Ecosystem Flow Polish
+- Added dismissible "Next steps" panels across apps
+- Link-only guidance between Website Draft Import, FAQ Generator, Schema Generator, and AI Help Desk
+- Session-dismissable; no auto-handoff, no payload mutation
+
 ### Integration #4 — CMS Adapters (Gutenberg / Divi)
 - Added Gutenberg block export from website drafts
 - Added Divi-optimized HTML export

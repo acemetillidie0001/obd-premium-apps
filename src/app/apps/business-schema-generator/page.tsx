@@ -20,6 +20,7 @@ import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload, parseC
 import FAQImportBanner from "./components/FAQImportBanner";
 import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
 import ContentWriterSchemaImportModal from "./components/ContentWriterSchemaImportModal";
+import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -1605,6 +1606,25 @@ function BusinessSchemaGeneratorPageContent() {
                 </button>
               </div>
             </ResultCard>
+          </div>
+
+          {/* Ecosystem Next Steps */}
+          <div className="mt-6">
+            <EcosystemNextSteps
+              title="Next steps"
+              description="Keep building trust signals and customer automation."
+              steps={[
+                {
+                  id: "helpdesk",
+                  label: "Use with AI Help Desk",
+                  description: "Power customer answers with your website content.",
+                  href: "/apps/ai-help-desk",
+                  cta: "Open Help Desk",
+                },
+              ]}
+              dismissKey="tier5c-schema-generator-next-steps"
+              isDark={isDark}
+            />
           </div>
         </div>
       )}

@@ -10,6 +10,7 @@ import OBDResultsActions from "@/components/obd/OBDResultsActions";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSecondaryButtonClasses, getSubtleButtonMediumClasses } from "@/lib/obd-framework/layout-helpers";
 import FAQExportCenterPanel from "@/components/faq/FAQExportCenterPanel";
+import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 
 export default function FAQGeneratorPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -1025,6 +1026,33 @@ export default function FAQGeneratorPage() {
                     businessType={businessType}
                     topic={topic}
                     services={services}
+                  />
+                </div>
+              )}
+
+              {/* Ecosystem Next Steps */}
+              {effectiveFAQs.length > 0 && (
+                <div className="mt-6">
+                  <EcosystemNextSteps
+                    title="Next steps"
+                    steps={[
+                      {
+                        id: "schema",
+                        label: "Add FAQ Schema",
+                        description: "Make your FAQs eligible for rich results.",
+                        href: "/apps/business-schema-generator",
+                        cta: "Add Schema",
+                      },
+                      {
+                        id: "helpdesk",
+                        label: "Import into Help Desk",
+                        description: "Answer customer questions automatically.",
+                        href: "/apps/ai-help-desk",
+                        cta: "Open Help Desk",
+                      },
+                    ]}
+                    dismissKey="tier5c-faq-generator-next-steps"
+                    isDark={isDark}
                   />
                 </div>
               )}

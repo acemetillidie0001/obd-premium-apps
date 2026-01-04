@@ -206,7 +206,16 @@ export async function PUT(request: NextRequest) {
     const jsonFields = ["colorsJson", "typographyJson", "messagingJson", "kitJson"];
     
     if (stringFields.includes(sectionKey)) {
-      (updateData as Record<string, unknown>)[sectionKey] = (sectionValue as string) || null;
+      // Handle string values - convert to string, trim, or set to null if empty
+      if (typeof sectionValue === "string") {
+        const trimmed = sectionValue.trim();
+        (updateData as Record<string, unknown>)[sectionKey] = trimmed || null;
+      } else if (sectionValue === null || sectionValue === undefined) {
+        (updateData as Record<string, unknown>)[sectionKey] = null;
+      } else {
+        // Convert non-string values to string
+        (updateData as Record<string, unknown>)[sectionKey] = String(sectionValue) || null;
+      }
     } else if (booleanFields.includes(sectionKey)) {
       (updateData as Record<string, unknown>)[sectionKey] = Boolean(sectionValue);
     } else if (jsonFields.includes(sectionKey)) {
@@ -246,11 +255,83 @@ export async function PUT(request: NextRequest) {
       );
     }
 
+    // Handle Prisma errors
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      console.error("[brand-kit-save] Prisma error:", {
+        requestId,
+        code: error.code,
+        meta: error.meta,
+        message: error.message,
+      });
+
+      // Handle specific Prisma error codes
+      if (error.code === "P2002") {
+        // Unique constraint violation
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            message: "A profile with this information already exists.",
+            code: "UNIQUE_CONSTRAINT_ERROR",
+          },
+          { status: 409 }
+        );
+      }
+
+      if (error.code === "P2025") {
+        // Record not found
+        return NextResponse.json(
+          {
+            ok: false,
+            requestId,
+            message: "Record not found.",
+            code: "NOT_FOUND_ERROR",
+          },
+          { status: 404 }
+        );
+      }
+
+      // Generic Prisma error
+      return NextResponse.json(
+        {
+          ok: false,
+          requestId,
+          message: "Database error occurred. Please try again.",
+          code: "DATABASE_ERROR",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      console.error("[brand-kit-save] Prisma validation error:", {
+        requestId,
+        message: error.message,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          requestId,
+          message: "Invalid data format. Please check your input and try again.",
+          code: "VALIDATION_ERROR",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Handle other errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[brand-kit-save] Unexpected error:", {
+      requestId,
+      errorMessage,
+      errorType: error?.constructor?.name,
+    });
+
     return NextResponse.json(
       {
         ok: false,
         requestId,
-        message: "Save failed",
+        message: "Save failed. Please try again.",
       },
       { status: 500 }
     );

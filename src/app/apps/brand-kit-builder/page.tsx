@@ -356,7 +356,6 @@ export default function BrandKitBuilderPage() {
       const sections: Array<{ key: string; value: unknown }> = [];
 
       // Business Basics
-      if (form.businessName?.trim()) sections.push({ key: "businessName", value: form.businessName.trim() });
       if (form.businessType?.trim()) sections.push({ key: "businessType", value: form.businessType.trim() });
       if (form.city?.trim()) sections.push({ key: "city", value: form.city.trim() });
       if (form.state?.trim()) sections.push({ key: "state", value: form.state.trim() });

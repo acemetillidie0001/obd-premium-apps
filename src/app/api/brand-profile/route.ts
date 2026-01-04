@@ -7,6 +7,11 @@ import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 
+// One-time log to check database URL (logs on module load/cold start)
+const db = process.env.DATABASE_URL || "";
+const safe = db.replace(/\/\/.*?:.*?@/, "//***:***@");
+console.log("[db-check] DATABASE_URL=", safe);
+
 // Validation schema for section-based PUT request
 const SectionSaveSchema = z.object({
   sectionKey: z.string(),

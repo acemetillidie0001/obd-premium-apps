@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Brand Profile: Suite-wide Auto-Import (Tenant-Safe)**
+  - Added shared Brand Profile auto-import across apps using useAutoApplyBrandProfile (fill-empty-only default, never overwrites).
+  - Added deterministic merge engine applyBrandProfileToForm (fill-empty-only + overwrite modes).
+  - Added business-scoped localStorage caching with legacy migration (obd.brandProfile.v1.<businessId>).
+  - Added standardized Brand Profile controls + status indicators (Saved / Applied / Create link).
+  - Added/updated docs: docs/architecture/brand-profile-auto-import.md
+
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
 ### Tier 5C — Ecosystem Flow Polish

@@ -24,7 +24,15 @@ import WebsiteImport from "./knowledge/components/WebsiteImport";
 import WidgetSettings from "./widget/components/WidgetSettings";
 import FAQImportBanner from "./knowledge/components/FAQImportBanner";
 import FAQImportModal from "./knowledge/components/FAQImportModal";
-import { parseHandoffPayload, type HelpDeskHandoffPayload } from "@/lib/apps/ai-help-desk/handoff-parser";
+import ContentWriterImportBanner from "./knowledge/components/ContentWriterImportBanner";
+import ContentWriterImportModal from "./knowledge/components/ContentWriterImportModal";
+import ContentWriterImportReadyBanner from "./knowledge/components/ContentWriterImportReadyBanner";
+import { 
+  parseHandoffPayload, 
+  parseContentWriterHandoffPayload,
+  type HelpDeskHandoffPayload,
+  type ContentWriterHandoffPayload,
+} from "@/lib/apps/ai-help-desk/handoff-parser";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -168,6 +176,14 @@ function AIHelpDeskPageContent() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importToast, setImportToast] = useState<string | null>(null);
 
+  // Content Writer Import handoff state
+  const [contentWriterPayload, setContentWriterPayload] = useState<ContentWriterHandoffPayload | null>(null);
+  const [contentWriterHash, setContentWriterHash] = useState<string | null>(null);
+  const [isContentWriterAlreadyImported, setIsContentWriterAlreadyImported] = useState(false);
+  const [showContentWriterImportBanner, setShowContentWriterImportBanner] = useState(false);
+  const [showContentWriterImportModal, setShowContentWriterImportModal] = useState(false);
+  const [showContentWriterImportReadyBanner, setShowContentWriterImportReadyBanner] = useState(false);
+
   // Handle CRM integration prefill
   useEffect(() => {
     if (searchParams && typeof window !== "undefined") {
@@ -246,6 +262,102 @@ function AIHelpDeskPageContent() {
         console.error("Failed to parse handoff payload:", error);
         setImportToast("Failed to load import data. Please try again.");
         setTimeout(() => setImportToast(null), 3000);
+      }
+    }
+  }, [searchParams]);
+
+  // Handle Content Writer import handoff
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined") {
+      // Check if there's a handoff parameter (either handoff or handoffId)
+      const hasHandoff = searchParams.has("handoff") || searchParams.has("handoffId");
+      
+      if (!hasHandoff) {
+        // No handoff params, nothing to do
+        return;
+      }
+
+      try {
+        const payload = parseContentWriterHandoffPayload(searchParams);
+        
+        if (payload && payload.sourceApp === "ai-content-writer") {
+          // Validate mode
+          if (payload.mode !== "faq-only" && payload.mode !== "content") {
+            // Invalid mode, clean up and ignore
+            const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+            replaceUrlWithoutReload(cleanUrl);
+            return;
+          }
+
+          // Validate mode-specific requirements safely
+          if (payload.mode === "faq-only") {
+            if (!payload.faqs || !Array.isArray(payload.faqs) || payload.faqs.length === 0) {
+              // Invalid: faq-only mode requires FAQs
+              const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+              replaceUrlWithoutReload(cleanUrl);
+              return;
+            }
+            // Validate each FAQ has question and answer
+            const hasInvalidFaq = payload.faqs.some(
+              (faq) => !faq || typeof faq.question !== "string" || faq.question.trim().length === 0 || typeof faq.answer !== "string" || faq.answer.trim().length === 0
+            );
+            if (hasInvalidFaq) {
+              const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+              replaceUrlWithoutReload(cleanUrl);
+              return;
+            }
+          } else if (payload.mode === "content") {
+            if (!payload.article || typeof payload.article !== "object") {
+              // Invalid: content mode requires article
+              const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+              replaceUrlWithoutReload(cleanUrl);
+              return;
+            }
+            if (!payload.article.title || payload.article.title.trim().length === 0) {
+              const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+              replaceUrlWithoutReload(cleanUrl);
+              return;
+            }
+            if (!Array.isArray(payload.article.sections) || payload.article.sections.length === 0) {
+              const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+              replaceUrlWithoutReload(cleanUrl);
+              return;
+            }
+          }
+
+          // Payload is valid, store it and show banner
+          // Compute hash for the payload
+          const hash = getHandoffHash(payload);
+          setContentWriterHash(hash);
+          
+          // Check if this payload was already imported
+          const alreadyImported = wasHandoffAlreadyImported("ai-help-desk", hash);
+          setIsContentWriterAlreadyImported(alreadyImported);
+          
+          setContentWriterPayload(payload);
+          
+          // Check if banner was dismissed in this session
+          const dismissedKey = "obd_hd_dismissed_handoff:ai-content-writer";
+          const wasDismissed = typeof window !== "undefined" && sessionStorage.getItem(dismissedKey) === "true";
+          
+          if (!wasDismissed) {
+            setShowContentWriterImportReadyBanner(true);
+          }
+          setShowContentWriterImportBanner(true);
+          // Switch to knowledge tab to show the import
+          setTabMode("knowledge");
+        } else {
+          // Payload is null or invalid, clean up handoff params
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+      } catch (error) {
+        // Error parsing payload, clean up and ignore safely
+        console.error("Failed to parse Content Writer handoff payload:", error);
+        if (typeof window !== "undefined") {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
       }
     }
   }, [searchParams]);
@@ -909,6 +1021,26 @@ function AIHelpDeskPageContent() {
             </div>
           </div>
 
+          {/* Content Writer Import Ready Banner - Top of Page */}
+          {showContentWriterImportReadyBanner && contentWriterPayload && (
+            <ContentWriterImportReadyBanner
+              isDark={isDark}
+              mode={contentWriterPayload.mode}
+              faqCount={contentWriterPayload.faqs?.length || 0}
+              articleSectionCount={contentWriterPayload.article?.sections?.length || 0}
+              onReview={() => {
+                setShowContentWriterImportModal(true);
+              }}
+              onDismiss={() => {
+                setShowContentWriterImportReadyBanner(false);
+                // Store dismissal in sessionStorage
+                if (typeof window !== "undefined") {
+                  sessionStorage.setItem("obd_hd_dismissed_handoff:ai-content-writer", "true");
+                }
+              }}
+            />
+          )}
+
           {/* Tab Content */}
           {tabMode === "help-desk" && (
             <div className="mt-6">
@@ -1060,6 +1192,29 @@ function AIHelpDeskPageContent() {
                 />
               )}
 
+              {/* Content Writer Import Banner */}
+              {showContentWriterImportBanner && contentWriterPayload && (
+                <ContentWriterImportBanner
+                  isDark={isDark}
+                  hasArticle={contentWriterPayload.mode === "content" && !!contentWriterPayload.article}
+                  faqCount={contentWriterPayload.faqs?.length || 0}
+                  isAlreadyImported={isContentWriterAlreadyImported}
+                  onImport={() => setShowContentWriterImportModal(true)}
+                  onDismiss={() => {
+                    setShowContentWriterImportBanner(false);
+                    setContentWriterPayload(null);
+                    setContentWriterHash(null);
+                    setIsContentWriterAlreadyImported(false);
+                    
+                    // Clear handoff params from URL
+                    if (typeof window !== "undefined") {
+                      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                      replaceUrlWithoutReload(cleanUrl);
+                    }
+                  }}
+                />
+              )}
+
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className={`text-xl font-semibold ${themeClasses.headingText}`}>
@@ -1092,18 +1247,17 @@ function AIHelpDeskPageContent() {
               />
 
               {/* Knowledge List */}
-              <div key={knowledgeReloadKey}>
-                <KnowledgeList
-                  isDark={isDark}
-                  businessId={businessId}
-                  onEdit={(entry) => {
-                    setEditingEntry(entry);
-                    setIsEditorOpen(true);
-                  }}
-                  onDelete={() => {}} // Handled internally
-                  onToggleActive={() => {}} // Handled internally
-                />
-              </div>
+              <KnowledgeList
+                isDark={isDark}
+                businessId={businessId}
+                reloadTrigger={knowledgeReloadKey}
+                onEdit={(entry) => {
+                  setEditingEntry(entry);
+                  setIsEditorOpen(true);
+                }}
+                onDelete={() => {}} // Handled internally
+                onToggleActive={() => {}} // Handled internally
+              />
             </div>
           )}
 
@@ -1182,10 +1336,62 @@ function AIHelpDeskPageContent() {
                   replaceUrlWithoutReload(cleanUrl);
                 }
                 
+                // Trigger reload of KnowledgeList
                 setKnowledgeReloadKey((prev) => prev + 1);
-                setImportToast(
-                  `Successfully imported ${handoffPayload.items.length} FAQ${handoffPayload.items.length !== 1 ? "s" : ""}`
-                );
+                
+                // Show success toast
+                setImportToast("Imported into Knowledge Manager");
+                setTimeout(() => setImportToast(null), 3000);
+              }}
+              onError={(message) => {
+                setImportToast(message);
+                setTimeout(() => setImportToast(null), 3000);
+              }}
+            />
+          )}
+
+          {/* Content Writer Import Modal */}
+          {showContentWriterImportModal && contentWriterPayload && contentWriterHash !== null && (
+            <ContentWriterImportModal
+              payload={contentWriterPayload}
+              isDark={isDark}
+              businessId={businessId}
+              isAlreadyImported={isContentWriterAlreadyImported}
+              onClose={() => {
+                setShowContentWriterImportModal(false);
+                setShowContentWriterImportBanner(false);
+                setContentWriterPayload(null);
+                setContentWriterHash(null);
+                setIsContentWriterAlreadyImported(false);
+                
+                // Clear handoff params from URL
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+              }}
+              onSuccess={(message) => {
+                // Mark handoff as imported
+                markHandoffImported("ai-help-desk", contentWriterHash);
+                setIsContentWriterAlreadyImported(true);
+                
+                // Clear handoff params from URL
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+                
+                // Clear incoming handoff state
+                setContentWriterPayload(null);
+                setContentWriterHash(null);
+                setShowContentWriterImportBanner(false);
+                setShowContentWriterImportReadyBanner(false);
+                
+                // Trigger reload of KnowledgeList
+                setKnowledgeReloadKey((prev) => prev + 1);
+                
+                // Show success toast
+                setImportToast(message || "Imported into Knowledge Manager");
                 setTimeout(() => setImportToast(null), 3000);
               }}
               onError={(message) => {

@@ -5,6 +5,12 @@ All notable changes to the OBD Premium Apps project will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
+
 ## AI FAQ Generator — Tier 4 + Tier 5A + Tier 5C (2026-01-03)
 
 **Status:** ✅ Production Ready (STABLE / LIVE)

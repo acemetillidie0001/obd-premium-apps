@@ -26,6 +26,7 @@ interface KnowledgeListProps {
   onEdit: (entry: KnowledgeEntry) => void;
   onDelete: (id: string) => void;
   onToggleActive: (id: string, isActive: boolean) => void;
+  reloadTrigger?: number; // When this changes, trigger a reload
 }
 
 export default function KnowledgeList({
@@ -34,6 +35,7 @@ export default function KnowledgeList({
   onEdit,
   onDelete,
   onToggleActive,
+  reloadTrigger,
 }: KnowledgeListProps) {
   const themeClasses = getThemeClasses(isDark);
 
@@ -93,6 +95,13 @@ export default function KnowledgeList({
 
     return () => clearTimeout(timeoutId);
   }, [businessId, selectedType, searchQuery, includeInactive]);
+
+  // Reload when reloadTrigger changes
+  useEffect(() => {
+    if (reloadTrigger !== undefined && businessId.trim()) {
+      loadEntries();
+    }
+  }, [reloadTrigger]);
 
   // Initial load
   useEffect(() => {

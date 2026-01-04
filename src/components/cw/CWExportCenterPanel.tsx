@@ -9,11 +9,20 @@ import {
   type DestinationInput,
 } from "@/lib/bdw";
 import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-writer/content-ready";
+import { getSecondaryButtonClasses } from "@/lib/obd-framework/layout-helpers";
 
 interface CWExportCenterPanelProps {
   content: ContentOutput;
   isDark: boolean;
   storageKey?: string; // Optional storage key for analytics
+  canUseTools: boolean;
+  formValues: {
+    businessName: string;
+    businessType: string;
+    topic: string;
+    services?: string;
+  };
+  onToast: (message: string) => void;
 }
 
 // Format content as plain text
@@ -143,7 +152,58 @@ function convertContentToDestinationInput(content: ContentOutput): DestinationIn
   };
 }
 
-export default function CWExportCenterPanel({ content, isDark, storageKey }: CWExportCenterPanelProps) {
+// Handoff utility functions (reused from FAQ Generator pattern)
+function encodeBase64Url(data: string): string {
+  const utf8Bytes = new TextEncoder().encode(data);
+  let binary = "";
+  for (let i = 0; i < utf8Bytes.length; i++) {
+    binary += String.fromCharCode(utf8Bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
+function generateHandoffId(): string {
+  return `handoff_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function storeHandoffPayload(payload: unknown, targetRoute: string): void {
+  const jsonString = JSON.stringify(payload);
+  const encoded = encodeBase64Url(jsonString);
+  const urlParam = `?handoff=${encoded}`;
+
+  // Try URL handoff if encoded length is reasonable (~1500 chars for base64url)
+  if (encoded.length <= 1500) {
+    // Navigate to target route with query param
+    const targetUrl = `${targetRoute}${urlParam}`;
+    window.location.href = targetUrl;
+  } else {
+    // Fallback to localStorage
+    const handoffId = generateHandoffId();
+    const storageKey = `obd_handoff:${handoffId}`;
+    
+    try {
+      localStorage.setItem(storageKey, jsonString);
+      // Navigate with handoffId
+      const targetUrl = `${targetRoute}?handoffId=${handoffId}`;
+      window.location.href = targetUrl;
+    } catch (error) {
+      console.error("Failed to store handoff payload:", error);
+      throw new Error("Failed to send handoff. Please try again.");
+    }
+  }
+}
+
+export default function CWExportCenterPanel({ 
+  content, 
+  isDark, 
+  storageKey,
+  canUseTools,
+  formValues,
+  onToast,
+}: CWExportCenterPanelProps) {
   const [copiedItems, setCopiedItems] = useState<Record<string, string>>({});
 
   // Guard: Prevent operations on empty/placeholder content
@@ -154,6 +214,78 @@ export default function CWExportCenterPanel({ content, isDark, storageKey }: CWE
       </div>
     );
   }
+
+  // Handoff handlers
+  const handleSendFAQsToHelpDesk = () => {
+    if (!canUseTools || content.faq.length === 0) {
+      return;
+    }
+
+    try {
+      const payload = {
+        sourceApp: "ai-content-writer",
+        createdAt: new Date().toISOString(),
+        mode: "faq-only",
+        faqs: content.faq.map((faq) => ({
+          question: faq.question,
+          answer: faq.answer,
+        })),
+        businessContext: {
+          businessName: formValues.businessName || "",
+          businessType: formValues.businessType || "",
+          topic: formValues.topic || "",
+          services: formValues.services || "",
+        },
+      };
+
+      onToast("Opening AI Help Desk…");
+      storeHandoffPayload(payload, "/apps/ai-help-desk");
+    } catch (error) {
+      console.error("Failed to send FAQs to Help Desk:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
+
+  const handleSendArticleToHelpDesk = () => {
+    if (!canUseTools || content.sections.length === 0) {
+      return;
+    }
+
+    try {
+      const payload = {
+        sourceApp: "ai-content-writer",
+        createdAt: new Date().toISOString(),
+        mode: "content",
+        article: {
+          title: content.title,
+          seoTitle: content.seoTitle,
+          metaDescription: content.metaDescription,
+          slugSuggestion: content.slugSuggestion,
+          sections: content.sections.map((section) => ({
+            heading: section.heading,
+            body: section.body,
+          })),
+        },
+        faqs: content.faq.length > 0 ? content.faq.map((faq) => ({
+          question: faq.question,
+          answer: faq.answer,
+        })) : undefined,
+        keywordsUsed: content.keywordsUsed.length > 0 ? content.keywordsUsed : undefined,
+        businessContext: {
+          businessName: formValues.businessName || "",
+          businessType: formValues.businessType || "",
+          topic: formValues.topic || "",
+          services: formValues.services || "",
+        },
+      };
+
+      onToast("Opening AI Help Desk…");
+      storeHandoffPayload(payload, "/apps/ai-help-desk");
+    } catch (error) {
+      console.error("Failed to send article to Help Desk:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
 
   const handleCopy = async (itemId: string, content: string, exportType?: string) => {
     try {
@@ -320,6 +452,83 @@ export default function CWExportCenterPanel({ content, isDark, storageKey }: CWE
           >
             Download as .md
           </button>
+        </div>
+      </div>
+
+      {/* Next Steps */}
+      <div>
+        <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
+          Next Steps
+        </h4>
+        <p className={`text-xs mb-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+          Turn your content into instant answers for customers (24/7).
+        </p>
+        <div className="space-y-3">
+          {/* Send FAQs to AI Help Desk */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <button
+                onClick={handleSendFAQsToHelpDesk}
+                disabled={!canUseTools || content.faq.length === 0}
+                className={`text-left text-sm font-medium transition-colors ${
+                  canUseTools && content.faq.length > 0
+                    ? isDark
+                      ? "text-slate-200 hover:text-white"
+                      : "text-slate-700 hover:text-slate-900"
+                    : isDark
+                    ? "text-slate-500 cursor-not-allowed"
+                    : "text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                Send FAQs to AI Help Desk
+              </button>
+              {(!canUseTools || content.faq.length === 0) && (
+                <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                  {content.faq.length === 0 ? "Generate FAQs first" : "Generate content to enable"}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleSendFAQsToHelpDesk}
+              disabled={!canUseTools || content.faq.length === 0}
+              className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+            >
+              Send
+            </button>
+          </div>
+
+          {/* Send Article to AI Help Desk */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <button
+                onClick={handleSendArticleToHelpDesk}
+                disabled={!canUseTools || content.sections.length === 0}
+                className={`text-left text-sm font-medium transition-colors ${
+                  canUseTools && content.sections.length > 0
+                    ? isDark
+                      ? "text-slate-200 hover:text-white"
+                      : "text-slate-700 hover:text-slate-900"
+                    : isDark
+                    ? "text-slate-500 cursor-not-allowed"
+                    : "text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                Send Article to AI Help Desk
+              </button>
+              {(!canUseTools || content.sections.length === 0) && (
+                <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                  {content.sections.length === 0 ? "Generate article sections first" : "Generate content to enable"}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleSendArticleToHelpDesk}
+              disabled={!canUseTools || content.sections.length === 0}
+              className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+            >
+              Send
+            </button>
+          </div>
         </div>
       </div>
 

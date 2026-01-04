@@ -157,16 +157,18 @@ function ContentCard({ title, children, isDark }: ContentCardProps) {
 // BDW Tools Tabs Component
 interface BDWToolsTabsProps {
   content: ContentOutput;
-  formValues: { services: string; keywords: string };
+  formValues: { services: string; keywords: string; businessName: string; businessType: string; topic: string };
   baseContent: ContentOutput;
   baselineContent: ContentOutput | null;
   editedContent: ContentOutput | null;
   isDark: boolean;
+  canUseTools: boolean;
   onApplyFix: (partialUpdated: Partial<ContentOutput>) => void;
   onReset: () => void;
   onUndo?: () => void;
   onExportCenterRef?: (ref: HTMLDivElement | null) => void;
   onActivateExportTab?: (activateFn: () => void) => void;
+  onToast: (message: string) => void;
 }
 
 function BDWToolsTabs({
@@ -176,11 +178,13 @@ function BDWToolsTabs({
   baselineContent,
   editedContent,
   isDark,
+  canUseTools,
   onApplyFix,
   onReset,
   onUndo,
   onExportCenterRef,
   onActivateExportTab,
+  onToast,
 }: BDWToolsTabsProps) {
   const [activeTab, setActiveTab] = useState<string>("fix-packs");
   const exportCenterRef = useRef<HTMLDivElement>(null);
@@ -267,7 +271,19 @@ function BDWToolsTabs({
         )}
         {activeTab === "export-center" && (
           <div id="cw-export-center" ref={exportCenterRef} className="scroll-mt-24">
-            <CWExportCenterPanel content={content} isDark={isDark} storageKey="cw-analytics" />
+            <CWExportCenterPanel 
+              content={content} 
+              isDark={isDark} 
+              storageKey="cw-analytics"
+              canUseTools={canUseTools}
+              formValues={{
+                businessName: formValues.businessName,
+                businessType: formValues.businessType,
+                topic: formValues.topic,
+                services: formValues.services,
+              }}
+              onToast={onToast}
+            />
           </div>
         )}
       </div>
@@ -2193,14 +2209,22 @@ function ContentWriterPageContent() {
                       {/* BDW Tools Tabs */}
                       <BDWToolsTabs
                         content={activeContent}
-                        formValues={{ services: formValues.services, keywords: formValues.keywords }}
+                        formValues={{ 
+                          services: formValues.services, 
+                          keywords: formValues.keywords,
+                          businessName: formValues.businessName,
+                          businessType: formValues.businessType,
+                          topic: formValues.topic,
+                        }}
                         baseContent={activeContent}
                         baselineContent={contentResponse.content}
                         editedContent={editedContent}
                         isDark={isDark}
+                        canUseTools={canUseTools}
                         onApplyFix={handleApplyFix}
                         onReset={handleResetEdits}
                         onUndo={editHistory.length > 0 ? handleUndoLastEdit : undefined}
+                        onToast={showToast}
                       />
                     </>
                   )}

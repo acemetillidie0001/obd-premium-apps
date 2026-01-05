@@ -110,6 +110,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   const requestId = randomUUID();
+  let userId: string | null = null;
   
   try {
     let body: any;
@@ -120,7 +121,8 @@ export async function PUT(request: NextRequest) {
     }
     // Authentication check
     const session = await auth();
-    if (!session?.user?.id) {
+    userId = session?.user?.id ?? null;
+    if (!userId) {
       return NextResponse.json(
         {
           ok: false,
@@ -131,8 +133,6 @@ export async function PUT(request: NextRequest) {
         { status: 401 }
       );
     }
-
-    const userId = session.user.id;
     
     // Check if user exists in database before attempting upsert
     // This prevents foreign key constraint violations
@@ -140,8 +140,8 @@ export async function PUT(request: NextRequest) {
     
     if (!user) {
       // User doesn't exist - try to create from session data
-      const sessionEmail = session.user.email;
-      const sessionName = session.user.name ?? null;
+      const sessionEmail = session?.user?.email;
+      const sessionName = session?.user?.name ?? null;
       
       if (sessionEmail) {
         // Safely create user from session data
@@ -161,7 +161,7 @@ export async function PUT(request: NextRequest) {
         } catch (createError) {
           console.error("[brand-kit-save] Failed to create user:", {
             requestId,
-            userId,
+            userId: userId ?? "unknown",
             error: createError,
           });
           return NextResponse.json(
@@ -177,7 +177,7 @@ export async function PUT(request: NextRequest) {
         // No email in session - cannot create user
         console.error("[brand-kit-save] User not found and no email in session:", {
           requestId,
-          userId,
+          userId: userId ?? "unknown",
         });
         return NextResponse.json(
           {
@@ -299,7 +299,7 @@ export async function PUT(request: NextRequest) {
       profile,
     });
   } catch (error) {
-    console.error("[brand-kit-save]", { requestId, error });
+    console.error("[brand-kit-save]", { requestId, userId: userId ?? "unknown", error });
 
     // Handle validation errors
     if (error instanceof z.ZodError) {
@@ -319,6 +319,7 @@ export async function PUT(request: NextRequest) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       console.error("[brand-kit-save] Prisma error:", {
         requestId,
+        userId: userId ?? "unknown",
         code: error.code,
         meta: error.meta,
         message: error.message,
@@ -355,7 +356,7 @@ export async function PUT(request: NextRequest) {
         // Foreign key constraint violation
         console.error("[brand-kit-save] Foreign key constraint violation:", {
           requestId,
-          userId,
+          userId: userId ?? "unknown",
           constraint: error.meta?.constraint,
         });
         return NextResponse.json(
@@ -378,6 +379,7 @@ export async function PUT(request: NextRequest) {
       };
       console.error("[brand-kit-save] Prisma error details:", {
         requestId,
+        userId: userId ?? "unknown",
         ...errorDetails,
       });
 

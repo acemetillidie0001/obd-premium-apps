@@ -149,37 +149,62 @@ export async function PUT(request: NextRequest) {
     
     // Ensure the User row exists (upsert by id) before brandProfile.upsert to prevent FK (P2003)
     // Note: Do not update email (unique constraint) - only update non-unique fields like name
-    // Handle P2002 (unique constraint on email) - if email already exists, User exists, so skip creation
-    try {
-      await prisma.user.upsert({
-        where: { id: userId },
-        update: {
-          ...(name !== null ? { name } : {}),
-        },
-        create: {
-          id: userId,
-          email, // required, always present
-          ...(name !== null ? { name } : {}),
-        },
-      });
-    } catch (error) {
-      // Handle P2002 unique constraint violation on email
-      // If User with this email already exists, skip creation and continue
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        const target = error.meta?.target as string[] | undefined;
-        if (target && target.includes("email")) {
-          // User with this email already exists - skip creation and continue
-          // The User exists, so FK constraint will pass
-          console.warn("[brand-kit-save] User email already exists, skipping User creation:", {
-            requestId,
-            userId,
-            email,
-          });
-        } else {
-          throw error; // Re-throw if it's not an email constraint violation
+    // First check if User exists by id
+    let user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user) {
+      // User doesn't exist - try to create it
+      // If email is already taken (P2002), this is a data inconsistency (user authenticated but User doesn't exist)
+      // In this case, we can't create the User, so we'll fail the request
+      try {
+        user = await prisma.user.create({
+          data: {
+            id: userId,
+            email, // required, always present
+            ...(name !== null ? { name } : {}),
+          },
+        });
+      } catch (error) {
+        // Handle P2002 unique constraint violation on email
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          // Check if this is a User model email constraint violation
+          const isUserModel = error.meta?.modelName === "User";
+          const target = error.meta?.target as string[] | undefined;
+          const constraintFields = (error.meta?.constraint as { fields?: string[] } | undefined)?.fields;
+          const isEmailConstraint = 
+            (target && Array.isArray(target) && target.includes("email")) ||
+            (constraintFields && Array.isArray(constraintFields) && constraintFields.includes("email")) ||
+            (error.message && error.message.includes("email"));
+          
+          if (isUserModel && isEmailConstraint) {
+            // Data inconsistency: User with this email exists but different id
+            // This shouldn't happen if authentication is working correctly
+            // Log and return error
+            console.error("[brand-kit-save] Data inconsistency: User email exists but different id:", {
+              requestId,
+              sessionUserId: userId,
+              email,
+            });
+            return NextResponse.json(
+              {
+                ok: false,
+                requestId,
+                message: "User account data inconsistency. Please sign out and sign in again.",
+                code: "DATA_INCONSISTENCY_ERROR",
+              },
+              { status: 400 }
+            );
+          }
         }
-      } else {
         throw error; // Re-throw other errors
+      }
+    } else {
+      // User exists - update name if provided (don't update email due to unique constraint)
+      if (name !== null && user.name !== name) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { name },
+        });
       }
     }
     

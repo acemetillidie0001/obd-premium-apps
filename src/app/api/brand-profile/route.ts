@@ -139,55 +139,14 @@ export async function PUT(request: NextRequest) {
     let user = await prisma.user.findUnique({ where: { id: userId } });
     
     if (!user) {
-      // User doesn't exist - try to create from session data
-      const sessionEmail = session?.user?.email;
-      const sessionName = session?.user?.name ?? null;
-      
-      if (sessionEmail) {
-        // Safely create user from session data
-        try {
-          user = await prisma.user.create({
-            data: {
-              id: userId,
-              email: sessionEmail,
-              name: sessionName,
-            },
-          });
-          console.log("[brand-kit-save] Created user from session:", {
-            requestId,
-            userId,
-            email: sessionEmail,
-          });
-        } catch (createError) {
-          console.error("[brand-kit-save] Failed to create user:", {
-            requestId,
-            userId: userId ?? "unknown",
-            error: createError,
-          });
-          return NextResponse.json(
-            {
-              ok: false,
-              requestId,
-              message: "User record not found for this session",
-            },
-            { status: 400 }
-          );
+      // User doesn't exist - create from session data
+      await prisma.user.create({
+        data: {
+          id: userId,
+          email: session.user.email,
+          name: session.user.name ?? null,
         }
-      } else {
-        // No email in session - cannot create user
-        console.error("[brand-kit-save] User not found and no email in session:", {
-          requestId,
-          userId: userId ?? "unknown",
-        });
-        return NextResponse.json(
-          {
-            ok: false,
-            requestId,
-            message: "User record not found for this session",
-          },
-          { status: 400 }
-        );
-      }
+      });
     }
     
     // Prepare data for upsert

@@ -4,12 +4,15 @@ import { useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
 import ResultCard from "@/components/obd/ResultCard";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import {
   SUBMIT_BUTTON_CLASSES,
   getErrorPanelClasses,
   getDividerClass,
+  getSecondaryButtonClasses,
+  getSubtleButtonSmallClasses,
 } from "@/lib/obd-framework/layout-helpers";
 import {
   BrandKitBuilderRequest,
@@ -836,11 +839,7 @@ export default function BrandKitBuilderPage() {
             <button
               type="button"
               onClick={handleClearForm}
-              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                isDark
-                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+              className={getSubtleButtonSmallClasses(isDark)}
             >
               Clear Form
             </button>
@@ -868,13 +867,13 @@ export default function BrandKitBuilderPage() {
         )}
 
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
+          <div className={`space-y-8 ${result ? OBD_STICKY_ACTION_BAR_OFFSET_CLASS : ""}`}>
             {/* Business Basics */}
             <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 Business Basics
               </OBDHeading>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <label
                     htmlFor="businessName"
@@ -974,10 +973,10 @@ export default function BrandKitBuilderPage() {
 
             {/* Brand Direction */}
             <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 Brand Direction
               </OBDHeading>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <label
                     htmlFor="brandPersonality"
@@ -1086,10 +1085,10 @@ export default function BrandKitBuilderPage() {
 
             {/* Voice & Language */}
             <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 Voice & Language
               </OBDHeading>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <label
                     htmlFor="brandVoice"
@@ -1155,10 +1154,10 @@ export default function BrandKitBuilderPage() {
 
             {/* Output Controls */}
             <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 Output Controls
               </OBDHeading>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <label
                     htmlFor="industryKeywords"
@@ -1272,10 +1271,10 @@ export default function BrandKitBuilderPage() {
 
             {/* Extras */}
             <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4 text-base">
+              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 Extra Sections
               </OBDHeading>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
                   <input
                     type="checkbox"
@@ -1342,7 +1341,7 @@ export default function BrandKitBuilderPage() {
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
                   <svg
-                    className="animate-spin h-4 w-4"
+                    className="animate-spin h-5 w-5"
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
@@ -1361,7 +1360,7 @@ export default function BrandKitBuilderPage() {
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     ></path>
                   </svg>
-                  Generating Brand Kit...
+                  <span>Generating Brand Kit...</span>
                 </span>
               ) : (
                 "Generate Brand Kit"
@@ -1389,12 +1388,12 @@ export default function BrandKitBuilderPage() {
         
         return (
           <OBDPanel isDark={isDark} className="mt-7 sm:mt-8" id="brand-kit-results">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
               <OBDHeading level={2} isDark={isDark}>
                 Your Brand Kit
               </OBDHeading>
-              <div className="flex gap-2">
-                <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <div className="flex flex-col items-start gap-1">
                   <button
                     onClick={handleSaveToProfile}
                     disabled={!canSave || savingProfile}
@@ -1417,39 +1416,27 @@ export default function BrandKitBuilderPage() {
                   )}
                 </div>
                 <button
-                onClick={handleExportTxt}
-                disabled={!result}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Export .txt
-              </button>
-              <button
-                onClick={handleExportJson}
-                disabled={!result}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Export .json
-              </button>
-              <button
-                onClick={handleExportPdf}
-                disabled={!result}
-                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                Export PDF
-              </button>
-            </div>
+                  onClick={handleExportTxt}
+                  disabled={!result}
+                  className={getSecondaryButtonClasses(isDark)}
+                >
+                  Export .txt
+                </button>
+                <button
+                  onClick={handleExportJson}
+                  disabled={!result}
+                  className={getSecondaryButtonClasses(isDark)}
+                >
+                  Export .json
+                </button>
+                <button
+                  onClick={handleExportPdf}
+                  disabled={!result}
+                  className={getSecondaryButtonClasses(isDark)}
+                >
+                  Export PDF
+                </button>
+              </div>
           </div>
 
           <div className="grid grid-cols-1 gap-6">
@@ -1894,39 +1881,21 @@ export default function BrandKitBuilderPage() {
 
       {/* Sticky Bottom Action Bar */}
       {result && !loading && (
-        <div
-          className={`sticky bottom-0 left-0 right-0 z-10 mt-12 border-t ${
-            isDark
-              ? "bg-slate-950 border-slate-800"
-              : "bg-white border-slate-200"
-          } shadow-lg`}
-        >
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-              <button
-                onClick={() => handleRegenerate()}
-                disabled={loading}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Generate Again
-              </button>
-              <button
-                onClick={handleStartNew}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors ${
-                  isDark
-                    ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                    : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                }`}
-              >
-                Start New Brand Kit
-              </button>
-            </div>
-          </div>
-        </div>
+        <OBDStickyActionBar isDark={isDark} className="mt-12">
+          <button
+            onClick={() => handleRegenerate()}
+            disabled={loading}
+            className={getSecondaryButtonClasses(isDark)}
+          >
+            Generate Again
+          </button>
+          <button
+            onClick={handleStartNew}
+            className={SUBMIT_BUTTON_CLASSES}
+          >
+            Start New Brand Kit
+          </button>
+        </OBDStickyActionBar>
       )}
     </OBDPageContainer>
   );

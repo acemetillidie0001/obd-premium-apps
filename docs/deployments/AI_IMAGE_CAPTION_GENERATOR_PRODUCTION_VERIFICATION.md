@@ -11,8 +11,8 @@ Status: Pending manual verification
 - Purpose: Social Auto-Poster receiver hardening (handoff import before setup gating + localStorage fallback guard)
 
 ## Deployment Check
-- [x] Confirm Vercel latest deploy uses commit dde1c01
-- [x] Confirm Vercel build completed successfully
+- ✅ Initial release deployed: dde1c01
+- ✅ Follow-up handoff hardening deployed: eb6df88 (production Ready/Latest)
 
 ## App Verification — /apps/image-caption-generator
 - [ ] Generate captions successfully

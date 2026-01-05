@@ -1991,6 +1991,13 @@ function highlightMatchingText(snippet: string, query: string): React.ReactNode 
   return snippet;
 }
 
+// Helper function to detect booking intent in a message
+function hasBookingIntent(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  const keywords = ["book", "booking", "appointment", "schedule", "availability", "reserve"];
+  return keywords.some(keyword => normalized.includes(keyword));
+}
+
 // Chat Panel Component
 interface ChatPanelProps {
   isDark: boolean;
@@ -2031,6 +2038,67 @@ function ChatPanel({
   showCrmBanner = true,
   onDismissCrmBanner,
 }: ChatPanelProps) {
+  // Booking link state (cached per session)
+  const [bookingLinkState, setBookingLinkState] = useState<{
+    url: string | null;
+    label: string;
+    loading: boolean;
+  }>({ url: null, label: "Open Scheduler & Booking", loading: false });
+  const bookingLinkFetchAttemptedRef = useRef(false);
+
+  // Fetch booking link when booking intent is detected (only once per session)
+  useEffect(() => {
+    // Check if we need to fetch (if booking intent exists and we haven't fetched yet)
+    const hasAnyBookingIntent = chatMessages.some(
+      (msg) => msg.role === "user" && hasBookingIntent(msg.content)
+    );
+
+    if (!hasAnyBookingIntent || bookingLinkFetchAttemptedRef.current || bookingLinkState.url !== null) {
+      return; // No booking intent, already attempted fetch, or already have URL
+    }
+
+    // Mark as attempted and fetch booking link
+    bookingLinkFetchAttemptedRef.current = true;
+    setBookingLinkState((prev) => ({ ...prev, loading: true }));
+    fetch("/api/obd-scheduler/public-link")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && data.data) {
+          const url = data.data.prettyUrl || (data.data.code ? `/book/${data.data.code}` : null);
+          if (url) {
+            setBookingLinkState({
+              url,
+              label: "Open booking page",
+              loading: false,
+            });
+          } else {
+            // Fallback to internal scheduler
+            setBookingLinkState({
+              url: "/apps/obd-scheduler",
+              label: "Open Scheduler & Booking",
+              loading: false,
+            });
+          }
+        } else {
+          // Fallback to internal scheduler
+          setBookingLinkState({
+            url: "/apps/obd-scheduler",
+            label: "Open Scheduler & Booking",
+            loading: false,
+          });
+        }
+      })
+      .catch(() => {
+        // Fallback to internal scheduler on error
+        setBookingLinkState({
+          url: "/apps/obd-scheduler",
+          label: "Open Scheduler & Booking",
+          loading: false,
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMessages]);
+
   // Helper function to prepend instruction to chat input
   const prependInstruction = (instruction: string) => {
     const trimmed = chatInput.trim();
@@ -2157,6 +2225,67 @@ function ChatPanel({
                     </ul>
                   </div>
                 )}
+
+                {/* Booking card - shown when previous user message has booking intent */}
+                {message.role === "assistant" && (() => {
+                  const messageIndex = chatMessages.findIndex((m) => m.id === message.id);
+                  const previousUserMessage = messageIndex > 0 
+                    ? chatMessages[messageIndex - 1] 
+                    : null;
+                  const shouldShowBookingCard = previousUserMessage?.role === "user" && hasBookingIntent(previousUserMessage.content);
+                  
+                  if (!shouldShowBookingCard) return null;
+                  
+                  const bookingUrl = bookingLinkState.url || "/apps/obd-scheduler";
+                  const bookingLabel = bookingLinkState.loading 
+                    ? "Loading booking link…" 
+                    : bookingLinkState.url 
+                      ? bookingLinkState.label 
+                      : "Open Scheduler & Booking";
+                  
+                  return (
+                    <div className={`mt-3 pt-3 border-t ${
+                      isDark ? "border-slate-700" : "border-slate-300"
+                    }`}>
+                      <div className={`p-3 rounded-lg border ${
+                        isDark 
+                          ? "bg-slate-700/50 border-slate-600" 
+                          : "bg-slate-50 border-slate-200"
+                      }`}>
+                        <h4 className={`text-sm font-medium mb-1 ${themeClasses.headingText}`}>
+                          Book an appointment
+                        </h4>
+                        <p className={`text-xs mb-3 ${themeClasses.mutedText}`}>
+                          Use the booking page to request a time.
+                        </p>
+                        {bookingLinkState.loading ? (
+                          <button
+                            type="button"
+                            disabled
+                            className={`inline-block px-4 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                              isDark
+                                ? "border-slate-600 bg-slate-700/30 text-slate-400 cursor-not-allowed"
+                                : "border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed"
+                            }`}
+                          >
+                            {bookingLabel}
+                          </button>
+                        ) : (
+                          <Link
+                            href={bookingUrl}
+                            className={`inline-block px-4 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                              isDark
+                                ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9] hover:bg-[#29c4a9]/30"
+                                : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9] hover:bg-[#29c4a9]/20"
+                            }`}
+                          >
+                            {bookingLabel}
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* No sources indicator */}
                 {message.role === "assistant" &&

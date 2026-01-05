@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSecondaryButtonClasses } from "@/lib/obd-framework/layout-helpers";
 
 interface InsightsSummary {
   period: {
@@ -47,12 +48,15 @@ export default function InsightsPanel({
   onTurnIntoFAQ,
 }: InsightsPanelProps) {
   const themeClasses = getThemeClasses(isDark);
+  const router = useRouter();
 
   const [insights, setInsights] = useState<InsightsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
   const [activeCluster, setActiveCluster] = useState<string | null>(null);
+  const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
 
   // Load insights
   const loadInsights = async () => {
@@ -194,6 +198,102 @@ export default function InsightsPanel({
         return themeClasses.mutedText;
     }
   };
+
+  // Handoff utilities
+  const encodeBase64Url = (data: string): string => {
+    const utf8Bytes = new TextEncoder().encode(data);
+    let binary = "";
+    for (let i = 0; i < utf8Bytes.length; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=/g, "");
+  };
+
+  const generateHandoffId = (): string => {
+    return `handoff_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  };
+
+  // Selection handlers
+  const toggleQuestionSelection = (question: string) => {
+    setSelectedQuestions((prev) => {
+      const next = new Set(prev);
+      if (next.has(question)) {
+        next.delete(question);
+      } else {
+        next.add(question);
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    const questions = filteredQuestions.map((q) => q.question).filter((q) => q && q.trim().length > 0);
+    setSelectedQuestions(new Set(questions));
+  };
+
+  const clearSelection = () => {
+    setSelectedQuestions(new Set());
+  };
+
+  // Convert to FAQs handler
+  const handleConvertToFAQs = () => {
+    if (selectedQuestions.size === 0) {
+      setToast("Please select at least one question");
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+
+    const questions = Array.from(selectedQuestions).filter((q) => q && q.trim().length > 0);
+    if (questions.length === 0) {
+      setToast("No valid questions selected");
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+
+    // Build handoff payload
+    const payload = {
+      sourceApp: "ai-help-desk",
+      importedAt: new Date().toISOString(),
+      questions: questions,
+      context: {
+        businessId: businessId || undefined,
+        topic: activeCluster || "Customer Questions",
+      },
+    };
+
+    try {
+      const jsonString = JSON.stringify(payload);
+      const encoded = encodeBase64Url(jsonString);
+
+      // Use URL param if small enough, otherwise localStorage
+      if (encoded.length <= 1500) {
+        const url = `/apps/faq-generator?handoff=${encoded}`;
+        router.push(url);
+      } else {
+        const handoffId = generateHandoffId();
+        const storageKey = `obd_handoff:${handoffId}`;
+        localStorage.setItem(storageKey, jsonString);
+        const url = `/apps/faq-generator?handoffId=${handoffId}`;
+        router.push(url);
+      }
+
+      // Show toast
+      setToast(`Sent ${questions.length} question${questions.length === 1 ? "" : "s"} to FAQ Generator`);
+      setTimeout(() => setToast(null), 3000);
+    } catch (error) {
+      console.error("Failed to send questions to FAQ Generator:", error);
+      setToast("Failed to send questions. Please try again.");
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  // Clear selection when cluster changes
+  useEffect(() => {
+    setSelectedQuestions(new Set());
+  }, [activeCluster]);
 
   return (
     <div className="space-y-6">
@@ -387,6 +487,58 @@ export default function InsightsPanel({
         </OBDPanel>
       )}
 
+      {/* Convert to FAQs CTA */}
+      {!loading && insights && insights.topQuestions.length > 0 && (
+        <OBDPanel isDark={isDark}>
+          <div className="space-y-3">
+            <div>
+              <h3 className={`text-sm font-semibold mb-1 ${themeClasses.headingText}`}>
+                Convert to FAQs
+              </h3>
+              <p className={`text-xs ${themeClasses.mutedText}`}>
+                Send selected questions to AI FAQ Generator as drafts.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleConvertToFAQs}
+                disabled={selectedQuestions.size === 0}
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  selectedQuestions.size > 0
+                    ? SUBMIT_BUTTON_CLASSES
+                    : isDark
+                    ? "bg-slate-700 text-slate-400"
+                    : "bg-slate-200 text-slate-500"
+                }`}
+              >
+                Convert to FAQs {selectedQuestions.size > 0 && `(${selectedQuestions.size})`}
+              </button>
+              {filteredQuestions.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    className={getSecondaryButtonClasses(isDark)}
+                  >
+                    Select all (filtered)
+                  </button>
+                  {selectedQuestions.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className={getSecondaryButtonClasses(isDark)}
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Top Questions */}
       {!loading && insights && insights.topQuestions.length > 0 && (
         <OBDPanel isDark={isDark}>
@@ -398,49 +550,64 @@ export default function InsightsPanel({
             {activeCluster ? `Questions in "${activeCluster}" cluster` : "Most frequently asked questions"}
           </p>
           <div className="space-y-3">
-            {filteredQuestions.map((q, idx) => (
-              <div
-                key={idx}
-                className={`p-4 rounded-lg border ${
-                  isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        isDark ? "bg-slate-700 text-slate-300" : "bg-slate-200 text-slate-600"
-                      }`}>
-                        Asked {q.count} {q.count === 1 ? "time" : "times"}
-                      </span>
-                      <span className={`text-xs font-medium ${getQualityColor(q.responseQuality)}`}>
-                        {getQualityLabel(q.responseQuality)}
-                      </span>
+            {filteredQuestions.map((q, idx) => {
+              const isSelected = selectedQuestions.has(q.question);
+              return (
+                <div
+                  key={idx}
+                  className={`p-4 rounded-lg border ${
+                    isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleQuestionSelection(q.question)}
+                        className={`mt-1 w-4 h-4 rounded border-2 ${
+                          isDark
+                            ? "border-slate-600 bg-slate-800 text-[#29c4a9] focus:ring-[#29c4a9]"
+                            : "border-slate-300 bg-white text-[#29c4a9] focus:ring-[#29c4a9]"
+                        }`}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded ${
+                            isDark ? "bg-slate-700 text-slate-300" : "bg-slate-200 text-slate-600"
+                          }`}>
+                            Asked {q.count} {q.count === 1 ? "time" : "times"}
+                          </span>
+                          <span className={`text-xs font-medium ${getQualityColor(q.responseQuality)}`}>
+                            {getQualityLabel(q.responseQuality)}
+                          </span>
+                        </div>
+                        <p className={`font-medium ${themeClasses.headingText}`}>
+                          {q.question}
+                        </p>
+                        <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                          Last asked {new Date(q.lastAsked).toLocaleDateString()}
+                          {q.sourcesCount > 0 && ` • ${q.sourcesCount} source${q.sourcesCount === 1 ? "" : "s"}`}
+                        </p>
+                      </div>
                     </div>
-                    <p className={`font-medium ${themeClasses.headingText}`}>
-                      {q.question}
-                    </p>
-                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                      Last asked {new Date(q.lastAsked).toLocaleDateString()}
-                      {q.sourcesCount > 0 && ` • ${q.sourcesCount} source${q.sourcesCount === 1 ? "" : "s"}`}
-                    </p>
+                    {!q.hasSources && (
+                      <button
+                        type="button"
+                        onClick={() => onTurnIntoFAQ(q.question)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                          isDark
+                            ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9] hover:bg-[#29c4a9]/30"
+                            : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9] hover:bg-[#29c4a9]/20"
+                        }`}
+                      >
+                        Turn into FAQ
+                      </button>
+                    )}
                   </div>
-                  {!q.hasSources && (
-                    <button
-                      type="button"
-                      onClick={() => onTurnIntoFAQ(q.question)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                        isDark
-                          ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9] hover:bg-[#29c4a9]/30"
-                          : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9] hover:bg-[#29c4a9]/20"
-                      }`}
-                    >
-                      Turn into FAQ
-                    </button>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </OBDPanel>
       )}
@@ -453,6 +620,19 @@ export default function InsightsPanel({
             <p className="text-sm">Start asking questions in the Help Desk tab to see insights.</p>
           </div>
         </OBDPanel>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 pointer-events-none ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+          <div className={`px-4 py-2 rounded-lg text-sm font-medium shadow-lg backdrop-blur-sm transition-opacity ${
+            isDark 
+              ? "bg-slate-800/90 border border-slate-700/50" 
+              : "bg-white/90 border border-slate-200/50"
+          }`}>
+            {toast}
+          </div>
+        </div>
       )}
     </div>
   );

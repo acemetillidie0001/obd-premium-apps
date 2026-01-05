@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -14,8 +15,19 @@ import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
+import { parseHelpDeskHandoffPayload } from "@/lib/apps/faq-generator/handoff-parser";
+import {
+  getHandoffHash,
+  wasHandoffAlreadyImported,
+  markHandoffImported,
+} from "@/lib/utils/handoff-guard";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
 
-export default function FAQGeneratorPage() {
+function FAQGeneratorPageContent() {
+  const searchParams = useSearchParams();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -145,6 +157,86 @@ export default function FAQGeneratorPage() {
       }
     });
   }, [personalityStyle, useBrandProfile]);
+
+  // Imported questions state from AI Help Desk
+  const [importedQuestions, setImportedQuestions] = useState<string[]>([]);
+  const [importedTopic, setImportedTopic] = useState<string | undefined>(undefined);
+  const [importedQuestionsExpanded, setImportedQuestionsExpanded] = useState(true);
+
+  // Handle Help Desk handoff
+  useEffect(() => {
+    if (typeof window === "undefined" || !searchParams) return;
+
+    try {
+      const payload = parseHelpDeskHandoffPayload(searchParams);
+      
+      if (payload) {
+        // Validate sourceApp (already validated by parser, but double-check)
+        if (payload.sourceApp !== "ai-help-desk") {
+          // Clean URL and exit
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+          return;
+        }
+
+        // Validate questions is non-empty array (already validated by parser)
+        if (!Array.isArray(payload.questions) || payload.questions.length === 0) {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+          return;
+        }
+
+        const hash = getHandoffHash(payload);
+        const alreadyImported = wasHandoffAlreadyImported("faq-generator", hash);
+        
+        if (!alreadyImported) {
+          // Sanitize questions: trim, drop empty, de-dupe (case-insensitive trim), cap to 25
+          const sanitized = payload.questions
+            .map((q) => q.trim())
+            .filter((q) => q.length > 0)
+            .filter((q, index, arr) => {
+              // Case-insensitive de-dupe
+              const lower = q.toLowerCase();
+              return arr.findIndex((item) => item.toLowerCase() === lower) === index;
+            })
+            .slice(0, 25);
+
+          if (sanitized.length > 0) {
+            // Store in state
+            setImportedQuestions(sanitized);
+            setImportedTopic(payload.context?.topic);
+
+            // Set topic field if empty
+            setTopic((prev) => {
+              if (prev.trim()) return prev;
+              return payload.context?.topic || "Customer Questions";
+            });
+
+            // Mark as imported and clean URL
+            markHandoffImported("faq-generator", hash);
+            const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+            replaceUrlWithoutReload(cleanUrl);
+          } else {
+            // No valid questions after sanitization, just clean URL
+            const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+            replaceUrlWithoutReload(cleanUrl);
+          }
+        } else {
+          // Already imported, just clean URL
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to process handoff:", error);
+      // Clean URL even on error
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
@@ -588,6 +680,85 @@ export default function FAQGeneratorPage() {
         }`}>
           {actionToast}
         </div>
+      )}
+
+      {/* Imported Questions Panel */}
+      {importedQuestions.length > 0 && (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div className={`p-4 rounded-xl border ${
+            isDark ? "bg-blue-900/20 border-blue-700" : "bg-blue-50 border-blue-200"
+          }`}>
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex-1">
+                <h3 className={`text-sm font-semibold mb-1 ${isDark ? "text-blue-300" : "text-blue-900"}`}>
+                  Imported Questions (Draft)
+                </h3>
+                <p className={`text-xs ${isDark ? "text-blue-400/80" : "text-blue-700/80"}`}>
+                  From AI Help Desk Insights • {importedQuestions.length} question{importedQuestions.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              {importedQuestions.length > 10 && (
+                <button
+                  type="button"
+                  onClick={() => setImportedQuestionsExpanded(!importedQuestionsExpanded)}
+                  className={`text-xs font-medium ${isDark ? "text-blue-300 hover:text-blue-200" : "text-blue-700 hover:text-blue-800"}`}
+                >
+                  {importedQuestionsExpanded ? "Collapse" : "Expand"}
+                </button>
+              )}
+            </div>
+
+            {importedQuestionsExpanded && (
+              <ul className={`mb-4 space-y-1.5 max-h-60 overflow-y-auto ${
+                isDark ? "text-blue-200" : "text-blue-800"
+              }`}>
+                {importedQuestions.map((q, idx) => (
+                  <li key={idx} className="text-xs flex items-start gap-2">
+                    <span className="mt-0.5">•</span>
+                    <span className="flex-1">{q}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // Append to services field
+                  setServices((prev) => {
+                    const prefix = prev.trim() ? prev.trim() + "\n\n" : "";
+                    const questionsSection = "Customer questions to answer:\n" + importedQuestions.map((q) => `- ${q}`).join("\n");
+                    return prefix + questionsSection;
+                  });
+                  showToast("Questions applied to form");
+                }}
+                className={`px-4 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                  isDark
+                    ? "border-blue-600 bg-blue-700/50 text-blue-200 hover:bg-blue-700/70"
+                    : "border-blue-500 bg-blue-600 text-white hover:bg-blue-700"
+                }`}
+              >
+                Apply to Inputs
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportedQuestions([]);
+                  setImportedTopic(undefined);
+                  showToast("Imported questions cleared");
+                }}
+                className={`px-4 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                  isDark
+                    ? "border-slate-600 bg-slate-700/50 text-slate-200 hover:bg-slate-700/70"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </OBDPanel>
       )}
 
       {/* Form card */}
@@ -1173,6 +1344,14 @@ export default function FAQGeneratorPage() {
         </div>
       )}
     </OBDPageContainer>
+  );
+}
+
+export default function FAQGeneratorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <FAQGeneratorPageContent />
+    </Suspense>
   );
 }
 

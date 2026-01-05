@@ -148,10 +148,10 @@ export async function PUT(request: NextRequest) {
     const name = session.name;   // string | null is fine if name is optional/nullable in schema
     
     // Ensure the User row exists (upsert by id) before brandProfile.upsert to prevent FK (P2003)
+    // Note: Do not update email (unique constraint) - only update non-unique fields like name
     await prisma.user.upsert({
       where: { id: userId },
       update: {
-        email, // always a string now
         ...(name !== null ? { name } : {}),
       },
       create: {
@@ -255,7 +255,8 @@ export async function PUT(request: NextRequest) {
         : Prisma.JsonNull;
     }
 
-    // Upsert brand profile
+    // Idempotent write: upsert brand profile using unique key (userId)
+    // This ensures the operation is safe to retry and won't throw UNIQUE_CONSTRAINT_ERROR
     const profile = await prisma.brandProfile.upsert({
       where: { userId: userId },
       create: {
@@ -299,12 +300,23 @@ export async function PUT(request: NextRequest) {
       // Handle specific Prisma error codes
       if (error.code === "P2002") {
         // Unique constraint violation
+        const target = error.meta?.target as string[] | undefined;
+        const targetField = target ? target.join(", ") : "unknown";
+        
+        console.error("[brand-kit-save] Unique constraint violation:", {
+          requestId,
+          userId: userId ?? "unknown",
+          target: targetField,
+          meta: error.meta,
+        });
+        
         return NextResponse.json(
           {
             ok: false,
             requestId,
             message: "A profile with this information already exists.",
             code: "UNIQUE_CONSTRAINT_ERROR",
+            target: targetField,
           },
           { status: 409 }
         );

@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **AI Image Caption Generator — Tier 4 + Tier 5A + Tier 5C (2025-01-XX)**
+  - **Tier 4 Hardening:**
+    - CaptionItem schema with stable string IDs (converted from numeric API IDs)
+    - Canonical state: `getActiveCaptions()` function provides single source of truth
+    - CaptionCard component extraction for reusable caption display
+    - Inline editing system with character count feedback per platform
+    - Generated/Edited state chip in sticky action bar
+    - Selection system with `Set<string>` for caption IDs
+    - Bulk copy operations (Copy Selected, Copy All) with platform grouping
+    - Export formatters: `formatCaptionsPlain()` and `formatCaptionsCsv()` with proper escaping
+  - **Tier 5A UX Consistency:**
+    - Sticky action bar with tooltips, disabled-not-hidden states, and mobile safe-area padding
+    - Accordion input sections with live summary lines (6 sections: Business Basics, Image Context, Platform & Goal, Brand Voice, Hashtags & Variations, Advanced Options)
+    - Export Center panel with Plain Text, Platform Blocks, and CSV formats
+    - Copy and download actions for all export formats
+  - **Tier 5C Ecosystem Integration:**
+    - Next Steps panel (dismissible via sessionStorage) with Social Auto-Poster handoff
+    - Handoff payload builder with base64url encoding and localStorage fallback
+    - Additive, duplicate-safe import to Social Auto-Poster queue
+    - Review-first workflow (no auto-posting)
+    - Tenant-safe operations (user-scoped via session auth)
+  - **Documentation:** Added `docs/apps/ai-image-caption-generator.md` with full architecture and audit checklist
+
 - **Brand Profile: Suite-wide Auto-Import (Tenant-Safe)**
   - Added shared Brand Profile auto-import across apps using useAutoApplyBrandProfile (fill-empty-only default, never overwrites).
   - Added deterministic merge engine applyBrandProfileToForm (fill-empty-only + overwrite modes).

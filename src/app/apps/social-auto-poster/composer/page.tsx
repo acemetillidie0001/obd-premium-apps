@@ -13,6 +13,18 @@ import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
 import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { parseSocialAutoPosterHandoff, normalizePlatform, type SocialAutoPosterHandoffPayload } from "@/lib/apps/social-auto-poster/handoff-parser";
+import {
+  getHandoffHash,
+  wasHandoffAlreadyImported,
+  markHandoffImported,
+} from "@/lib/utils/handoff-guard";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
+// Note: computeContentFingerprint is server-only, so we use a simple client-side duplicate check
+import OBDToast from "@/components/obd/OBDToast";
 import type {
   GeneratePostsRequest,
   GeneratePostsResponse,
@@ -85,9 +97,184 @@ function SocialAutoPosterComposerPageContent() {
     contentPillarSettings?: { contentPillarMode?: string; defaultPillar?: string };
   } | null>(null);
 
+  // Handoff state
+  const [handoffPayload, setHandoffPayload] = useState<SocialAutoPosterHandoffPayload | null>(null);
+  const [handoffHash, setHandoffHash] = useState<string | null>(null);
+  const [handoffImporting, setHandoffImporting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const handoffProcessed = useRef(false);
+
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Handle handoff on page load
+  useEffect(() => {
+    if (searchParams && typeof window !== "undefined" && !handoffProcessed.current) {
+      try {
+        const payload = parseSocialAutoPosterHandoff(searchParams);
+        if (payload) {
+          const hash = getHandoffHash(payload);
+          setHandoffPayload(payload);
+          setHandoffHash(hash);
+          handoffProcessed.current = true;
+        }
+      } catch (error) {
+        console.error("Failed to parse handoff payload:", error);
+      }
+    }
+  }, [searchParams]);
+
+  // Helper to show toast
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Import captions from handoff
+  const handleImportCaptions = async () => {
+    if (!handoffPayload || !handoffHash) return;
+    
+    // Prevent import if already imported
+    if (wasHandoffAlreadyImported("social-auto-poster", handoffHash)) {
+      showToast("These captions have already been imported");
+      return;
+    }
+
+    setHandoffImporting(true);
+
+    try {
+      // Get existing queue items to check for duplicates
+      const existingRes = await fetch("/api/social-auto-poster/queue");
+      let existingItems: Array<{ platform: SocialPlatform; content: string }> = [];
+      
+      if (existingRes.ok) {
+        const existingData = await existingRes.json();
+        if (existingData.items && Array.isArray(existingData.items)) {
+          existingItems = existingData.items.map((item: { platform: SocialPlatform; content: string }) => ({
+            platform: item.platform,
+            content: item.content,
+          }));
+        }
+      }
+
+      // Normalize and check for duplicates (simple client-side check)
+      // Normalize existing items: platform + lowercase trimmed content
+      const normalizedExisting = new Set<string>();
+      for (const item of existingItems) {
+        const normalized = `${item.platform}:${item.content.trim().toLowerCase()}`;
+        normalizedExisting.add(normalized);
+      }
+
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      // Import each caption
+      for (const caption of handoffPayload.captions) {
+        const platform = normalizePlatform(caption.platform);
+        if (!platform) {
+          skippedCount++;
+          continue;
+        }
+
+        // Normalize caption text (trim, lowercase for comparison)
+        const normalizedCaption = caption.caption.trim();
+        if (!normalizedCaption) {
+          skippedCount++;
+          continue;
+        }
+
+        // Check for duplicate using simple normalized string
+        const normalized = `${platform}:${normalizedCaption.toLowerCase()}`;
+        if (normalizedExisting.has(normalized)) {
+          skippedCount++;
+          continue;
+        }
+
+        // Build content with hashtags if present
+        let content = normalizedCaption;
+        if (caption.hashtags && caption.hashtags.length > 0) {
+          const hashtagsText = caption.hashtags
+            .map(tag => tag.startsWith("#") ? tag : `#${tag}`)
+            .join(" ");
+          content = `${normalizedCaption}\n\n${hashtagsText}`;
+        }
+
+        // Create queue item
+        try {
+          const res = await fetch("/api/social-auto-poster/queue/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform,
+              content,
+              metadata: {
+                hashtags: caption.hashtags || [],
+                goal: caption.goal || null,
+                source: "ai-image-caption-generator",
+              },
+              reason: caption.goal ? `Imported from Image Caption Generator (${caption.goal})` : "Imported from Image Caption Generator",
+            }),
+          });
+
+          if (res.ok) {
+            importedCount++;
+            // Add to existing set to prevent duplicates within this import batch
+            normalizedExisting.add(normalized);
+          } else {
+            skippedCount++;
+          }
+        } catch (error) {
+          console.error("Failed to import caption:", error);
+          skippedCount++;
+        }
+      }
+
+      // Mark handoff as imported
+      markHandoffImported("social-auto-poster", handoffHash);
+
+      // Clear handoff
+      setHandoffPayload(null);
+      setHandoffHash(null);
+
+      // Clear localStorage if handoffId was used
+      if (typeof window !== "undefined" && searchParams) {
+        const handoffId = searchParams.get("handoffId");
+        if (handoffId) {
+          const storageKey = `obd_handoff:${handoffId}`;
+          localStorage.removeItem(storageKey);
+        }
+      }
+
+      // Clear handoff params from URL
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+
+      // Show success toast
+      if (skippedCount > 0) {
+        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""} (Skipped ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""})`);
+      } else {
+        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""}`);
+      }
+    } catch (error) {
+      console.error("Failed to import captions:", error);
+      showToast("Failed to import captions. Please try again.");
+    } finally {
+      setHandoffImporting(false);
+    }
+  };
+
+  // Auto-import on mount if handoff exists
+  const handoffImportedRef = useRef(false);
+  useEffect(() => {
+    if (handoffPayload && handoffHash && !handoffImporting && !handoffImportedRef.current) {
+      handoffImportedRef.current = true;
+      handleImportCaptions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoffPayload, handoffHash]);
 
   // Handle CRM integration prefill
   useEffect(() => {
@@ -362,6 +549,13 @@ function SocialAutoPosterComposerPageContent() {
       />
 
       <SocialAutoPosterNav isDark={isDark} />
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 z-50">
+          <OBDToast message={toastMessage} type="success" isDark={isDark} />
+        </div>
+      )}
 
       <div className="mt-7 space-y-6">
         {/* Generate Form */}

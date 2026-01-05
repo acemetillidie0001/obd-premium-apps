@@ -75,3 +75,25 @@ export interface ImageCaptionResponse {
   meta: ImageCaptionResponseMeta;
 }
 
+/**
+ * CaptionItem - Canonical internal state type for caption management
+ * 
+ * Used for state management, editing, selection, export, and handoff.
+ * Maps from API Caption type to this normalized structure.
+ */
+export interface CaptionItem {
+  id: string; // Stable string ID (converted from numeric ID)
+  platform: string; // "facebook" | "instagram" | "google" | etc. (extendable)
+  goal?: string | null;
+  tone?: string | null;
+  length?: "short" | "medium" | "long" | string | null;
+  caption: string; // The caption text (mapped from "text" field)
+  hashtags?: string[] | null;
+  createdAt?: number; // Optional local timestamp
+  // Display-only fields (preserved from original Caption for UI)
+  label?: string;
+  lengthMode?: CaptionLength;
+  variationMode?: VariationMode;
+  previewHint?: string;
+}
+

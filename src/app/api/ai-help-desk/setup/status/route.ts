@@ -40,6 +40,12 @@ export async function GET(request: NextRequest) {
     const baseUrl = process.env.ANYTHINGLLM_BASE_URL;
     const apiKey = process.env.ANYTHINGLLM_API_KEY;
     
+    // Debug logging (remove after fixing)
+    console.log('[AI Help Desk Setup Status] ANYTHINGLLM_BASE_URL:', baseUrl ? 'SET' : 'MISSING');
+    if (baseUrl) {
+      console.log('[AI Help Desk Setup Status] Base URL value:', baseUrl.substring(0, 50) + '...');
+    }
+    
     const env = {
       hasBaseUrl: !!baseUrl,
       hasApiKey: !!apiKey,

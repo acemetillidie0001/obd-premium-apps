@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireUserSession } from "@/lib/auth/requireUserSession";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -73,20 +73,17 @@ export async function GET() {
 
   try {
     // Authentication check
-    const session = await auth();
-    if (!session?.user?.id) {
+    const session = await requireUserSession();
+
+    if (!session) {
       return NextResponse.json(
-        {
-          ok: false,
-          requestId,
-          message: "Authentication required",
-          code: "AUTH_REQUIRED",
-        },
+        { ok: false, requestId, message: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const userId = session.user.id;
+    // From here on, session is guaranteed to exist
+    const userId = session.userId;
 
     // Fetch brand profile for user
     const profile = await prisma.brandProfile.findUnique({
@@ -119,35 +116,50 @@ export async function PUT(request: NextRequest) {
     } catch {
       return NextResponse.json({ ok: false, requestId, message: "Invalid JSON" }, { status: 400 });
     }
+
+    // Safety: Ignore userId field from request payload to prevent overrides
+    if (body && typeof body === "object") {
+      delete body.userId;
+    }
+
     // Authentication check
-    const session = await auth();
-    userId = session?.user?.id ?? null;
-    if (!userId) {
+    const session = await requireUserSession();
+
+    if (!session) {
       return NextResponse.json(
-        {
-          ok: false,
-          requestId,
-          message: "Authentication required",
-          code: "AUTH_REQUIRED",
-        },
+        { ok: false, requestId, message: "Unauthorized" },
         { status: 401 }
       );
     }
+
+    // From here on, session is guaranteed to exist
+    userId = session.userId;
     
-    // Check if user exists in database before attempting upsert
-    // This prevents foreign key constraint violations
-    let user = await prisma.user.findUnique({ where: { id: userId } });
-    
-    if (!user) {
-      // User doesn't exist - create from session data
-      await prisma.user.create({
-        data: {
-          id: userId,
-          email: session.user.email,
-          name: session.user.name ?? null,
-        }
-      });
+    // Prisma schema requires User.email (string). Session may not have it.
+    // If we don't have an email, we cannot safely create the User row.
+    if (!session.email) {
+      return NextResponse.json(
+        { ok: false, requestId, message: "Missing email for authenticated user" },
+        { status: 400 }
+      );
     }
+    
+    const email = session.email; // TypeScript now knows this is string
+    const name = session.name;   // string | null is fine if name is optional/nullable in schema
+    
+    // Ensure the User row exists (upsert by id) before brandProfile.upsert to prevent FK (P2003)
+    await prisma.user.upsert({
+      where: { id: userId },
+      update: {
+        email, // always a string now
+        ...(name !== null ? { name } : {}),
+      },
+      create: {
+        id: userId,
+        email, // required, always present
+        ...(name !== null ? { name } : {}),
+      },
+    });
     
     // Prepare data for upsert
     const updateData: {

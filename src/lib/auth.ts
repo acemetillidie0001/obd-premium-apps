@@ -432,6 +432,3 @@ try {
 
 export const { handlers, auth, signIn, signOut } = nextAuthInstance;
 
-// Export authConfig as authOptions for compatibility with getServerSession
-export const authOptions = authConfig;
-

@@ -15,6 +15,23 @@ export default [
       "next-env.d.ts",
     ],
   },
+  {
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "next-auth",
+              importNames: ["getServerSession"],
+              message:
+                "NextAuth v5: do not use getServerSession(). Use auth() from @/lib/auth or requireUserSession().",
+            },
+          ],
+        },
+      ],
+    },
+  },
   ...nextVitals,
   ...nextTs,
 ];

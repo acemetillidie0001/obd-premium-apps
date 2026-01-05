@@ -1136,6 +1136,91 @@ export default function BrandKitBuilderPage() {
           );
         })()}
 
+        {/* Brand Snapshot */}
+        <div className={`mb-6 p-4 rounded-lg border ${
+          isDark
+            ? "bg-slate-800/30 border-slate-700/50"
+            : "bg-slate-50 border-slate-200"
+        }`}>
+          <h3 className={`text-sm font-semibold mb-3 ${
+            isDark ? "text-white" : "text-slate-900"
+          }`}>
+            Brand Snapshot
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <p className={`text-xs font-medium mb-1 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                Business Name
+              </p>
+              <p className={`text-sm ${
+                form.businessName?.trim()
+                  ? isDark ? "text-slate-200" : "text-slate-700"
+                  : themeClasses.mutedText
+              }`}>
+                {form.businessName?.trim() || "—"}
+              </p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium mb-1 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                Business Type
+              </p>
+              <p className={`text-sm ${
+                form.businessType?.trim()
+                  ? isDark ? "text-slate-200" : "text-slate-700"
+                  : themeClasses.mutedText
+              }`}>
+                {form.businessType?.trim() || "—"}
+              </p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium mb-1 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                Location
+              </p>
+              <p className={`text-sm ${
+                (form.city?.trim() || form.state?.trim())
+                  ? isDark ? "text-slate-200" : "text-slate-700"
+                  : themeClasses.mutedText
+              }`}>
+                {[form.city?.trim(), form.state?.trim()].filter(Boolean).join(", ") || "—"}
+              </p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium mb-1 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                Brand Personality
+              </p>
+              <p className={`text-sm ${
+                form.brandPersonality?.trim()
+                  ? isDark ? "text-slate-200" : "text-slate-700"
+                  : themeClasses.mutedText
+              }`}>
+                {form.brandPersonality?.trim() || "—"}
+              </p>
+            </div>
+            <div>
+              <p className={`text-xs font-medium mb-1 ${
+                isDark ? "text-slate-400" : "text-slate-500"
+              }`}>
+                Language
+              </p>
+              <p className={`text-sm ${
+                form.language?.trim()
+                  ? isDark ? "text-slate-200" : "text-slate-700"
+                  : themeClasses.mutedText
+              }`}>
+                {form.language?.trim() || "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Use saved brand profile toggle */}
         {brandProfile && (
           <div className="mb-4 pb-4 border-b border-slate-200 dark:border-slate-700">
@@ -2438,19 +2523,24 @@ export default function BrandKitBuilderPage() {
       })()}
 
       {!result && !loading && !error && (
-        <OBDPanel isDark={isDark} className="mt-7 sm:mt-8">
-          <div className="text-center py-12">
-            <div className="mb-4 text-4xl">🎨</div>
+        <OBDPanel isDark={isDark} className="mt-7 sm:mt-8" id="brand-kit-results">
+          <div className={`p-6 rounded-lg border ${
+            isDark
+              ? "bg-slate-800/30 border-slate-700/50"
+              : "bg-slate-50 border-slate-200"
+          }`}>
             <h3
-              className={`text-lg font-semibold mb-2 ${
+              className={`text-sm font-semibold mb-2 ${
                 isDark ? "text-white" : "text-slate-900"
               }`}
             >
-              Ready to build your brand kit?
+              Ready to build your Brand Kit?
             </h3>
-            <p className={themeClasses.mutedText}>
-              Fill out the form above and click Generate Brand Kit to create your
-              comprehensive brand guidelines.
+            <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
+              Fill in the core details above and click Generate. Your Brand Kit will power content, reviews, social posts, and your AI tools.
+            </p>
+            <p className={`text-xs ${themeClasses.mutedText}`}>
+              Tip: Aim for 80–100% completeness for the best results.
             </p>
           </div>
         </OBDPanel>

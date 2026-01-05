@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Brand Kit Builder — UX & Feature Completion (Tier 5)**
+  - Repositioned as suite foundation with clear messaging about powering all OBD tools
+  - Added Brand Kit Completeness meter showing progress on core fields (80–100% target)
+  - Added Brand Snapshot mini card displaying key form values with live updates
+  - Collapsed advanced/optional fields into expandable "Advanced Brand Controls" section
+  - Added new brand intelligence fields: "How Customers Describe You" and "Why Customers Choose You"
+  - Enhanced AI prompt to incorporate customer descriptors and reasons-to-choose when provided
+  - Clarified "Words to Avoid" field with improved labeling and helper text
+  - Added "What Was Created" summary panel showing generated content checklist
+  - Added Quick Actions for copying full brand kit, GBP description, and meta description
+  - Improved empty results state with actionable guidance and completeness tips
+  - Fixed dark-mode input text color for Voice section fields
+  - Added suite integration signals: "This powers your OBD tools" info block and Next Steps links to dependent apps
+
 - **Brand Profile: Suite-wide Auto-Import (Tenant-Safe)**
   - Added shared Brand Profile auto-import across apps using useAutoApplyBrandProfile (fill-empty-only default, never overwrites).
   - Added deterministic merge engine applyBrandProfileToForm (fill-empty-only + overwrite modes).

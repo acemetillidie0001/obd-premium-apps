@@ -117,3 +117,46 @@ export function markHandoffImported(appKey: string, hash: string): void {
   }
 }
 
+/**
+ * Check if a localStorage handoff ID was already consumed.
+ * Unit-safe guard to prevent re-reading localStorage fallback on refresh.
+ * 
+ * @param handoffId - The handoff ID from query parameter
+ * @returns true if the handoffId was already consumed, false otherwise
+ */
+export function wasLocalStorageHandoffConsumed(handoffId: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  
+  try {
+    const storageKey = `obd_handoff_consumed:${handoffId}`;
+    const consumed = sessionStorage.getItem(storageKey);
+    return consumed === "true";
+  } catch (error) {
+    // Fail safely: if sessionStorage is unavailable, return false
+    console.warn("Failed to check localStorage handoff consumption status:", error);
+    return false;
+  }
+}
+
+/**
+ * Mark a localStorage handoff ID as consumed.
+ * Unit-safe guard to prevent re-reading localStorage fallback on refresh.
+ * 
+ * @param handoffId - The handoff ID from query parameter
+ */
+export function markLocalStorageHandoffConsumed(handoffId: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  
+  try {
+    const storageKey = `obd_handoff_consumed:${handoffId}`;
+    sessionStorage.setItem(storageKey, "true");
+  } catch (error) {
+    // Fail safely: if sessionStorage is unavailable, silently continue
+    console.warn("Failed to mark localStorage handoff as consumed:", error);
+  }
+}
+

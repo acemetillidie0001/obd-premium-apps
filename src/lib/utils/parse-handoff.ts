@@ -58,13 +58,27 @@ export function tryParseJson<T = unknown>(jsonString: string): T | null {
 /**
  * Read handoff payload from localStorage and clear it after reading
  * SSR-safe: returns null if window is not defined
+ * Unit-safe: checks guard to prevent re-reading on refresh
  * 
  * @param handoffId - The handoff ID from query parameter
- * @returns The stored payload string or null if not found/unavailable
+ * @returns The stored payload string or null if not found/unavailable/already consumed
  */
 export function readAndClearLocalStorageHandoff(handoffId: string): string | null {
   if (typeof window === "undefined") {
     return null;
+  }
+
+  // Import guard functions dynamically to avoid circular dependency
+  // Check if this handoffId was already consumed (unit-safe guard)
+  try {
+    const guardKey = `obd_handoff_consumed:${handoffId}`;
+    const alreadyConsumed = sessionStorage.getItem(guardKey);
+    if (alreadyConsumed === "true") {
+      // Already consumed - don't read again
+      return null;
+    }
+  } catch {
+    // If sessionStorage check fails, continue (fail-safe)
   }
 
   try {
@@ -72,6 +86,14 @@ export function readAndClearLocalStorageHandoff(handoffId: string): string | nul
     const stored = localStorage.getItem(storageKey);
     
     if (stored) {
+      // Mark as consumed before reading (unit-safe guard)
+      try {
+        const guardKey = `obd_handoff_consumed:${handoffId}`;
+        sessionStorage.setItem(guardKey, "true");
+      } catch {
+        // If marking fails, continue anyway (fail-safe)
+      }
+      
       // Delete from localStorage after reading (one-time use)
       localStorage.removeItem(storageKey);
       return stored;

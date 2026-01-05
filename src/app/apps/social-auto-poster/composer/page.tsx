@@ -100,30 +100,62 @@ function SocialAutoPosterComposerPageContent() {
   // Handoff state
   const [handoffPayload, setHandoffPayload] = useState<SocialAutoPosterHandoffPayload | null>(null);
   const [handoffHash, setHandoffHash] = useState<string | null>(null);
+  const [handoffId, setHandoffId] = useState<string | null>(null); // Track handoffId for localStorage cleanup
   const [handoffImporting, setHandoffImporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [handoffImportCompleted, setHandoffImportCompleted] = useState(false);
   const handoffProcessed = useRef(false);
+  const setupLoaded = useRef(false);
 
+  // Handoff imports must run before setup gating (review-first ingestion)
+  // Step A: Parse handoff payload (URL + localStorage fallback) - runs first
+  // Checks URL param first, then localStorage if missing or too long
   useEffect(() => {
-    loadSettings();
-  }, []);
+    if (typeof window === "undefined" || handoffProcessed.current) {
+      return;
+    }
 
-  // Handle handoff on page load
-  useEffect(() => {
-    if (searchParams && typeof window !== "undefined" && !handoffProcessed.current) {
+    if (searchParams) {
       try {
+        // Track handoffId if present (for localStorage fallback cleanup)
+        const handoffIdParam = searchParams.get("handoffId");
+        if (handoffIdParam) {
+          setHandoffId(handoffIdParam);
+        }
+
         const payload = parseSocialAutoPosterHandoff(searchParams);
         if (payload) {
           const hash = getHandoffHash(payload);
           setHandoffPayload(payload);
           setHandoffHash(hash);
           handoffProcessed.current = true;
+          // Don't mark as completed yet - wait for import to finish
+        } else {
+          // No handoff found - mark as completed to trigger setup loading
+          handoffProcessed.current = true;
+          setHandoffImportCompleted(true);
         }
       } catch (error) {
         console.error("Failed to parse handoff payload:", error);
+        // On error, mark as completed to allow setup to proceed
+        handoffProcessed.current = true;
+        setHandoffImportCompleted(true);
       }
+    } else {
+      // No searchParams - no handoff, trigger setup immediately
+      handoffProcessed.current = true;
+      setHandoffImportCompleted(true);
     }
   }, [searchParams]);
+
+  // Step F: Load settings AFTER handoff import completes (or immediately if no handoff)
+  useEffect(() => {
+    // Wait for handoff import to complete, or load immediately if no handoff
+    if (handoffImportCompleted && !setupLoaded.current) {
+      setupLoaded.current = true;
+      loadSettings();
+    }
+  }, [handoffImportCompleted]);
 
   // Helper to show toast
   const showToast = (message: string) => {
@@ -132,12 +164,17 @@ function SocialAutoPosterComposerPageContent() {
   };
 
   // Import captions from handoff
+  // Handoff imports must run before setup gating (review-first ingestion)
   const handleImportCaptions = async () => {
-    if (!handoffPayload || !handoffHash) return;
+    if (!handoffPayload || !handoffHash) {
+      setHandoffImportCompleted(true);
+      return;
+    }
     
     // Prevent import if already imported
     if (wasHandoffAlreadyImported("social-auto-poster", handoffHash)) {
       showToast("These captions have already been imported");
+      setHandoffImportCompleted(true);
       return;
     }
 
@@ -145,17 +182,22 @@ function SocialAutoPosterComposerPageContent() {
 
     try {
       // Get existing queue items to check for duplicates
-      const existingRes = await fetch("/api/social-auto-poster/queue");
+      // Non-blocking: continue even if API fails (setup may not be complete)
       let existingItems: Array<{ platform: SocialPlatform; content: string }> = [];
-      
-      if (existingRes.ok) {
-        const existingData = await existingRes.json();
-        if (existingData.items && Array.isArray(existingData.items)) {
-          existingItems = existingData.items.map((item: { platform: SocialPlatform; content: string }) => ({
-            platform: item.platform,
-            content: item.content,
-          }));
+      try {
+        const existingRes = await fetch("/api/social-auto-poster/queue");
+        if (existingRes.ok) {
+          const existingData = await existingRes.json();
+          if (existingData.items && Array.isArray(existingData.items)) {
+            existingItems = existingData.items.map((item: { platform: SocialPlatform; content: string }) => ({
+              platform: item.platform,
+              content: item.content,
+            }));
+          }
         }
+      } catch (error) {
+        // Non-blocking: continue import even if duplicate check fails
+        console.warn("Failed to fetch existing queue items for duplicate check (non-blocking):", error);
       }
 
       // Normalize and check for duplicates (simple client-side check)
@@ -230,21 +272,31 @@ function SocialAutoPosterComposerPageContent() {
         }
       }
 
-      // Mark handoff as imported
+      // Mark handoff as imported (step D)
       markHandoffImported("social-auto-poster", handoffHash);
 
-      // Clear handoff
+      // Show import toast (step C)
+      if (skippedCount > 0) {
+        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""} (Skipped ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""})`);
+      } else {
+        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""}`);
+      }
+
+      // Mark handoff as consumed and clean URL + localStorage (step E)
+      // Clear handoff state
       setHandoffPayload(null);
       setHandoffHash(null);
 
-      // Clear localStorage if handoffId was used
-      if (typeof window !== "undefined" && searchParams) {
-        const handoffId = searchParams.get("handoffId");
-        if (handoffId) {
-          const storageKey = `obd_handoff:${handoffId}`;
-          localStorage.removeItem(storageKey);
-        }
+      // Clear localStorage if handoffId was used (localStorage fallback cleanup)
+      // Note: parseHandoffFromUrl already clears localStorage when reading,
+      // but we clear again here as a safety measure and to ensure cleanup
+      if (typeof window !== "undefined" && handoffId) {
+        const storageKey = `obd_handoff:${handoffId}`;
+        localStorage.removeItem(storageKey);
       }
+      
+      // Clear handoffId state
+      setHandoffId(null);
 
       // Clear handoff params from URL
       if (typeof window !== "undefined") {
@@ -252,21 +304,20 @@ function SocialAutoPosterComposerPageContent() {
         replaceUrlWithoutReload(cleanUrl);
       }
 
-      // Show success toast
-      if (skippedCount > 0) {
-        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""} (Skipped ${skippedCount} duplicate${skippedCount !== 1 ? "s" : ""})`);
-      } else {
-        showToast(`Imported ${importedCount} caption${importedCount !== 1 ? "s" : ""}`);
-      }
+      // Mark import as completed - this triggers setup loading (step F)
+      setHandoffImportCompleted(true);
     } catch (error) {
       console.error("Failed to import captions:", error);
       showToast("Failed to import captions. Please try again.");
+      // Still mark as completed to allow setup to proceed
+      setHandoffImportCompleted(true);
     } finally {
       setHandoffImporting(false);
     }
   };
 
-  // Auto-import on mount if handoff exists
+  // Auto-import on mount if handoff exists (step B: Run duplicate-safe additive import)
+  // This runs immediately when handoff is detected, before setup loading
   const handoffImportedRef = useRef(false);
   useEffect(() => {
     if (handoffPayload && handoffHash && !handoffImporting && !handoffImportedRef.current) {

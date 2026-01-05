@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -1079,6 +1080,22 @@ export default function BrandKitBuilderPage() {
           </div>
         </div>
 
+        {/* Powered by your Brand Kit Info */}
+        <div className={`mb-4 p-3 rounded-lg border ${
+          isDark
+            ? "bg-slate-800/20 border-slate-700/30"
+            : "bg-slate-50/80 border-slate-200/80"
+        }`}>
+          <h4 className={`text-xs font-semibold mb-1 ${
+            isDark ? "text-slate-300" : "text-slate-700"
+          }`}>
+            This powers your OBD tools
+          </h4>
+          <p className={`text-xs leading-relaxed ${themeClasses.mutedText}`}>
+            Your Brand Kit is used across content, reviews, social posts, and AI tools so everything stays consistent. Update it anytime.
+          </p>
+        </div>
+
         {/* Brand Kit Completeness Indicator */}
         {(() => {
           const completeness = calculateCompleteness(form);
@@ -1948,6 +1965,56 @@ export default function BrandKitBuilderPage() {
               )}
             </div>
           </div>
+
+          {/* Next Steps */}
+          {(result || brandProfile) && (
+            <div className={`mb-6 p-4 rounded-lg border ${
+              isDark 
+                ? "bg-slate-800/50 border-slate-700" 
+                : "bg-slate-50 border-slate-200"
+            }`}>
+              <h3 className={`text-sm font-semibold mb-1 ${
+                isDark ? "text-white" : "text-slate-900"
+              }`}>
+                Next Steps
+              </h3>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Use your Brand Kit to generate ready-to-publish content in other tools.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <Link
+                  href="/apps/content-writer"
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Create Website Content
+                </Link>
+                <Link
+                  href="/apps/review-responder"
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Write Review Replies
+                </Link>
+                <Link
+                  href="/apps/social-media-post-creator"
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Generate Social Posts
+                </Link>
+                <Link
+                  href="/apps/faq-generator"
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Build FAQs
+                </Link>
+                <Link
+                  href="/apps/ai-help-desk"
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Set Up AI Help Desk
+                </Link>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-6">
             {/* Brand Summary */}

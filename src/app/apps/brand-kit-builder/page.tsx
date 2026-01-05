@@ -978,6 +978,9 @@ export default function BrandKitBuilderPage() {
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 About Your Business
               </OBDHeading>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Used to personalize every output with your name, services, and local area.
+              </p>
               <div className="space-y-5">
                 <div>
                   <label
@@ -1081,6 +1084,9 @@ export default function BrandKitBuilderPage() {
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 How You Want to Be Perceived
               </OBDHeading>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Shapes the positioning, differentiators, and the way customers understand your value.
+              </p>
               <div className="space-y-5">
                 <div>
                   <label
@@ -1108,81 +1114,6 @@ export default function BrandKitBuilderPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="targetAudience"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Target Audience (Optional)
-                  </label>
-                  <textarea
-                    id="targetAudience"
-                    value={form.targetAudience || ""}
-                    onChange={(e) =>
-                      updateFormValue("targetAudience", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Local families, professionals, small business owners"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="differentiators"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    What Makes You Different (Optional)
-                  </label>
-                  <textarea
-                    id="differentiators"
-                    value={form.differentiators || ""}
-                    onChange={(e) =>
-                      updateFormValue("differentiators", e.target.value)
-                    }
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="What sets you apart from competitors?"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="inspirationBrands"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Inspiration Brands (Optional)
-                  </label>
-                  <textarea
-                    id="inspirationBrands"
-                    value={form.inspirationBrands || ""}
-                    onChange={(e) =>
-                      updateFormValue("inspirationBrands", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Brands you admire or want to emulate"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="avoidStyles"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Styles to Avoid (Optional)
-                  </label>
-                  <textarea
-                    id="avoidStyles"
-                    value={form.avoidStyles || ""}
-                    onChange={(e) =>
-                      updateFormValue("avoidStyles", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., no neon colors, avoid cursive fonts"
-                  />
-                </div>
               </div>
             </div>
 
@@ -1193,44 +1124,10 @@ export default function BrandKitBuilderPage() {
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 How You Want to Sound
               </OBDHeading>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Controls tone, wording, and consistency across posts, pages, replies, and FAQs.
+              </p>
               <div className="space-y-5">
-                <div>
-                  <label
-                    htmlFor="brandVoice"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Brand Voice (Optional - overrides personality if provided)
-                  </label>
-                  <textarea
-                    id="brandVoice"
-                    value={form.brandVoice || ""}
-                    onChange={(e) =>
-                      updateFormValue("brandVoice", e.target.value)
-                    }
-                    rows={4}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Describe how your brand sounds. For example: 'Warm and conversational, with a touch of humor.'"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="toneNotes"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Additional Tone Notes (Optional)
-                  </label>
-                  <textarea
-                    id="toneNotes"
-                    value={form.toneNotes || ""}
-                    onChange={(e) =>
-                      updateFormValue("toneNotes", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Any additional guidance on tone and voice"
-                  />
-                </div>
 
                 <div>
                   <label
@@ -1262,181 +1159,351 @@ export default function BrandKitBuilderPage() {
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
                 How AI Should Write for You
               </OBDHeading>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Sets output preferences so results match your style without extra prompting.
+              </p>
               <div className="space-y-5">
-                <div>
-                  <label
-                    htmlFor="industryKeywords"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Industry Keywords (Optional - limit to 1-2 mentions per section)
-                  </label>
-                  <textarea
-                    id="industryKeywords"
-                    value={form.industryKeywords || ""}
-                    onChange={(e) =>
-                      updateFormValue("industryKeywords", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., pressure washing, Ocala, commercial cleaning"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="vibeKeywords"
-                    className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                  >
-                    Vibe Keywords (Optional)
-                  </label>
-                  <textarea
-                    id="vibeKeywords"
-                    value={form.vibeKeywords || ""}
-                    onChange={(e) =>
-                      updateFormValue("vibeKeywords", e.target.value)
-                    }
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., trustworthy, professional, friendly"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label
-                      htmlFor="variationMode"
-                      className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                    >
-                      Variation Mode
-                    </label>
-                    <select
-                      id="variationMode"
-                      value={form.variationMode}
-                      onChange={(e) =>
-                        updateFormValue(
-                          "variationMode",
-                          e.target.value as VariationMode
-                        )
-                      }
-                      className={getInputClasses(isDark)}
-                    >
-                      {VARIATION_MODES.map((mode) => (
-                        <option key={mode} value={mode}>
-                          {mode}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="hashtagStyle"
-                      className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
-                    >
-                      Hashtag Style
-                    </label>
-                    <select
-                      id="hashtagStyle"
-                      value={form.hashtagStyle}
-                      onChange={(e) =>
-                        updateFormValue(
-                          "hashtagStyle",
-                          e.target.value as HashtagStyle
-                        )
-                      }
-                      className={getInputClasses(isDark)}
-                      disabled={!form.includeHashtags}
-                    >
-                      {HASHTAG_STYLES.map((style) => (
-                        <option key={style} value={style}>
-                          {style}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                    <input
-                      type="checkbox"
-                      checked={form.includeHashtags}
-                      onChange={(e) =>
-                        updateFormValue("includeHashtags", e.target.checked)
-                      }
-                      className="rounded"
-                    />
-                    <span className="text-sm font-medium">Include Hashtags</span>
-                  </label>
-                </div>
               </div>
             </div>
 
             <div className={getDividerClass(isDark)} />
 
-            {/* Extras */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
-                Extra Sections
-              </OBDHeading>
-              <div className="space-y-4">
-                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                  <input
-                    type="checkbox"
-                    checked={form.includeSocialPostTemplates}
-                    onChange={(e) =>
-                      updateFormValue("includeSocialPostTemplates", e.target.checked)
-                    }
-                    className="rounded"
-                  />
-                  <span className="text-sm font-medium">
-                    Social Post Template Pack (3 short post templates)
-                  </span>
-                </label>
+            {/* Advanced Brand Controls */}
+            <details className={`rounded-lg border ${
+              isDark
+                ? "bg-slate-800/30 border-slate-700/50"
+                : "bg-slate-50 border-slate-200"
+            }`}>
+              <summary className={`px-4 py-3 cursor-pointer font-semibold text-sm transition-colors ${
+                isDark 
+                  ? "text-white hover:bg-slate-800/50" 
+                  : "text-slate-900 hover:bg-slate-100"
+              }`}>
+                Advanced Brand Controls
+              </summary>
+              <div className="px-4 pb-4 pt-2 space-y-6">
+                <p className={`text-xs ${themeClasses.mutedText}`}>
+                  Optional settings for fine-tuning voice and output formatting.
+                </p>
 
-                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                  <input
-                    type="checkbox"
-                    checked={form.includeFAQStarter}
-                    onChange={(e) =>
-                      updateFormValue("includeFAQStarter", e.target.checked)
-                    }
-                    className="rounded"
-                  />
-                  <span className="text-sm font-medium">
-                    FAQ Starter Pack (5 Q&A)
-                  </span>
-                </label>
+                {/* Advanced fields from "How You Want to Be Perceived" */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Additional Brand Details
+                  </h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="targetAudience"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Target Audience (Optional)
+                      </label>
+                      <textarea
+                        id="targetAudience"
+                        value={form.targetAudience || ""}
+                        onChange={(e) =>
+                          updateFormValue("targetAudience", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="Local families, professionals, small business owners"
+                      />
+                    </div>
 
-                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                  <input
-                    type="checkbox"
-                    checked={form.includeGBPDescription}
-                    onChange={(e) =>
-                      updateFormValue("includeGBPDescription", e.target.checked)
-                    }
-                    className="rounded"
-                  />
-                  <span className="text-sm font-medium">
-                    Google Business Profile Description (750 chars max)
-                  </span>
-                </label>
+                    <div>
+                      <label
+                        htmlFor="differentiators"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        What Makes You Different (Optional)
+                      </label>
+                      <textarea
+                        id="differentiators"
+                        value={form.differentiators || ""}
+                        onChange={(e) =>
+                          updateFormValue("differentiators", e.target.value)
+                        }
+                        rows={3}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="What sets you apart from competitors?"
+                      />
+                    </div>
 
-                <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                  <input
-                    type="checkbox"
-                    checked={form.includeMetaDescription}
-                    onChange={(e) =>
-                      updateFormValue("includeMetaDescription", e.target.checked)
-                    }
-                    className="rounded"
-                  />
-                  <span className="text-sm font-medium">
-                    Meta Description (140-160 chars)
-                  </span>
-                </label>
+                    <div>
+                      <label
+                        htmlFor="inspirationBrands"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Inspiration Brands (Optional)
+                      </label>
+                      <textarea
+                        id="inspirationBrands"
+                        value={form.inspirationBrands || ""}
+                        onChange={(e) =>
+                          updateFormValue("inspirationBrands", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="Brands you admire or want to emulate"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="avoidStyles"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Styles to Avoid (Optional)
+                      </label>
+                      <textarea
+                        id="avoidStyles"
+                        value={form.avoidStyles || ""}
+                        onChange={(e) =>
+                          updateFormValue("avoidStyles", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="e.g., no neon colors, avoid cursive fonts"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Advanced fields from "How You Want to Sound" */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Advanced Voice Settings
+                  </h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="brandVoice"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Brand Voice (Optional - overrides personality if provided)
+                      </label>
+                      <textarea
+                        id="brandVoice"
+                        value={form.brandVoice || ""}
+                        onChange={(e) =>
+                          updateFormValue("brandVoice", e.target.value)
+                        }
+                        rows={4}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="Describe how your brand sounds. For example: 'Warm and conversational, with a touch of humor.'"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="toneNotes"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Additional Tone Notes (Optional)
+                      </label>
+                      <textarea
+                        id="toneNotes"
+                        value={form.toneNotes || ""}
+                        onChange={(e) =>
+                          updateFormValue("toneNotes", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="Any additional guidance on tone and voice"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Advanced fields from "How AI Should Write for You" */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Output Formatting Controls
+                  </h4>
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="industryKeywords"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Industry Keywords (Optional - limit to 1-2 mentions per section)
+                      </label>
+                      <textarea
+                        id="industryKeywords"
+                        value={form.industryKeywords || ""}
+                        onChange={(e) =>
+                          updateFormValue("industryKeywords", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="e.g., pressure washing, Ocala, commercial cleaning"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="vibeKeywords"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Vibe Keywords (Optional)
+                      </label>
+                      <textarea
+                        id="vibeKeywords"
+                        value={form.vibeKeywords || ""}
+                        onChange={(e) =>
+                          updateFormValue("vibeKeywords", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="e.g., trustworthy, professional, friendly"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label
+                          htmlFor="variationMode"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Variation Mode
+                        </label>
+                        <select
+                          id="variationMode"
+                          value={form.variationMode}
+                          onChange={(e) =>
+                            updateFormValue(
+                              "variationMode",
+                              e.target.value as VariationMode
+                            )
+                          }
+                          className={getInputClasses(isDark)}
+                        >
+                          {VARIATION_MODES.map((mode) => (
+                            <option key={mode} value={mode}>
+                              {mode}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="hashtagStyle"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Hashtag Style
+                        </label>
+                        <select
+                          id="hashtagStyle"
+                          value={form.hashtagStyle}
+                          onChange={(e) =>
+                            updateFormValue(
+                              "hashtagStyle",
+                              e.target.value as HashtagStyle
+                            )
+                          }
+                          className={getInputClasses(isDark)}
+                          disabled={!form.includeHashtags}
+                        >
+                          {HASHTAG_STYLES.map((style) => (
+                            <option key={style} value={style}>
+                              {style}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                        <input
+                          type="checkbox"
+                          checked={form.includeHashtags}
+                          onChange={(e) =>
+                            updateFormValue("includeHashtags", e.target.checked)
+                          }
+                          className="rounded"
+                        />
+                        <span className="text-sm font-medium">Include Hashtags</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Extra Sections */}
+                <div>
+                  <h4 className={`text-sm font-semibold mb-3 ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Extra Sections
+                  </h4>
+                  <div className="space-y-4">
+                    <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.includeSocialPostTemplates}
+                        onChange={(e) =>
+                          updateFormValue("includeSocialPostTemplates", e.target.checked)
+                        }
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">
+                        Social Post Template Pack (3 short post templates)
+                      </span>
+                    </label>
+
+                    <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.includeFAQStarter}
+                        onChange={(e) =>
+                          updateFormValue("includeFAQStarter", e.target.checked)
+                        }
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">
+                        FAQ Starter Pack (5 Q&A)
+                      </span>
+                    </label>
+
+                    <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.includeGBPDescription}
+                        onChange={(e) =>
+                          updateFormValue("includeGBPDescription", e.target.checked)
+                        }
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">
+                        Google Business Profile Description (750 chars max)
+                      </span>
+                    </label>
+
+                    <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.includeMetaDescription}
+                        onChange={(e) =>
+                          updateFormValue("includeMetaDescription", e.target.checked)
+                        }
+                        className="rounded"
+                      />
+                      <span className="text-sm font-medium">
+                        Meta Description (140-160 chars)
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
-            </div>
+            </details>
 
             <button
               type="submit"

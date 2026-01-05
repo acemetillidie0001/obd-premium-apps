@@ -69,6 +69,8 @@ You will receive a JSON object of type \`BrandKitBuilderRequest\`:
   "differentiators"?: string,
   "inspirationBrands"?: string,
   "avoidStyles"?: string,
+  "customerDescriptors"?: string,
+  "reasonsToChoose"?: string,
   "brandVoice"?: string,
   "toneNotes"?: string,
   "language": "English" | "Spanish" | "Bilingual",
@@ -238,6 +240,8 @@ You MUST respond with a JSON object of type \`BrandKitBuilderResponse\`:
 - Otherwise use brandPersonality as primary guide.
 - toneNotes provides additional flavor.
 - Apply avoidStyles as constraints (e.g., no neon colors, avoid cursive fonts).
+- If customerDescriptors is provided → incorporate these real customer words naturally into messaging, taglines, and value propositions.
+- If reasonsToChoose is provided → emphasize these reasons in value propositions, elevator pitch, and positioning statements.
 
 ### 3) Keyword Limiting (STRICT)
 
@@ -358,6 +362,8 @@ const brandKitBuilderRequestSchema: z.ZodType<BrandKitBuilderRequest> = z.object
   differentiators: z.string().optional(),
   inspirationBrands: z.string().optional(),
   avoidStyles: z.string().optional(),
+  customerDescriptors: z.string().optional(),
+  reasonsToChoose: z.string().optional(),
   brandVoice: z.string().optional(),
   toneNotes: z.string().optional(),
   language: z.enum(["English", "Spanish", "Bilingual"]),
@@ -525,6 +531,34 @@ export async function POST(req: Request) {
         : formValues.hashtagStyle || "Local",
     };
 
+    // Build prompt context - only include non-empty optional fields
+    const promptContext: Record<string, unknown> = { ...formValues };
+    
+    // Check if new fields have values before removing from JSON
+    const customerDescriptorsValue = formValues.customerDescriptors?.trim() || "";
+    const reasonsToChooseValue = formValues.reasonsToChoose?.trim() || "";
+    const hasCustomerDescriptors = customerDescriptorsValue !== "";
+    const hasReasonsToChoose = reasonsToChooseValue !== "";
+    
+    // Remove empty optional fields from prompt context JSON
+    if (!hasCustomerDescriptors) {
+      delete promptContext.customerDescriptors;
+    }
+    if (!hasReasonsToChoose) {
+      delete promptContext.reasonsToChoose;
+    }
+
+    // Build formatted user message with optional sections
+    let userMessage = JSON.stringify(promptContext);
+    
+    // Add formatted sections for new fields if they exist
+    if (hasCustomerDescriptors) {
+      userMessage += `\n\nHow Customers Describe Us: ${customerDescriptorsValue}`;
+    }
+    if (hasReasonsToChoose) {
+      userMessage += `\n\nWhy Customers Choose Us: ${reasonsToChooseValue}`;
+    }
+
     // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP)) {
@@ -548,7 +582,7 @@ export async function POST(req: Request) {
         },
         {
           role: "user",
-          content: JSON.stringify(formValues),
+          content: userMessage,
         },
       ],
       response_format: {

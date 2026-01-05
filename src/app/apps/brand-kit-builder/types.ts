@@ -27,6 +27,8 @@ export interface BrandKitBuilderRequest {
   differentiators?: string;
   inspirationBrands?: string;
   avoidStyles?: string; // e.g., "no neon", "avoid cursive fonts"
+  customerDescriptors?: string; // Optional: How customers describe the business
+  reasonsToChoose?: string; // Optional: Why customers choose this business
 
   // Voice & Language
   brandVoice?: string; // optional textarea; if present, overrides personality

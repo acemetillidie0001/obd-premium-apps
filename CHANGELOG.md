@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
+- **AI Help Desk — Tier 5B (2026-01-05)**
+  - Knowledge Coverage badge with progress bar in Knowledge tab header (client-side only, no fetching)
+  - Search→Chat bridge CTA with toast notification (reuses handleUseInChat)
+  - Insights question clustering with filter capability and guardrails (client-side only)
+
 ### Tier 5C — Ecosystem Flow Polish
 - Added dismissible "Next steps" panels across apps
 - Link-only guidance between Website Draft Import, FAQ Generator, Schema Generator, and AI Help Desk

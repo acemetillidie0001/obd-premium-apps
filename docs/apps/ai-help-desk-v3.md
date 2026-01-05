@@ -341,6 +341,12 @@ The client normalizes responses from various AnythingLLM response shapes to a co
 - API error messages displayed in error panels
 - Graceful handling of no results / no sources
 
+## Tier 5B Enhancements
+
+- Knowledge Coverage indicator: Badge with progress bar showing coverage status (Strong/Partial/Needs improvement/Unknown) in Knowledge tab header (client-side only, no fetching)
+- Search→Chat bridge: CTA "Ask this as a question →" appears below search results and in empty state, transitions to chat with toast notification (reuses handleUseInChat)
+- Insights question clustering: Topic-based clusters (Pricing, Availability, Hours & Location, Services, Policies, Other) with filtering capability, clear filter button, and guardrails (client-side only, max 6 clusters)
+
 ## Security
 
 ### Tenant Isolation

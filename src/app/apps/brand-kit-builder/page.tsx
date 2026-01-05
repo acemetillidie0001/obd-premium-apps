@@ -75,11 +75,7 @@ function calculateCompleteness(form: BrandKitBuilderRequest): number {
     "city",
     "state",
     "brandPersonality",
-    "targetAudience",
-    "differentiators",
-    "brandVoice",
-    "industryKeywords",
-    "vibeKeywords",
+    "language",
   ];
 
   let filledCount = 0;

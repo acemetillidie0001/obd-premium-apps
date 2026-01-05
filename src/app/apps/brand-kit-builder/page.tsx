@@ -766,6 +766,199 @@ export default function BrandKitBuilderPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleCopyFullBrandKit = async () => {
+    if (!result) return;
+
+    let text = `BRAND KIT: ${result.brandSummary.businessName}\n`;
+    text += `Generated: ${new Date(result.meta.createdAtISO).toLocaleString()}\n\n`;
+    text += "=".repeat(50) + "\n\n";
+
+    // Brand Summary
+    if (result.brandSummary?.businessName || result.brandSummary?.positioning) {
+      text += `BRAND SUMMARY\n${"-".repeat(50)}\n`;
+      if (result.brandSummary.businessName) {
+        text += `Business: ${result.brandSummary.businessName}\n`;
+      }
+      if (result.brandSummary.tagline?.trim()) {
+        text += `Tagline: ${result.brandSummary.tagline}\n`;
+      }
+      if (result.brandSummary.positioning?.trim()) {
+        text += `Positioning: ${result.brandSummary.positioning}\n`;
+      }
+      text += "\n";
+    }
+
+    // Color Palette
+    if (result.colorPalette?.colors?.length) {
+      text += `COLOR PALETTE\n${"-".repeat(50)}\n`;
+      result.colorPalette.colors.forEach((color) => {
+        text += `${color.name}: ${color.hex}\n`;
+        if (color.usageGuidance?.trim()) {
+          text += `Usage: ${color.usageGuidance}\n`;
+        }
+        if (color.accessibilityNote?.trim()) {
+          text += `Accessibility: ${color.accessibilityNote}\n`;
+        }
+        text += "\n";
+      });
+    }
+
+    // Typography
+    if (result.typography) {
+      text += `TYPOGRAPHY\n${"-".repeat(50)}\n`;
+      if (result.typography.headlineFont?.trim()) {
+        text += `Headline Font: ${result.typography.headlineFont}\n`;
+      }
+      if (result.typography.bodyFont?.trim()) {
+        text += `Body Font: ${result.typography.bodyFont}\n`;
+      }
+      if (result.typography.fallbackStack?.trim()) {
+        text += `Fallback Stack: ${result.typography.fallbackStack}\n`;
+      }
+      if (result.typography.usageNotes?.trim()) {
+        text += `Usage Notes: ${result.typography.usageNotes}\n`;
+      }
+      text += "\n";
+    }
+
+    // Brand Voice
+    if (result.brandVoice?.description?.trim() || result.brandVoice?.do?.length || result.brandVoice?.dont?.length) {
+      text += `BRAND VOICE\n${"-".repeat(50)}\n`;
+      if (result.brandVoice.description?.trim()) {
+        text += `${result.brandVoice.description}\n\n`;
+      }
+      if (result.brandVoice.do?.length) {
+        text += "DO:\n";
+        result.brandVoice.do.forEach((item) => {
+          text += `  • ${item}\n`;
+        });
+        text += "\n";
+      }
+      if (result.brandVoice.dont?.length) {
+        text += "DON'T:\n";
+        result.brandVoice.dont.forEach((item) => {
+          text += `  • ${item}\n`;
+        });
+        text += "\n";
+      }
+    }
+
+    // Messaging
+    if (result.messaging?.taglines?.length || result.messaging?.valueProps?.length || result.messaging?.elevatorPitch?.trim()) {
+      text += `MESSAGING\n${"-".repeat(50)}\n`;
+      if (result.messaging.taglines?.length) {
+        text += "Taglines:\n";
+        result.messaging.taglines.forEach((tagline, i) => {
+          text += `  ${i + 1}. ${tagline}\n`;
+        });
+        text += "\n";
+      }
+      if (result.messaging.valueProps?.length) {
+        text += "Value Propositions:\n";
+        result.messaging.valueProps.forEach((prop, i) => {
+          text += `  ${i + 1}. ${prop}\n`;
+        });
+        text += "\n";
+      }
+      if (result.messaging.elevatorPitch?.trim()) {
+        text += `Elevator Pitch:\n${result.messaging.elevatorPitch}\n\n`;
+      }
+    }
+
+    // Ready-to-Use Copy
+    if (result.readyToUseCopy) {
+      text += `READY-TO-USE COPY\n${"-".repeat(50)}\n`;
+      if (result.readyToUseCopy.websiteHero?.headline?.trim() || result.readyToUseCopy.websiteHero?.subheadline?.trim()) {
+        text += `Website Hero:\n`;
+        if (result.readyToUseCopy.websiteHero.headline?.trim()) {
+          text += `Headline: ${result.readyToUseCopy.websiteHero.headline}\n`;
+        }
+        if (result.readyToUseCopy.websiteHero.subheadline?.trim()) {
+          text += `Subheadline: ${result.readyToUseCopy.websiteHero.subheadline}\n`;
+        }
+        text += "\n";
+      }
+      if (result.readyToUseCopy.aboutUs?.trim()) {
+        text += `About Us:\n${result.readyToUseCopy.aboutUs}\n\n`;
+      }
+      if (result.readyToUseCopy.socialBios) {
+        const hasSocialBios = result.readyToUseCopy.socialBios.instagram?.trim() || 
+                             result.readyToUseCopy.socialBios.facebook?.trim() || 
+                             result.readyToUseCopy.socialBios.x?.trim();
+        if (hasSocialBios) {
+          text += `Social Bios:\n`;
+          if (result.readyToUseCopy.socialBios.instagram?.trim()) {
+            text += `Instagram: ${result.readyToUseCopy.socialBios.instagram}\n`;
+          }
+          if (result.readyToUseCopy.socialBios.facebook?.trim()) {
+            text += `Facebook: ${result.readyToUseCopy.socialBios.facebook}\n`;
+          }
+          if (result.readyToUseCopy.socialBios.x?.trim()) {
+            text += `X: ${result.readyToUseCopy.socialBios.x}\n`;
+          }
+          text += "\n";
+        }
+      }
+      if (result.readyToUseCopy.emailSignature?.trim()) {
+        text += `Email Signature:\n${result.readyToUseCopy.emailSignature}\n\n`;
+      }
+    }
+
+    // Extras
+    if (result.extras) {
+      const hasExtras = result.extras.socialPostTemplates?.length || 
+                       result.extras.faqStarter?.length || 
+                       result.extras.gbpDescription?.trim() || 
+                       result.extras.metaDescription?.trim();
+      if (hasExtras) {
+        text += `EXTRAS\n${"-".repeat(50)}\n`;
+        if (result.extras.socialPostTemplates?.length) {
+          text += "Social Post Templates:\n";
+          result.extras.socialPostTemplates.forEach((template, i) => {
+            text += `${i + 1}. ${template}\n\n`;
+          });
+        }
+        if (result.extras.faqStarter?.length) {
+          text += "FAQ Starter:\n";
+          result.extras.faqStarter.forEach((faq, i) => {
+            text += `Q${i + 1}: ${faq.question}\n`;
+            text += `A${i + 1}: ${faq.answer}\n\n`;
+          });
+        }
+        if (result.extras.gbpDescription?.trim()) {
+          text += `Google Business Profile Description:\n${result.extras.gbpDescription}\n\n`;
+        }
+        if (result.extras.metaDescription?.trim()) {
+          text += `Meta Description:\n${result.extras.metaDescription}\n\n`;
+        }
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error("Copy Full Brand Kit Error:", error);
+    }
+  };
+
+  const handleCopyGBPDescription = async () => {
+    if (!result?.extras?.gbpDescription?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(result.extras.gbpDescription);
+    } catch (error) {
+      console.error("Copy GBP Description Error:", error);
+    }
+  };
+
+  const handleCopyMetaDescription = async () => {
+    if (!result?.extras?.metaDescription?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(result.extras.metaDescription);
+    } catch (error) {
+      console.error("Copy Meta Description Error:", error);
+    }
+  };
+
   const handleExportPdf = async () => {
     if (!result) {
       setError("No brand kit data available to export. Please generate a brand kit first.");
@@ -1654,6 +1847,106 @@ export default function BrandKitBuilderPage() {
                   Export PDF
                 </button>
               </div>
+          </div>
+
+          {/* What Was Created Summary */}
+          {(() => {
+            const created = {
+              brandVoiceGuidelines: Boolean(result.brandVoice?.description?.trim()),
+              taglines: Boolean(result.messaging?.taglines?.length),
+              elevatorPitch: Boolean(result.messaging?.elevatorPitch?.trim()),
+              valueProposition: Boolean(result.brandSummary?.positioning?.trim()),
+              gbpDescription: Boolean(result.extras?.gbpDescription?.trim()),
+              metaDescription: Boolean(result.extras?.metaDescription?.trim()),
+              socialPack: Boolean(result.extras?.socialPostTemplates?.length),
+              faqPack: Boolean(result.extras?.faqStarter?.length),
+            };
+
+            const hasAnyCreated = Object.values(created).some(Boolean);
+
+            if (!hasAnyCreated) return null;
+
+            const items = [
+              { key: "brandVoiceGuidelines", label: "Brand Voice Guidelines", exists: created.brandVoiceGuidelines },
+              { key: "taglines", label: "Taglines", exists: created.taglines },
+              { key: "elevatorPitch", label: "Elevator Pitch", exists: created.elevatorPitch },
+              { key: "valueProposition", label: "Value Proposition / Positioning", exists: created.valueProposition },
+              { key: "gbpDescription", label: "Google Business Profile Description", exists: created.gbpDescription },
+              { key: "metaDescription", label: "Meta Description", exists: created.metaDescription },
+              { key: "socialPack", label: "Social Post Template Pack", exists: created.socialPack },
+              { key: "faqPack", label: "FAQ Starter Pack", exists: created.faqPack },
+            ].filter(item => item.exists);
+
+            return (
+              <div className={`mb-6 p-4 rounded-lg border ${
+                isDark 
+                  ? "bg-slate-800/50 border-slate-700" 
+                  : "bg-slate-50 border-slate-200"
+              }`}>
+                <h3 className={`text-sm font-semibold mb-1 ${
+                  isDark ? "text-white" : "text-slate-900"
+                }`}>
+                  What Was Created
+                </h3>
+                <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                  Based on your Brand Kit settings.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {items.map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <span className={`flex-shrink-0 ${
+                        isDark ? "text-teal-400" : "text-teal-600"
+                      }`}>
+                        ✓
+                      </span>
+                      <span className={isDark ? "text-slate-300" : "text-slate-700"}>
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Quick Actions */}
+          <div className={`mb-6 p-4 rounded-lg border ${
+            isDark 
+              ? "bg-slate-800/50 border-slate-700" 
+              : "bg-slate-50 border-slate-200"
+          }`}>
+            <h3 className={`text-sm font-semibold mb-3 ${
+              isDark ? "text-white" : "text-slate-900"
+            }`}>
+              Quick Actions
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleCopyFullBrandKit}
+                className={getSubtleButtonSmallClasses(isDark)}
+              >
+                Copy Full Brand Kit
+              </button>
+              {result?.extras?.gbpDescription?.trim() && (
+                <button
+                  onClick={handleCopyGBPDescription}
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Copy GBP Description
+                </button>
+              )}
+              {result?.extras?.metaDescription?.trim() && (
+                <button
+                  onClick={handleCopyMetaDescription}
+                  className={getSubtleButtonSmallClasses(isDark)}
+                >
+                  Copy Meta Description
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-6">

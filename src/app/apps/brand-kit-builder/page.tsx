@@ -976,7 +976,7 @@ export default function BrandKitBuilderPage() {
             {/* Business Basics */}
             <div>
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
-                Business Basics
+                About Your Business
               </OBDHeading>
               <div className="space-y-5">
                 <div>
@@ -1079,7 +1079,7 @@ export default function BrandKitBuilderPage() {
             {/* Brand Direction */}
             <div>
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
-                Brand Direction
+                How You Want to Be Perceived
               </OBDHeading>
               <div className="space-y-5">
                 <div>
@@ -1191,7 +1191,7 @@ export default function BrandKitBuilderPage() {
             {/* Voice & Language */}
             <div>
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
-                Voice & Language
+                How You Want to Sound
               </OBDHeading>
               <div className="space-y-5">
                 <div>
@@ -1260,7 +1260,7 @@ export default function BrandKitBuilderPage() {
             {/* Output Controls */}
             <div>
               <OBDHeading level={2} isDark={isDark} className="mb-5 text-lg font-semibold">
-                Output Controls
+                How AI Should Write for You
               </OBDHeading>
               <div className="space-y-5">
                 <div>

@@ -2536,10 +2536,10 @@ export default function BrandKitBuilderPage() {
             >
               Ready to build your Brand Kit?
             </h3>
-            <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
+            <p className={`text-sm leading-relaxed mb-3 ${themeClasses.mutedText}`}>
               Fill in the core details above and click Generate. Your Brand Kit will power content, reviews, social posts, and your AI tools.
             </p>
-            <p className={`text-xs ${themeClasses.mutedText}`}>
+            <p className={`text-xs leading-relaxed ${themeClasses.mutedText}`}>
               Tip: Aim for 80–100% completeness for the best results.
             </p>
           </div>

@@ -64,6 +64,48 @@ const BRAND_PERSONALITIES: BrandPersonality[] = [
 const VARIATION_MODES: VariationMode[] = ["Conservative", "Moderate", "Bold"];
 const HASHTAG_STYLES: HashtagStyle[] = ["Local", "Branded", "Minimal"];
 
+/**
+ * Calculate Brand Kit completeness percentage based on core fields
+ */
+function calculateCompleteness(form: BrandKitBuilderRequest): number {
+  const coreFields: Array<keyof BrandKitBuilderRequest> = [
+    "businessName",
+    "businessType",
+    "services",
+    "city",
+    "state",
+    "brandPersonality",
+    "targetAudience",
+    "differentiators",
+    "brandVoice",
+    "industryKeywords",
+    "vibeKeywords",
+  ];
+
+  let filledCount = 0;
+  const totalFields = coreFields.length;
+
+  for (const field of coreFields) {
+    const value = form[field];
+    if (field === "services") {
+      // For services array, check if it has items
+      if (Array.isArray(value) && value.length > 0) {
+        filledCount++;
+      }
+    } else if (typeof value === "string") {
+      // For strings, check if trimmed length > 0
+      if (value.trim().length > 0) {
+        filledCount++;
+      }
+    } else if (value !== undefined && value !== null) {
+      // For other types, just check if it exists
+      filledCount++;
+    }
+  }
+
+  return Math.round((filledCount / totalFields) * 100);
+}
+
 export default function BrandKitBuilderPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
@@ -788,8 +830,8 @@ export default function BrandKitBuilderPage() {
     <OBDPageContainer
       isDark={isDark}
       onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
-      title="Brand Kit Builder"
-      tagline="Generate a complete brand kit with colors, typography, voice, messaging, and ready-to-use assets for your Ocala business."
+      title="Your brand foundation for every OBD tool"
+      tagline="Save your Brand Kit once, and OBD apps will automatically match your voice, messaging, and local details. Update it anytime to refresh your content across the suite."
     >
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
@@ -846,6 +888,46 @@ export default function BrandKitBuilderPage() {
           </div>
         </div>
 
+        {/* Brand Kit Completeness Indicator */}
+        {(() => {
+          const completeness = calculateCompleteness(form);
+          return (
+            <div className={`mb-6 p-4 rounded-lg border ${
+              isDark
+                ? "bg-slate-800/30 border-slate-700/50"
+                : "bg-slate-50 border-slate-200"
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h3 className={`text-sm font-semibold mb-1 ${
+                    isDark ? "text-white" : "text-slate-900"
+                  }`}>
+                    Brand Kit Completeness
+                  </h3>
+                  <p className={`text-xs ${themeClasses.mutedText}`}>
+                    Completing this improves results across all OBD apps.
+                  </p>
+                </div>
+                <div className={`text-2xl font-bold ${
+                  isDark ? "text-teal-300" : "text-teal-600"
+                }`}>
+                  {completeness}%
+                </div>
+              </div>
+              <div className={`mt-3 h-2 rounded-full overflow-hidden ${
+                isDark ? "bg-slate-700/50" : "bg-slate-200"
+              }`}>
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    isDark ? "bg-teal-500" : "bg-teal-500"
+                  }`}
+                  style={{ width: `${completeness}%` }}
+                />
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Use saved brand profile toggle */}
         {brandProfile && (
           <div className="mb-4 pb-4 border-b border-slate-200 dark:border-slate-700">
@@ -865,6 +947,29 @@ export default function BrandKitBuilderPage() {
             </p>
           </div>
         )}
+
+        {/* Used by chips */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-xs font-medium ${themeClasses.mutedText}`}>
+              Used by:
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {["AI Content Writer", "AI Review Responder", "Social Post Creator", "AI Help Desk"].map((app) => (
+              <span
+                key={app}
+                className={`text-xs px-3 py-1.5 rounded-full border ${
+                  isDark
+                    ? "bg-slate-800/30 text-slate-300 border-slate-700/50"
+                    : "bg-slate-50 text-slate-600 border-slate-200"
+                }`}
+              >
+                {app}
+              </span>
+            ))}
+          </div>
+        </div>
 
         <form onSubmit={handleSubmit}>
           <div className={`space-y-8 ${result ? OBD_STICKY_ACTION_BAR_OFFSET_CLASS : ""}`}>

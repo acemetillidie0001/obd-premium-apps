@@ -149,17 +149,39 @@ export async function PUT(request: NextRequest) {
     
     // Ensure the User row exists (upsert by id) before brandProfile.upsert to prevent FK (P2003)
     // Note: Do not update email (unique constraint) - only update non-unique fields like name
-    await prisma.user.upsert({
-      where: { id: userId },
-      update: {
-        ...(name !== null ? { name } : {}),
-      },
-      create: {
-        id: userId,
-        email, // required, always present
-        ...(name !== null ? { name } : {}),
-      },
-    });
+    // Handle P2002 (unique constraint on email) - if email already exists, User exists, so skip creation
+    try {
+      await prisma.user.upsert({
+        where: { id: userId },
+        update: {
+          ...(name !== null ? { name } : {}),
+        },
+        create: {
+          id: userId,
+          email, // required, always present
+          ...(name !== null ? { name } : {}),
+        },
+      });
+    } catch (error) {
+      // Handle P2002 unique constraint violation on email
+      // If User with this email already exists, skip creation and continue
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const target = error.meta?.target as string[] | undefined;
+        if (target && target.includes("email")) {
+          // User with this email already exists - skip creation and continue
+          // The User exists, so FK constraint will pass
+          console.warn("[brand-kit-save] User email already exists, skipping User creation:", {
+            requestId,
+            userId,
+            email,
+          });
+        } else {
+          throw error; // Re-throw if it's not an email constraint violation
+        }
+      } else {
+        throw error; // Re-throw other errors
+      }
+    }
     
     // Prepare data for upsert
     const updateData: {

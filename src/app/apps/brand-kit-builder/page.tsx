@@ -49,6 +49,8 @@ const defaultFormValues: BrandKitBuilderRequest = {
   includeFAQStarter: false,
   includeGBPDescription: false,
   includeMetaDescription: false,
+  customerDescriptors: "",
+  reasonsToChoose: "",
 };
 
 const BRAND_PERSONALITIES: BrandPersonality[] = [
@@ -1230,6 +1232,50 @@ export default function BrandKitBuilderPage() {
 
                     <div>
                       <label
+                        htmlFor="customerDescriptors"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        How Customers Describe You
+                      </label>
+                      <p className={`text-xs mb-2 ${themeClasses.mutedText}`}>
+                        Optional. Real words people use (e.g., friendly, reliable, fast, professional).
+                      </p>
+                      <textarea
+                        id="customerDescriptors"
+                        value={form.customerDescriptors || ""}
+                        onChange={(e) =>
+                          updateFormValue("customerDescriptors", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="friendly, reliable, fast, professional..."
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="reasonsToChoose"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        Why Customers Choose You
+                      </label>
+                      <p className={`text-xs mb-2 ${themeClasses.mutedText}`}>
+                        Optional. Your strongest reasons (e.g., locally owned, same-day service, upfront pricing).
+                      </p>
+                      <textarea
+                        id="reasonsToChoose"
+                        value={form.reasonsToChoose || ""}
+                        onChange={(e) =>
+                          updateFormValue("reasonsToChoose", e.target.value)
+                        }
+                        rows={2}
+                        className={getInputClasses(isDark, "resize-none")}
+                        placeholder="Locally owned, same-day availability, upfront pricing..."
+                      />
+                    </div>
+
+                    <div>
+                      <label
                         htmlFor="inspirationBrands"
                         className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                       >
@@ -1252,8 +1298,11 @@ export default function BrandKitBuilderPage() {
                         htmlFor="avoidStyles"
                         className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                       >
-                        Styles to Avoid (Optional)
+                        Words to Avoid
                       </label>
+                      <p className={`text-xs mb-2 ${themeClasses.mutedText}`}>
+                        Optional. List words or phrases you never want used (e.g., cheap, best ever, guaranteed).
+                      </p>
                       <textarea
                         id="avoidStyles"
                         value={form.avoidStyles || ""}
@@ -1262,7 +1311,7 @@ export default function BrandKitBuilderPage() {
                         }
                         rows={2}
                         className={getInputClasses(isDark, "resize-none")}
-                        placeholder="e.g., no neon colors, avoid cursive fonts"
+                        placeholder="e.g., cheap, best ever, guaranteed, no questions asked"
                       />
                     </div>
                   </div>

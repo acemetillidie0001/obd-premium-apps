@@ -1137,9 +1137,9 @@ export default function BrandKitBuilderPage() {
         })()}
 
         {/* Brand Snapshot */}
-        <div className={`mb-6 p-4 rounded-lg border ${
+        <div className={`mb-6 p-3 rounded-lg border ${
           isDark
-            ? "bg-slate-800/30 border-slate-700/50"
+            ? "bg-slate-800/20 border-slate-700/30"
             : "bg-slate-50 border-slate-200"
         }`}>
           <h3 className={`text-sm font-semibold mb-3 ${
@@ -1149,9 +1149,7 @@ export default function BrandKitBuilderPage() {
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <p className={`text-xs font-medium mb-1 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
+              <p className={`text-xs mb-1 ${themeClasses.mutedText}`}>
                 Business Name
               </p>
               <p className={`text-sm ${
@@ -1163,9 +1161,7 @@ export default function BrandKitBuilderPage() {
               </p>
             </div>
             <div>
-              <p className={`text-xs font-medium mb-1 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
+              <p className={`text-xs mb-1 ${themeClasses.mutedText}`}>
                 Business Type
               </p>
               <p className={`text-sm ${
@@ -1177,9 +1173,7 @@ export default function BrandKitBuilderPage() {
               </p>
             </div>
             <div>
-              <p className={`text-xs font-medium mb-1 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
+              <p className={`text-xs mb-1 ${themeClasses.mutedText}`}>
                 Location
               </p>
               <p className={`text-sm ${
@@ -1191,9 +1185,7 @@ export default function BrandKitBuilderPage() {
               </p>
             </div>
             <div>
-              <p className={`text-xs font-medium mb-1 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
+              <p className={`text-xs mb-1 ${themeClasses.mutedText}`}>
                 Brand Personality
               </p>
               <p className={`text-sm ${
@@ -1205,9 +1197,7 @@ export default function BrandKitBuilderPage() {
               </p>
             </div>
             <div>
-              <p className={`text-xs font-medium mb-1 ${
-                isDark ? "text-slate-400" : "text-slate-500"
-              }`}>
+              <p className={`text-xs mb-1 ${themeClasses.mutedText}`}>
                 Language
               </p>
               <p className={`text-sm ${
@@ -1634,7 +1624,11 @@ export default function BrandKitBuilderPage() {
                           updateFormValue("brandVoice", e.target.value)
                         }
                         rows={4}
-                        className={getInputClasses(isDark, "resize-none")}
+                        className={`${getInputClasses(isDark, "resize-none")} ${
+                          isDark
+                            ? "text-slate-100 placeholder:text-slate-400"
+                            : "text-slate-900 placeholder:text-slate-500"
+                        }`}
                         placeholder="Describe how your brand sounds. For example: 'Warm and conversational, with a touch of humor.'"
                       />
                     </div>
@@ -1653,7 +1647,11 @@ export default function BrandKitBuilderPage() {
                           updateFormValue("toneNotes", e.target.value)
                         }
                         rows={2}
-                        className={getInputClasses(isDark, "resize-none")}
+                        className={`${getInputClasses(isDark, "resize-none")} ${
+                          isDark
+                            ? "text-slate-100 placeholder:text-slate-400"
+                            : "text-slate-900 placeholder:text-slate-500"
+                        }`}
                         placeholder="Any additional guidance on tone and voice"
                       />
                     </div>

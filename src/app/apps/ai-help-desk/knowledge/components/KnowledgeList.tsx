@@ -5,6 +5,7 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import KnowledgeCoverageBadge from "./KnowledgeCoverageBadge";
 
 export type KnowledgeEntryType = "FAQ" | "SERVICE" | "POLICY" | "NOTE";
 
@@ -206,8 +207,11 @@ export default function KnowledgeList({
           <OBDHeading level={2} isDark={isDark}>
             Knowledge Base
           </OBDHeading>
-          <div className="text-sm text-slate-500">
-            {entries.length} {entries.length === 1 ? "entry" : "entries"}
+          <div className="flex items-center gap-3">
+            <KnowledgeCoverageBadge isDark={isDark} entries={entries} />
+            <div className="text-sm text-slate-500">
+              {entries.length} {entries.length === 1 ? "entry" : "entries"}
+            </div>
           </div>
         </div>
 

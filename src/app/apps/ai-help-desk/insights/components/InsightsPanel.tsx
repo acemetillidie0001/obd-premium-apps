@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
@@ -52,6 +52,7 @@ export default function InsightsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
+  const [activeCluster, setActiveCluster] = useState<string | null>(null);
 
   // Load insights
   const loadInsights = async () => {
@@ -93,6 +94,80 @@ export default function InsightsPanel({
       loadInsights();
     }
   }, [businessId, days]);
+
+  // Determine which cluster a question belongs to based on keywords
+  const getQuestionCluster = (question: string): string => {
+    const lowerQuestion = question.toLowerCase();
+    
+    // Pricing keywords
+    if (/\b(price|cost|rate|rates|quote|estimate|pricing)\b/.test(lowerQuestion)) {
+      return "Pricing";
+    }
+    
+    // Availability keywords
+    if (/\b(available|availability|appointment|schedule|booking|book|slots)\b/.test(lowerQuestion)) {
+      return "Availability";
+    }
+    
+    // Hours & Location keywords
+    if (/\b(hours|open|close|closing|address|directions|location|where|map)\b/.test(lowerQuestion)) {
+      return "Hours & Location";
+    }
+    
+    // Services keywords
+    if (/\b(service|services|offer|offerings|provide|do you|can you|specialize)\b/.test(lowerQuestion)) {
+      return "Services";
+    }
+    
+    // Policies keywords
+    if (/\b(refund|cancel|cancellation|reschedule|policy|guarantee|warranty)\b/.test(lowerQuestion)) {
+      return "Policies";
+    }
+    
+    return "Other";
+  };
+
+  // Compute clusters from questions (useMemo for performance)
+  const clusters = useMemo(() => {
+    if (!insights || insights.topQuestions.length === 0) {
+      return [];
+    }
+
+    const clusterMap: Record<string, number> = {};
+    
+    insights.topQuestions.forEach((q) => {
+      // Skip questions with missing/invalid text
+      if (!q.question || typeof q.question !== "string" || q.question.trim().length === 0) {
+        return;
+      }
+      const cluster = getQuestionCluster(q.question);
+      const count = q.count || 1;
+      clusterMap[cluster] = (clusterMap[cluster] || 0) + count;
+    });
+
+    const sorted = Object.entries(clusterMap)
+      .map(([name, count]) => ({ name, count }))
+      .filter((item) => item.count > 0) // Do not render chips with count 0
+      .sort((a, b) => b.count - a.count); // Sort by count desc
+
+    // Render at most 6 cluster chips (most frequent + include Other only if it has data)
+    return sorted.slice(0, 6);
+  }, [insights]);
+
+  // Filter questions based on active cluster (useMemo for performance)
+  const filteredQuestions = useMemo(() => {
+    if (!insights || !activeCluster) {
+      return insights?.topQuestions || [];
+    }
+
+    return insights.topQuestions.filter((q) => {
+      // Skip questions with missing/invalid text
+      if (!q.question || typeof q.question !== "string" || q.question.trim().length === 0) {
+        return false;
+      }
+      return getQuestionCluster(q.question) === activeCluster;
+    });
+  }, [insights, activeCluster]);
 
   const getQualityLabel = (quality: "GOOD" | "WEAK" | "NONE" | null) => {
     switch (quality) {
@@ -264,17 +339,66 @@ export default function InsightsPanel({
         </OBDPanel>
       )}
 
+      {/* Question Clusters */}
+      {!loading && insights && insights.topQuestions.length > 0 && clusters.length > 0 && (
+        <OBDPanel isDark={isDark}>
+          <OBDHeading level={2} isDark={isDark} className="mb-4">
+            Question Clusters
+          </OBDHeading>
+          <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+            Grouped by topic. Click to filter questions.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {clusters.map((cluster) => {
+              const isActive = activeCluster === cluster.name;
+              return (
+                <button
+                  key={cluster.name}
+                  type="button"
+                  onClick={() => setActiveCluster(isActive ? null : cluster.name)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                    isActive
+                      ? isDark
+                        ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9]"
+                        : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9]"
+                      : isDark
+                        ? "border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {cluster.name} ({cluster.count})
+                </button>
+              );
+            })}
+            {activeCluster && (
+              <button
+                type="button"
+                onClick={() => setActiveCluster(null)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                  isDark
+                    ? "border-slate-600 bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                Clear filter
+              </button>
+            )}
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Top Questions */}
       {!loading && insights && insights.topQuestions.length > 0 && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark} className="mb-4">
-            Top Questions ({insights.topQuestions.length})
+            Top Questions ({activeCluster ? filteredQuestions.length : insights.topQuestions.length}
+            {activeCluster && ` of ${insights.topQuestions.length}`})
           </OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
-            Most frequently asked questions
+            {activeCluster ? `Questions in "${activeCluster}" cluster` : "Most frequently asked questions"}
           </p>
           <div className="space-y-3">
-            {insights.topQuestions.map((q, idx) => (
+            {filteredQuestions.map((q, idx) => (
               <div
                 key={idx}
                 className={`p-4 rounded-lg border ${

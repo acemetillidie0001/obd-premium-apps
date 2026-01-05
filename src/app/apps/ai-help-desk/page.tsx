@@ -8,7 +8,7 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getSubtleButtonMediumClasses } from "@/lib/obd-framework/layout-helpers";
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
 import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import type {
@@ -698,6 +698,24 @@ function AIHelpDeskPageContent() {
     }, 100);
   };
 
+  // Ask search query as a question in chat (reuses handleUseInChat logic)
+  const handleAskAsQuestion = () => {
+    if (!searchQuery.trim()) return;
+    
+    // Create a minimal SearchResult from the query to reuse handleUseInChat logic
+    const queryAsResult: SearchResult = {
+      id: `query-${Date.now()}`,
+      title: searchQuery.trim(),
+      snippet: searchQuery.trim(),
+    };
+    
+    handleUseInChat(queryAsResult);
+    
+    // Show optional toast notification
+    setImportToast("Sent to chat");
+    setTimeout(() => setImportToast(null), 2000);
+  };
+
   // Generate business ID from business name (simple slug)
   useEffect(() => {
     if (businessName.trim()) {
@@ -1098,6 +1116,7 @@ function AIHelpDeskPageContent() {
               onSearch={handleSearch}
               onClearSearch={handleClearSearch}
               onUseInChat={handleUseInChat}
+              onAskAsQuestion={handleAskAsQuestion}
             />
               </div>
 
@@ -1142,6 +1161,7 @@ function AIHelpDeskPageContent() {
               onSearch={handleSearch}
               onClearSearch={handleClearSearch}
               onUseInChat={handleUseInChat}
+              onAskAsQuestion={handleAskAsQuestion}
             />
           ) : (
             <ChatPanel
@@ -1705,6 +1725,7 @@ interface SearchPanelProps {
   onSearch: (e: React.FormEvent) => void;
   onClearSearch: () => void;
   onUseInChat: (result: SearchResult) => void;
+  onAskAsQuestion: () => void;
 }
 
 function SearchPanel({
@@ -1721,6 +1742,7 @@ function SearchPanel({
   onSearch,
   onClearSearch,
   onUseInChat,
+  onAskAsQuestion,
 }: SearchPanelProps) {
   return (
     <OBDPanel isDark={isDark}>
@@ -1826,6 +1848,22 @@ function SearchPanel({
               </div>
             ))}
           </div>
+          
+          {/* Search → Chat Bridge CTA (under results) */}
+          {searchQuery.trim() && (
+            <div className="mt-4 pt-4 border-t" style={{ borderColor: isDark ? "#334155" : "#e2e8f0" }}>
+              <button
+                type="button"
+                onClick={onAskAsQuestion}
+                className={`text-sm ${themeClasses.mutedText} transition-colors inline-flex items-center gap-1 ${
+                  isDark ? "hover:text-slate-200" : "hover:text-slate-700"
+                }`}
+              >
+                Didn't find what you need? Ask this as a question
+                <span className="text-[#29c4a9]">→</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1838,6 +1876,22 @@ function SearchPanel({
             <p>No results found. Try a different search query.</p>
           </div>
         )}
+
+      {/* Search → Chat Bridge CTA (for empty results) */}
+      {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={onAskAsQuestion}
+            className={`text-sm ${themeClasses.mutedText} transition-colors inline-flex items-center gap-1 ${
+              isDark ? "hover:text-slate-200" : "hover:text-slate-700"
+            }`}
+          >
+            Didn't find what you need? Ask this as a question
+            <span className="text-[#29c4a9]">→</span>
+          </button>
+        </div>
+      )}
 
       {/* Initial Empty State */}
       {!searchLoading &&
@@ -1885,7 +1939,8 @@ function SearchPanel({
           <button
             type="button"
             onClick={() => onUseInChat(selectedResult)}
-            className={`mt-4 px-4 py-2 text-sm font-medium rounded-xl border transition-colors ${
+            disabled={!selectedResult}
+            className={`mt-4 ${getSubtleButtonMediumClasses(isDark)} ${
               isDark
                 ? "border-[#29c4a9] bg-[#29c4a9]/20 text-[#29c4a9] hover:bg-[#29c4a9]/30"
                 : "border-[#29c4a9] bg-[#29c4a9]/10 text-[#29c4a9] hover:bg-[#29c4a9]/20"

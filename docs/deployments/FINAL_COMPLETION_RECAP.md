@@ -97,3 +97,52 @@ git push origin main
 **Ready for:** Manual verification completion  
 **Next Action:** Complete PR merge → Vercel verification → Production testing → Update docs → Commit
 
+---
+
+## Event Campaign Builder — Tier 5B + 5C Finalization
+
+**Status:** ✅ **COMPLETE** (Production Ready)
+
+**Date:** [DATE]
+
+### Tier 5A UX Parity
+- Accordion input sections (7 sections: Business Basics, Event Details, Audience & Strategy, Brand & Style, Channels, Campaign Timing, Advanced Notes) with live summary lines when collapsed
+- Sticky action bar with status chip (Draft/Generated/Edited), disabled-not-hidden behavior, and tooltip explanations
+- Soft character awareness counters (warning-only, non-blocking) for Event description, SMS, Google Business, and X content
+
+### Tier 5B Canonical Output State
+- CampaignItem[] canonical state model with stable IDs and type system
+- Selector-based rendering: `getActiveCampaignList()` returns edited campaign if present, else generated
+- Results section renders exclusively from `activeCampaign` (CampaignItem[]), never from legacy `result` object
+- Deterministic exports and handoffs use `activeCampaign` as single source of truth
+- Helper selectors: `getItemsForChannel()`, `getItemsByType()`, `getMetaItem()`, `getSingleAsset()`, `getHashtagBundles()`, `getScheduleIdeas()`
+
+### Inline Editing
+- Edit/save/cancel workflow for all channels (Facebook, Instagram, X, Google Business, Email, SMS, Image Caption)
+- "Edited" badge appears when `editedText` exists for any item
+- Reset-to-generated per item clears `editedText` and reverts to `generatedText`
+- Status chip updates: Draft (no items), Generated (items exist, no edits), Edited (items exist + any edits)
+
+### Variant Selector + Lock After Edit
+- Countdown variant selector (7 days out / 3 days out / Day-of) for X, SMS, and Google Business posts
+- Variant selection persists in `sessionStorage`
+- Variant switching locks when any item is edited (prevents content loss)
+- Tooltip: "Variant switching is locked after editing to prevent content loss"
+- "Reset all edits" button unlocks variant selector and clears all edits
+
+### Tier 5C Integrations
+- **Event → AI Content Writer (Landing Page Mode):** Link-only handoff with apply-to-inputs only, no auto-generation, payload includes event facts, description, agenda bullets, CTA, FAQ seeds
+- **Event → AI Image Caption Generator:** Link-only handoff with apply-to-inputs only, no auto-generation, payload includes event name, date/time, location, type, tone/urgency, description, optional hashtags
+- **Social Auto-Poster Handoff:** Canonical handoff using `buildSocialAutoPosterHandoff()` with countdown variants and suggested platforms
+- **AI Help Desk Awareness Banner:** Dismissible informational callout (read-only, no syncing/mutation/generation), persists dismissal in `sessionStorage`
+
+### Trust & Safety Guardrails
+- Link-only integrations (no auto-generation, no mutation across apps)
+- Draft-only transport via `sessionStorage` with TTL
+- No auto-publishing, no auto-scheduling, no background jobs
+- No CRM writes, no calendar mutations, no ticketing logic
+- No payments, no SMS sending, no email sending
+- All external operations are user-initiated navigation only
+
+**Verification:** `docs/deployments/EVENT_CAMPAIGN_BUILDER_PRODUCTION_VERIFICATION.md`
+

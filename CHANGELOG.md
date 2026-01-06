@@ -97,6 +97,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Documentation:** Updated `docs/apps/social-auto-poster/IMPLEMENTATION_MAP.md` with Tier 5C handoffs section
   - **Verification:** Added `docs/deployments/SOCIAL_AUTO_POSTER_TIER5_VERIFICATION.md` with comprehensive checklist
 
+- **Event Campaign Builder — Tier 5A + Tier 5B + Tier 5C ([DATE])**
+  - **Tier 5A UX Parity:**
+    - Accordion input sections (7 sections) with live summary lines when collapsed
+    - Sticky action bar with status chip (Draft/Generated/Edited), disabled-not-hidden behavior, tooltip explanations
+    - Soft character awareness counters (warning-only, non-blocking) for Event description, SMS, Google Business, X content
+  - **Tier 5B Canonical Output State:**
+    - CampaignItem[] canonical state model with stable IDs and type system
+    - Selector-based rendering: `getActiveCampaignList()` returns edited campaign if present, else generated
+    - Results section renders exclusively from `activeCampaign` (CampaignItem[]), never from legacy `result` object
+    - Deterministic exports and handoffs use `activeCampaign` as single source of truth
+    - Helper selectors: `getItemsForChannel()`, `getItemsByType()`, `getMetaItem()`, `getSingleAsset()`, `getHashtagBundles()`, `getScheduleIdeas()`
+  - **Inline Editing:**
+    - Edit/save/cancel workflow for all channels (Facebook, Instagram, X, Google Business, Email, SMS, Image Caption)
+    - "Edited" badge appears when `editedText` exists for any item
+    - Reset-to-generated per item clears `editedText` and reverts to `generatedText`
+    - Status chip updates: Draft (no items), Generated (items exist, no edits), Edited (items exist + any edits)
+  - **Variant Selector + Lock After Edit:**
+    - Countdown variant selector (7 days out / 3 days out / Day-of) for X, SMS, and Google Business posts
+    - Variant selection persists in `sessionStorage`
+    - Variant switching locks when any item is edited (prevents content loss)
+    - "Reset all edits" button unlocks variant selector and clears all edits
+  - **Tier 5C Ecosystem Integration:**
+    - Event → AI Content Writer landing page handoff (link-only, apply-to-inputs only, no auto-generation)
+    - Event → AI Image Caption Generator handoff (link-only, apply-to-inputs only, no auto-generation)
+    - Social Auto-Poster handoff (canonical, uses `buildSocialAutoPosterHandoff()` with countdown variants)
+    - AI Help Desk awareness banner (dismissible, read-only, no syncing/mutation/generation)
+  - **Trust & Safety:**
+    - Link-only integrations (no auto-generation, no mutation across apps)
+    - Draft-only transport via `sessionStorage` with TTL
+    - No auto-publishing, no auto-scheduling, no background jobs
+    - No CRM writes, no calendar mutations, no ticketing logic
+    - No payments, no SMS sending, no email sending
+  - **Documentation:** Added `docs/deployments/EVENT_CAMPAIGN_BUILDER_PRODUCTION_VERIFICATION.md` with comprehensive verification checklist
+
 ### Tier 5C — Ecosystem Flow Polish
 - Added dismissible "Next steps" panels across apps
 - Link-only guidance between Website Draft Import, FAQ Generator, Schema Generator, and AI Help Desk

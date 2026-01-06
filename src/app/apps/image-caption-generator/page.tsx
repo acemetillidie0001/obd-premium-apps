@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -18,6 +19,17 @@ import { buildSocialAutoPosterHandoff, encodeHandoffPayload } from "@/lib/apps/i
 import CaptionCard from "@/components/image-caption-generator/CaptionCard";
 import CaptionExportCenterPanel from "@/components/image-caption-generator/CaptionExportCenterPanel";
 import CaptionNextStepsPanel from "@/components/image-caption-generator/CaptionNextStepsPanel";
+import EventImportBanner from "./components/EventImportBanner";
+import { readHandoff, clearHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
+import {
+  getHandoffHash,
+  wasHandoffAlreadyImported,
+  markHandoffImported,
+} from "@/lib/utils/handoff-guard";
 import type {
   ImageCaptionRequest,
   ImageCaptionResponse,
@@ -54,10 +66,11 @@ const DEFAULT_FORM: ImageCaptionRequest = {
   language: "English",
 };
 
-export default function ImageCaptionGeneratorPage() {
+function ImageCaptionGeneratorPageContent() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState<ImageCaptionRequest>(DEFAULT_FORM);
   const [servicesInput, setServicesInput] = useState("");
@@ -249,6 +262,189 @@ export default function ImageCaptionGeneratorPage() {
       showToast("Brand Profile applied to empty fields.");
     }
   }, [applied]);
+
+  // Event Campaign Builder handoff state
+  const [eventHandoffPayload, setEventHandoffPayload] = useState<any | null>(null);
+  const [showEventImportBanner, setShowEventImportBanner] = useState(false);
+
+  // Handle Event Campaign Builder handoff
+  useEffect(() => {
+    if (typeof window === "undefined" || !searchParams) return;
+
+    // Only check for handoff if URL includes ?handoff=1
+    if (searchParams.get("handoff") !== "1") {
+      return;
+    }
+
+    try {
+      const { envelope, expired, error } = readHandoff();
+
+      if (error || expired || !envelope) {
+        // No valid handoff found or expired - clear URL param
+        if (typeof window !== "undefined") {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+        return;
+      }
+
+      // Check if this is from Event Campaign Builder
+      if (envelope.source !== "event-campaign-builder-to-image-caption-generator") {
+        // Not for us - clear URL param
+        if (typeof window !== "undefined") {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+        return;
+      }
+
+      const payload = envelope.payload;
+
+      // Validate payload structure
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        payload.sourceApp !== "event-campaign-builder" ||
+        payload.intent !== "image-captions"
+      ) {
+        // Invalid payload - clear it
+        clearHandoff();
+        if (typeof window !== "undefined") {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+        return;
+      }
+
+      // Check if already imported (using handoff guard)
+      const payloadHash = getHandoffHash(payload);
+      if (wasHandoffAlreadyImported("image-caption-generator", payloadHash)) {
+        // Already imported - clear URL param but don't show banner
+        if (typeof window !== "undefined") {
+          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+          replaceUrlWithoutReload(cleanUrl);
+        }
+        return;
+      }
+
+      // Valid handoff - show banner
+      setEventHandoffPayload(payload);
+      setShowEventImportBanner(true);
+    } catch (error) {
+      console.error("Error reading Event Campaign Builder handoff:", error);
+      clearHandoff();
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+    }
+  }, [searchParams]);
+
+  // Apply event data to form inputs (additive, non-destructive)
+  const handleApplyEventToInputs = () => {
+    if (!eventHandoffPayload) return;
+
+    try {
+      const payload = eventHandoffPayload;
+      const { eventFacts, description, tone, urgencyLevel, hashtags } = payload;
+
+      setForm((prev) => {
+        const updated: Partial<ImageCaptionRequest> = {};
+
+        // Business basics - only fill if empty
+        if (!prev.businessName.trim() && eventFacts.businessName) {
+          updated.businessName = eventFacts.businessName;
+        }
+        if (!prev.businessType.trim() && eventFacts.businessType) {
+          updated.businessType = eventFacts.businessType;
+        }
+        if (!prev.city.trim() && eventFacts.city) {
+          updated.city = eventFacts.city;
+        }
+        if (!prev.state.trim() && eventFacts.state) {
+          updated.state = eventFacts.state;
+        }
+
+        // Image context - use event description if empty
+        if (!prev.imageContext.trim() && description) {
+          updated.imageContext = description;
+        }
+
+        // Image details - add event details if empty
+        if (!prev.imageDetails.trim()) {
+          const details: string[] = [];
+          if (eventFacts.eventName) {
+            details.push(`Event: ${eventFacts.eventName}`);
+          }
+          if (eventFacts.eventDate) {
+            details.push(`Date: ${eventFacts.eventDate}`);
+          }
+          if (eventFacts.eventTime) {
+            details.push(`Time: ${eventFacts.eventTime}`);
+          }
+          if (eventFacts.eventLocation) {
+            details.push(`Location: ${eventFacts.eventLocation}`);
+          }
+          if (eventFacts.eventType) {
+            const typeLabels: Record<string, string> = {
+              InPerson: "In-Person",
+              Virtual: "Virtual",
+              Hybrid: "Hybrid",
+            };
+            details.push(`Type: ${typeLabels[eventFacts.eventType] || eventFacts.eventType}`);
+          }
+          if (details.length > 0) {
+            updated.imageDetails = details.join("\n");
+          }
+        }
+
+        // Goal - set to Event if not set
+        if (prev.goal === "Awareness" && eventFacts.eventName) {
+          updated.goal = "Event";
+        }
+
+        // Brand voice / personality style - only fill if empty
+        if (!prev.brandVoice.trim() && tone) {
+          updated.brandVoice = tone;
+        }
+        if (!prev.personalityStyle && urgencyLevel === "Last-Minute") {
+          // Map urgency to personality style
+          updated.personalityStyle = "High-Energy";
+        }
+
+        return { ...prev, ...updated };
+      });
+
+      // Mark as imported
+      const payloadHash = getHandoffHash(payload);
+      markHandoffImported("image-caption-generator", payloadHash);
+
+      // Dismiss banner and clear handoff
+      setShowEventImportBanner(false);
+      setEventHandoffPayload(null);
+      clearHandoff();
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+
+      showToast("Event data applied to inputs");
+    } catch (error) {
+      console.error("Error applying event data to inputs:", error);
+      showToast("Failed to apply event data. Please try again.");
+    }
+  };
+
+  // Dismiss event import banner
+  const handleDismissEventBanner = () => {
+    setShowEventImportBanner(false);
+    setEventHandoffPayload(null);
+    clearHandoff();
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
 
   // Handle personalityStyle mapping from brandPersonality (special case)
   useEffect(() => {
@@ -563,6 +759,15 @@ export default function ImageCaptionGeneratorPage() {
       title="AI Image Caption Generator"
       tagline="Generate creative captions for your business images that engage your audience and boost social media performance."
     >
+      {/* Event Campaign Builder Import Banner */}
+      {showEventImportBanner && eventHandoffPayload && (
+        <EventImportBanner
+          isDark={isDark}
+          payload={eventHandoffPayload}
+          onApplyToInputs={handleApplyEventToInputs}
+          onDismiss={handleDismissEventBanner}
+        />
+      )}
       {/* Toast Feedback */}
       {actionToast && (
         <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
@@ -1384,5 +1589,13 @@ export default function ImageCaptionGeneratorPage() {
         </OBDPanel>
       )}
     </OBDPageContainer>
+  );
+}
+
+export default function ImageCaptionGeneratorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ImageCaptionGeneratorPageContent />
+    </Suspense>
   );
 }

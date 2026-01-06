@@ -102,3 +102,41 @@ export interface EventCampaignResponse {
   meta: EventCampaignMeta;
   assets: EventCampaignAssets;
 }
+
+/**
+ * CampaignItem - Canonical internal state type for campaign management
+ * 
+ * Used for state management, editing, selection, export, and handoff.
+ * Represents individual campaign assets that can be edited independently.
+ * 
+ * Pattern matches Image Caption Generator's CaptionItem architecture.
+ */
+export interface CampaignItem {
+  id: string; // Stable string ID (e.g., "meta-primaryTagline", "asset-facebook-0", "asset-sms-1")
+  type: 
+    | "meta-primaryTagline"
+    | "meta-primaryCallToAction"
+    | "meta-recommendedStartDateNote"
+    | "meta-timezoneNote"
+    | "asset-eventTitle"
+    | "asset-shortDescription"
+    | "asset-longDescription"
+    | "asset-facebookPost"
+    | "asset-instagramCaption"
+    | "asset-instagramStory"
+    | "asset-xPost"
+    | "asset-googleBusinessPost"
+    | "asset-emailSubject"
+    | "asset-emailPreviewText"
+    | "asset-emailBodyText"
+    | "asset-emailBodyHtml"
+    | "asset-smsBlast"
+    | "asset-imageCaption"
+    | "asset-hashtagBundle"
+    | "asset-scheduleIdea";
+  content: string; // The actual content text
+  platform?: string; // For platform-specific items (e.g., "facebook", "instagram", "x")
+  index?: number; // For array items (e.g., which facebook post, which sms blast)
+  metadata?: Record<string, unknown>; // Additional metadata (e.g., hashtags for bundles, channel for schedule ideas)
+  createdAt?: number; // Optional local timestamp
+}

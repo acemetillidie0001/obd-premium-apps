@@ -1,6 +1,30 @@
 /**
  * Event Campaign Builder Handoff Utilities
  * 
+ * ARCHITECTURAL OVERVIEW:
+ * 
+ * This module provides integration helpers for the Event Campaign Builder app.
+ * The Event Campaign Builder is a campaign orchestration planner for time-bound events.
+ * It generates structured, multi-channel campaign drafts.
+ * 
+ * This app is NOT:
+ * - A scheduler (does not schedule posts or send at specific times)
+ * - A calendar (does not manage event calendars or dates)
+ * - A ticketing system (does not handle ticket sales or reservations)
+ * - A CRM (does not manage customer relationships or contacts)
+ * - An automation engine (does not execute or trigger automated actions)
+ * 
+ * This app does NOT:
+ * - Publish content to any platform
+ * - Schedule posts or messages
+ * - Send emails or SMS messages
+ * - Sync with external systems
+ * 
+ * This app ONLY:
+ * - Generates campaign content drafts (text, copy, suggestions)
+ * - Provides structured campaign plans and recommendations
+ * - Outputs content that users can manually review, edit, and use elsewhere
+ * 
  * Lightweight helper utilities for receiving and validating Offers -> Event Campaign handoffs.
  * No heavy parsing libraries required.
  */

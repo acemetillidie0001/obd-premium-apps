@@ -26,6 +26,7 @@ import { isContentReadyForExport } from "@/lib/apps/content-writer/content-ready
 import { parseContentWriterHandoff, type ContentWriterHandoffPayload } from "@/lib/apps/content-writer/handoff-parser";
 import FAQImportBanner from "./components/FAQImportBanner";
 import OffersImportBanner from "./components/OffersImportBanner";
+import EventImportBanner from "./components/EventImportBanner";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -323,6 +324,10 @@ function ContentWriterPageContent() {
   const [offersHandoffPayload, setOffersHandoffPayload] = useState<any | null>(null);
   const [showOffersImportBanner, setShowOffersImportBanner] = useState(false);
 
+  // Event Campaign Builder handoff state
+  const [eventHandoffPayload, setEventHandoffPayload] = useState<any | null>(null);
+  const [showEventImportBanner, setShowEventImportBanner] = useState(false);
+
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
     businessBasics: true,
@@ -535,6 +540,19 @@ function ContentWriterPageContent() {
             
             setOffersHandoffPayload(envelopePayload);
             setShowOffersImportBanner(true);
+          }
+        }
+        
+        // Check if this is an event-campaign-builder handoff
+        if (source === "event-campaign-builder-to-content-writer" && envelopePayload) {
+          // Validate payload structure
+          if (
+            envelopePayload.sourceApp === "event-campaign-builder" &&
+            envelopePayload.intent === "landing-page" &&
+            envelopePayload.eventFacts
+          ) {
+            setEventHandoffPayload(envelopePayload);
+            setShowEventImportBanner(true);
           }
         }
       }
@@ -856,6 +874,113 @@ function ContentWriterPageContent() {
     clearHandoff();
     setOffersHandoffPayload(null);
     setShowOffersImportBanner(false);
+  };
+
+  // Handle "Apply to Inputs" for Event Campaign Builder handoff
+  const handleApplyEventToInputs = () => {
+    if (!eventHandoffPayload) return;
+
+    const { eventFacts, description, agendaBullets, cta, faqSeeds } = eventHandoffPayload;
+
+    // Build content goal with event details
+    const eventDetails: string[] = [];
+    if (eventFacts.eventDate) eventDetails.push(`Date: ${eventFacts.eventDate}`);
+    if (eventFacts.eventTime) eventDetails.push(`Time: ${eventFacts.eventTime}`);
+    if (eventFacts.eventLocation) eventDetails.push(`Location: ${eventFacts.eventLocation}`);
+    
+    const eventTypeLabels: Record<string, string> = {
+      InPerson: "In-Person Event",
+      Virtual: "Virtual Event",
+      Hybrid: "Hybrid Event",
+    };
+    if (eventFacts.eventType) {
+      eventDetails.push(`Type: ${eventTypeLabels[eventFacts.eventType] || eventFacts.eventType}`);
+    }
+
+    const contentGoalParts = [
+      `Create a landing page for ${eventFacts.eventName || "this event"}`,
+      ...eventDetails,
+      cta ? `Primary CTA: ${cta}` : "",
+    ].filter(Boolean);
+    const contentGoal = contentGoalParts.join(". ");
+
+    // Build topic from event name + business context
+    const topicParts: string[] = [];
+    if (eventFacts.eventName) topicParts.push(eventFacts.eventName);
+    if (eventFacts.businessName) topicParts.push(`at ${eventFacts.businessName}`);
+    const topic = topicParts.length > 0 ? topicParts.join(" ") : "Event Landing Page";
+
+    // Build custom outline from description and agenda bullets
+    const outlineParts: string[] = [];
+    if (description) {
+      outlineParts.push("Event Description:");
+      outlineParts.push(description);
+    }
+    if (agendaBullets && agendaBullets.length > 0) {
+      outlineParts.push("\nEvent Schedule:");
+      agendaBullets.forEach((bullet: string) => {
+        outlineParts.push(`- ${bullet}`);
+      });
+    }
+    const customOutline = outlineParts.join("\n");
+
+    // Apply form values additively (only fill empty fields)
+    setFormValues((prev) => ({
+      ...prev,
+      // Always set contentType for landing page
+      contentType: "LandingPage",
+      // Only set topic if empty
+      topic: prev.topic.trim() || topic,
+      // Only set contentGoal if empty
+      contentGoal: prev.contentGoal.trim() || contentGoal,
+      // Only set businessName if empty
+      businessName: prev.businessName.trim() || eventFacts.businessName || prev.businessName,
+      // Only set businessType if empty
+      businessType: prev.businessType.trim() || eventFacts.businessType || prev.businessType,
+      // Only set city if empty
+      city: prev.city.trim() || eventFacts.city || prev.city,
+      // Only set state if empty
+      state: prev.state.trim() || eventFacts.state || prev.state,
+      // Append to customOutline if it exists, otherwise set it
+      customOutline: prev.customOutline.trim() 
+        ? `${prev.customOutline}\n\n${customOutline}` 
+        : customOutline,
+      // Enable FAQs for event landing page
+      includeFAQ: true,
+    }));
+
+    // Add FAQ seed questions to customOutline if available
+    if (faqSeeds && faqSeeds.length > 0) {
+      const faqHints = `\n\nSuggested FAQ Questions:\n${faqSeeds.map((q: string, i: number) => `${i + 1}. ${q}`).join("\n")}`;
+      setFormValues((prev) => ({
+        ...prev,
+        customOutline: (prev.customOutline || "") + faqHints,
+      }));
+    }
+
+    // Clear handoff from sessionStorage (one-time import)
+    clearHandoff();
+    setEventHandoffPayload(null);
+    setShowEventImportBanner(false);
+
+    // Show success toast
+    showToast("Event imported into AI Content Writer");
+
+    // Scroll to form
+    setTimeout(() => {
+      const formElement = document.querySelector("form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+  };
+
+  // Handle "Dismiss" for Event Campaign Builder handoff
+  const handleDismissEventImport = () => {
+    // Clear handoff from sessionStorage
+    clearHandoff();
+    setEventHandoffPayload(null);
+    setShowEventImportBanner(false);
   };
 
   // Collapsible sections state for Generated Content
@@ -1487,6 +1612,15 @@ function ContentWriterPageContent() {
           payload={offersHandoffPayload}
           onApplyToInputs={handleApplyOffersToInputs}
           onDismiss={handleDismissOffersImport}
+        />
+      )}
+
+      {showEventImportBanner && eventHandoffPayload && (
+        <EventImportBanner
+          isDark={isDark}
+          payload={eventHandoffPayload}
+          onApplyToInputs={handleApplyEventToInputs}
+          onDismiss={handleDismissEventImport}
         />
       )}
 

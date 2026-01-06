@@ -1,16 +1,47 @@
+/**
+ * Event Campaign Builder
+ * 
+ * ARCHITECTURAL OVERVIEW:
+ * 
+ * This app is a campaign orchestration planner for time-bound events.
+ * It generates structured, multi-channel campaign drafts.
+ * 
+ * This app is NOT:
+ * - A scheduler (does not schedule posts or send at specific times)
+ * - A calendar (does not manage event calendars or dates)
+ * - A ticketing system (does not handle ticket sales or reservations)
+ * - A CRM (does not manage customer relationships or contacts)
+ * - An automation engine (does not execute or trigger automated actions)
+ * 
+ * This app does NOT:
+ * - Publish content to any platform
+ * - Schedule posts or messages
+ * - Send emails or SMS messages
+ * - Sync with external systems
+ * 
+ * This app ONLY:
+ * - Generates campaign content drafts (text, copy, suggestions)
+ * - Provides structured campaign plans and recommendations
+ * - Outputs content that users can manually review, edit, and use elsewhere
+ */
+
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import ResultCard from "@/components/obd/ResultCard";
+import OBDStickyActionBar, { OBD_STICKY_ACTION_BAR_OFFSET_CLASS } from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import {
   SUBMIT_BUTTON_CLASSES,
   getErrorPanelClasses,
   getDividerClass,
+  getSubtleButtonMediumClasses,
+  getSubtleButtonSmallClasses,
+  getSecondaryButtonClasses,
 } from "@/lib/obd-framework/layout-helpers";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
@@ -35,6 +66,22 @@ import {
   formatEventDateRange,
   validateEventHandoffPayload,
 } from "@/lib/apps/event-campaign-builder/handoff-utils";
+import { mapCampaignToItems } from "@/lib/apps/event-campaign-builder/campaign-mapper";
+import { getActiveCampaign } from "@/lib/apps/event-campaign-builder/getActiveCampaign";
+import {
+  getItemsForChannel,
+  getItemsByType,
+  getMetaItem,
+  getSingleAsset,
+  getHashtagBundles,
+  getScheduleIdeas,
+} from "@/lib/apps/event-campaign-builder/campaign-selectors";
+import {
+  applyVariantToContent,
+  getAvailableVariants,
+  type CountdownVariant as VariantType,
+} from "@/lib/apps/event-campaign-builder/variant-generator";
+import type { CampaignItem } from "./types";
 import EventCampaignImportBanner from "./components/EventCampaignImportBanner";
 
 const defaultFormValues: EventCampaignFormValues = {
@@ -96,6 +143,8 @@ function EventCampaignBuilderPageContent() {
   const [form, setForm] = useState<EventCampaignFormValues>(defaultFormValues);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Legacy result state - kept for debugging only, NOT used for display/export/handoff
+  // All UI rendering uses canonical state: activeCampaign (CampaignItem[])
   const [result, setResult] = useState<EventCampaignResponse | null>(null);
   const [lastPayload, setLastPayload] =
     useState<EventCampaignFormValues | null>(null);
@@ -104,6 +153,116 @@ function EventCampaignBuilderPageContent() {
   
   // Handoff payload state
   const [handoffPayload, setHandoffPayload] = useState<any | null>(null);
+
+  // Canonical state model: generatedCampaign and editedCampaign (using CampaignItem[])
+  const [generatedCampaign, setGeneratedCampaign] = useState<CampaignItem[]>([]);
+  const [editedCampaign, setEditedCampaign] = useState<CampaignItem[] | null>(null);
+
+  // Editing state: which campaign item is being edited and its current edit text
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState<string>("");
+
+  // AI Help Desk awareness banner dismissal state
+  const [showHelpDeskBanner, setShowHelpDeskBanner] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const dismissed = sessionStorage.getItem("event-campaign-builder.help-desk-banner-dismissed");
+      return dismissed !== "true";
+    } catch {
+      return true;
+    }
+  });
+
+  const handleDismissHelpDeskBanner = () => {
+    try {
+      sessionStorage.setItem("event-campaign-builder.help-desk-banner-dismissed", "true");
+      setShowHelpDeskBanner(false);
+    } catch {
+      setShowHelpDeskBanner(false);
+    }
+  };
+
+  // Variant selector state
+  type CountdownVariant = "7-days" | "3-days" | "day-of";
+  const [selectedVariant, setSelectedVariant] = useState<CountdownVariant>(() => {
+    if (typeof window === "undefined") return "7-days";
+    try {
+      const stored = sessionStorage.getItem("event-campaign-builder.selected-variant");
+      if (stored === "7-days" || stored === "3-days" || stored === "day-of") {
+        return stored;
+      }
+    } catch {
+      // Ignore storage errors
+    }
+    return "7-days";
+  });
+
+  // Check if variant switching is locked (any item is edited)
+  const isVariantLocked = useMemo(() => {
+    return editedCampaign !== null && editedCampaign.length > 0;
+  }, [editedCampaign]);
+
+  // Persist variant selection
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem("event-campaign-builder.selected-variant", selectedVariant);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [selectedVariant]);
+
+  // Handle variant change (only if not locked)
+  const handleVariantChange = (variant: CountdownVariant) => {
+    if (isVariantLocked) {
+      showToast("Variant switching is locked after editing to prevent content loss");
+      return;
+    }
+    setSelectedVariant(variant);
+  };
+
+  // Reset all edits to unlock variants
+  const handleResetAllEdits = () => {
+    if (!editedCampaign || editedCampaign.length === 0) return;
+    
+    setEditedCampaign(null);
+    setEditingId(null);
+    setEditText("");
+    showToast("All edits reset - variant switching unlocked");
+  };
+
+  // Canonical selector: returns edited campaign if present, otherwise generated campaign
+  const getActiveCampaignList = (): CampaignItem[] => {
+    return getActiveCampaign(generatedCampaign, editedCampaign);
+  };
+
+  // Memoized active campaign for use throughout component
+  const activeCampaign = useMemo(() => getActiveCampaignList(), [generatedCampaign, editedCampaign]);
+
+  // Memoized selectors for rendering
+  const facebookPosts = useMemo(() => getItemsForChannel(activeCampaign, "facebook"), [activeCampaign]);
+  const instagramCaptions = useMemo(() => getItemsForChannel(activeCampaign, "instagram").filter((i) => i.type === "asset-instagramCaption"), [activeCampaign]);
+  const instagramStories = useMemo(() => getItemsForChannel(activeCampaign, "instagram").filter((i) => i.type === "asset-instagramStory"), [activeCampaign]);
+  const xPosts = useMemo(() => getItemsForChannel(activeCampaign, "x"), [activeCampaign]);
+  const googleBusinessPosts = useMemo(() => getItemsForChannel(activeCampaign, "googleBusiness"), [activeCampaign]);
+  const emailItems = useMemo(() => getItemsForChannel(activeCampaign, "email"), [activeCampaign]);
+  const smsBlasts = useMemo(() => getItemsForChannel(activeCampaign, "sms"), [activeCampaign]);
+  const eventTitles = useMemo(() => getItemsByType(activeCampaign, "asset-eventTitle"), [activeCampaign]);
+  const shortDescriptions = useMemo(() => getItemsByType(activeCampaign, "asset-shortDescription"), [activeCampaign]);
+  const longDescription = useMemo(() => getSingleAsset(activeCampaign, "longDescription"), [activeCampaign]);
+  const imageCaption = useMemo(() => getSingleAsset(activeCampaign, "imageCaption"), [activeCampaign]);
+  const hashtagBundles = useMemo(() => getHashtagBundles(activeCampaign), [activeCampaign]);
+  const scheduleIdeas = useMemo(() => getScheduleIdeas(activeCampaign), [activeCampaign]);
+  
+  // Meta items
+  const primaryTagline = useMemo(() => getMetaItem(activeCampaign, "primaryTagline"), [activeCampaign]);
+  const primaryCallToAction = useMemo(() => getMetaItem(activeCampaign, "primaryCallToAction"), [activeCampaign]);
+  const recommendedStartDateNote = useMemo(() => getMetaItem(activeCampaign, "recommendedStartDateNote"), [activeCampaign]);
+  const timezoneNote = useMemo(() => getMetaItem(activeCampaign, "timezoneNote"), [activeCampaign]);
+
+  // Status tracking for sticky action bar
+  const campaignStatus: "Draft" | "Generated" | "Edited" = 
+    editedCampaign !== null ? "Edited" : generatedCampaign.length > 0 ? "Generated" : "Draft";
 
   // Helper to show toast and auto-clear
   const showToast = (message: string) => {
@@ -375,6 +534,86 @@ function EventCampaignBuilderPageContent() {
     }
   }, [applied]);
 
+  // Accordion state for form sections
+  const [accordionState, setAccordionState] = useState({
+    businessBasics: false,
+    eventDetails: true, // Default open
+    audienceStrategy: false,
+    brandStyle: false,
+    channels: false,
+    campaignTiming: false,
+    advancedNotes: false,
+  });
+
+  // Toggle accordion section
+  const toggleAccordion = (section: keyof typeof accordionState) => {
+    setAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Summary functions for accordion sections
+  const getBusinessBasicsSummary = (): string => {
+    const parts: string[] = [];
+    if (form.businessName) parts.push(form.businessName);
+    if (form.businessType) parts.push(form.businessType);
+    return parts.length > 0 ? parts.join(" • ") : "Not filled";
+  };
+
+  const getEventDetailsSummary = (): string => {
+    const parts: string[] = [];
+    if (form.eventName) parts.push(form.eventName);
+    if (form.eventDate) {
+      // Try to extract just the date part (e.g., "Mar 15" from "March 15, 2026")
+      const dateStr = form.eventDate.trim();
+      parts.push(dateStr.length > 15 ? dateStr.substring(0, 15) + "..." : dateStr);
+    }
+    if (form.eventType && form.eventType !== "InPerson") {
+      const typeLabel = form.eventType === "Virtual" ? "Virtual" : form.eventType === "Hybrid" ? "Hybrid" : form.eventType;
+      parts.push(typeLabel);
+    } else if (form.eventType === "InPerson") {
+      parts.push("In-Person");
+    }
+    return parts.length > 0 ? parts.join(" • ") : "Not filled";
+  };
+
+  const getAudienceStrategySummary = (): string => {
+    const parts: string[] = [];
+    if (form.audience) parts.push(form.audience);
+    if (form.mainGoal) parts.push(form.mainGoal);
+    if (form.budgetLevel && form.budgetLevel !== "Free") parts.push(form.budgetLevel);
+    if (form.urgencyLevel && form.urgencyLevel !== "Normal") parts.push(form.urgencyLevel);
+    return parts.length > 0 ? parts.join(" • ") : "Not set";
+  };
+
+  const getBrandStyleSummary = (): string => {
+    const parts: string[] = [];
+    if (form.brandVoice) parts.push("Brand Voice");
+    if (form.personalityStyle && form.personalityStyle !== "None") parts.push(form.personalityStyle);
+    if (form.language && form.language !== "English") parts.push(form.language);
+    return parts.length > 0 ? parts.join(" • ") : "Not set";
+  };
+
+  const getChannelsSummary = (): string => {
+    const channels: string[] = [];
+    if (form.includeFacebook) channels.push("Facebook");
+    if (form.includeInstagram) channels.push("Instagram");
+    if (form.includeX) channels.push("X");
+    if (form.includeGoogleBusiness) channels.push("Google Business");
+    if (form.includeEmail) channels.push("Email");
+    if (form.includeSms) channels.push("SMS");
+    if (form.includeImageCaption) channels.push("Image Caption");
+    return channels.length > 0 ? channels.join(", ") : "None selected";
+  };
+
+  const getCampaignTimingSummary = (): string => {
+    return `${form.campaignDurationDays} days`;
+  };
+
+  const getAdvancedNotesSummary = (): string => {
+    if (!form.notesForAI.trim()) return "No notes";
+    const preview = form.notesForAI.trim().substring(0, 50);
+    return preview.length < form.notesForAI.trim().length ? `${preview}...` : preview;
+  };
+
   function updateFormValue<K extends keyof EventCampaignFormValues>(
     key: K,
     value: EventCampaignFormValues[K]
@@ -458,6 +697,12 @@ function EventCampaignBuilderPageContent() {
       // Handle standardized response format: { ok: true, data: EventCampaignResponse }
       const response = jsonResponse.data || jsonResponse;
       setResult(response);
+      
+      // Map response to canonical CampaignItem[] format
+      const campaignItems = mapCampaignToItems(response);
+      setGeneratedCampaign(campaignItems);
+      setEditedCampaign(null); // Clear any previous edits on new generation
+      
       setShowSuccessToast(true);
       setTimeout(() => setShowSuccessToast(false), 3000);
       // Scroll to results
@@ -486,10 +731,172 @@ function EventCampaignBuilderPageContent() {
     await handleSubmit();
   };
 
+  // Editing handlers
+  const handleEdit = (id: string) => {
+    const item = activeCampaign.find((c) => c.id === id);
+    if (item) {
+      setEditingId(item.id);
+      // Use variant content for variant-supported channels, otherwise use base content
+      const variantChannels: CampaignItem["type"][] = [
+        "asset-xPost",
+        "asset-smsBlast",
+        "asset-googleBusinessPost",
+      ];
+      if (variantChannels.includes(item.type) && !isItemEdited(item.id)) {
+        // For variant channels that haven't been edited, use variant-transformed content
+        setEditText(getVariantContent(item));
+      } else {
+        // For non-variant channels or already-edited items, use base content
+        setEditText(item.content);
+      }
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditText("");
+  };
+
+  const handleSaveEdit = (itemId: string) => {
+    const trimmedText = editText.trim();
+    
+    // Validation: prevent empty content save
+    if (!trimmedText) {
+      showToast("Content cannot be empty");
+      return;
+    }
+
+    // Get current active campaign (this will be generatedCampaign if editedCampaign is null)
+    const currentActive = getActiveCampaignList();
+    
+    // Find the item being edited
+    const itemToUpdate = currentActive.find((c) => c.id === itemId);
+    if (!itemToUpdate) {
+      showToast("Item not found");
+      return;
+    }
+
+    // Create updated item with new content
+    const updatedItem: CampaignItem = {
+      ...itemToUpdate,
+      content: trimmedText,
+    };
+
+    // Create new edited campaign array
+    // If editedCampaign is null, start with a copy of generatedCampaign
+    // Otherwise, use the existing editedCampaign
+    const baseCampaign = editedCampaign ?? generatedCampaign;
+    const newEditedCampaign = baseCampaign.map((c) => 
+      c.id === itemId ? updatedItem : c
+    );
+
+    // Set edited campaign (this will trigger the "Edited" badge)
+    // Set edited campaign - UI will render from canonical state (activeCampaign)
+    setEditedCampaign(newEditedCampaign);
+    
+    // Clear editing state
+    setEditingId(null);
+    setEditText("");
+    
+    showToast("Edit saved");
+  };
+
+  // Reset a specific item to its generated version
+  const handleResetItem = (itemId: string) => {
+    if (!editedCampaign || !generatedCampaign.length) return;
+    
+    // Find the generated version
+    const generatedItem = generatedCampaign.find((c) => c.id === itemId);
+    if (!generatedItem) {
+      showToast("Original version not found");
+      return;
+    }
+
+    // Remove this item from edited campaign (revert to generated)
+    const newEditedCampaign = editedCampaign.map((c) => 
+      c.id === itemId ? generatedItem : c
+    );
+
+    // Check if all items are back to generated (if so, clear editedCampaign)
+    const allReverted = newEditedCampaign.every((editedItem) => {
+      const genItem = generatedCampaign.find((g) => g.id === editedItem.id);
+      return genItem && genItem.content === editedItem.content;
+    });
+
+    if (allReverted) {
+      setEditedCampaign(null);
+      // UI will render from canonical state (activeCampaign)
+    } else {
+      setEditedCampaign(newEditedCampaign);
+      // UI will render from canonical state (activeCampaign)
+    }
+    
+    showToast("Reset to generated version");
+  };
+
+  // Helper to check if a specific item has been edited
+  const isItemEdited = (itemId: string): boolean => {
+    if (!editedCampaign) return false;
+    const editedItem = editedCampaign.find((c) => c.id === itemId);
+    const generatedItem = generatedCampaign.find((c) => c.id === itemId);
+    if (!editedItem || !generatedItem) return false;
+    return editedItem.content !== generatedItem.content;
+  };
+
+  // Helper to get the active content for a specific item
+  const getActiveContent = (itemId: string): string => {
+    const active = getActiveCampaignList();
+    const item = active.find((c) => c.id === itemId);
+    return item?.content || "";
+  };
+
+  // Get variant-specific content for countdown variant channels
+  const getVariantContent = (item: CampaignItem): string => {
+    const baseContent = getActiveContent(item.id);
+    
+    // Only apply variant transformation to channels that support countdown variants
+    const variantChannels: CampaignItem["type"][] = [
+      "asset-xPost",
+      "asset-smsBlast",
+      "asset-googleBusinessPost",
+    ];
+    
+    if (!variantChannels.includes(item.type)) {
+      return baseContent;
+    }
+    
+    // If item is edited, don't apply variant transformation (user has customized it)
+    if (isItemEdited(item.id)) {
+      return baseContent;
+    }
+    
+    // Apply variant transformation to generated content
+    const eventDate = form.eventDate.trim();
+    if (!eventDate) {
+      return baseContent;
+    }
+    
+    try {
+      return applyVariantToContent(
+        baseContent,
+        selectedVariant,
+        eventDate,
+        form.eventName.trim() || "Event"
+      );
+    } catch {
+      return baseContent;
+    }
+  };
+
+
   const handleStartNew = () => {
     setForm(defaultFormValues);
     setResult(null);
     setError(null);
+    setGeneratedCampaign([]);
+    setEditedCampaign(null);
+    setEditingId(null);
+    setEditText("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -522,13 +929,37 @@ function EventCampaignBuilderPageContent() {
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
-            {/* Business Basics */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
+          <div className={`space-y-4 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
+            {/* Business Basics Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("businessBasics")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                 Business Basics
-              </OBDHeading>
-              <div className="space-y-4">
+                  </h3>
+                  {!accordionState.businessBasics && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getBusinessBasicsSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("businessBasics");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.businessBasics ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.businessBasics && (
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label
                     htmlFor="businessName"
@@ -567,6 +998,7 @@ function EventCampaignBuilderPageContent() {
                     placeholder="e.g., Restaurant, Retail, Service"
                     required
                   />
+                    </div>
                 </div>
 
                 <div>
@@ -622,16 +1054,38 @@ function EventCampaignBuilderPageContent() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
-            <div className={getDividerClass(isDark)} />
-
-            {/* Event Core Details */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
+            {/* Event Details Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("eventDetails")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                 Event Details
-              </OBDHeading>
-              <div className="space-y-4">
+                  </h3>
+                  {!accordionState.eventDetails && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getEventDetailsSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("eventDetails");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.eventDetails ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.eventDetails && (
+                <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="eventName"
@@ -764,9 +1218,11 @@ function EventCampaignBuilderPageContent() {
                       className={`text-xs ${
                         form.eventDescription.length === 0
                           ? themeClasses.mutedText
-                          : form.eventDescription.length <= 600
-                          ? themeClasses.mutedText
-                          : "text-yellow-600 dark:text-yellow-400"
+                            : form.eventDescription.length > 600
+                            ? "text-red-500"
+                            : form.eventDescription.length > 540
+                            ? "text-yellow-500"
+                            : themeClasses.mutedText
                       }`}
                     >
                       {form.eventDescription.length} / 600 characters
@@ -774,16 +1230,38 @@ function EventCampaignBuilderPageContent() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
-            <div className={getDividerClass(isDark)} />
-
-            {/* Strategy */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
-                Strategy
-              </OBDHeading>
-              <div className="space-y-4">
+            {/* Audience & Strategy Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("audienceStrategy")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Audience & Strategy
+                  </h3>
+                  {!accordionState.audienceStrategy && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getAudienceStrategySummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("audienceStrategy");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.audienceStrategy ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.audienceStrategy && (
+                <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="audience"
@@ -878,16 +1356,38 @@ function EventCampaignBuilderPageContent() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
-            <div className={getDividerClass(isDark)} />
-
-            {/* Brand & Style */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
+            {/* Brand & Style Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("brandStyle")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                 Brand & Style
-              </OBDHeading>
-              <div className="space-y-4">
+                  </h3>
+                  {!accordionState.brandStyle && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getBrandStyleSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("brandStyle");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.brandStyle ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.brandStyle && (
+                <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="brandVoice"
@@ -972,15 +1472,38 @@ function EventCampaignBuilderPageContent() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
-            <div className={getDividerClass(isDark)} />
-
-            {/* Channels */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
+            {/* Channels Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("channels")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
                 Channels
-              </OBDHeading>
+                  </h3>
+                  {!accordionState.channels && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getChannelsSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("channels");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.channels ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.channels && (
+                <div className="p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {/* Facebook */}
                 <label
@@ -1360,16 +1883,39 @@ function EventCampaignBuilderPageContent() {
                   />
                 </label>
               </div>
+                </div>
+              )}
             </div>
 
-            <div className={getDividerClass(isDark)} />
-
-            {/* Extra Options */}
-            <div>
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
-                Campaign Settings
-              </OBDHeading>
-              <div className="space-y-4">
+            {/* Campaign Timing Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("campaignTiming")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Campaign Timing
+                  </h3>
+                  {!accordionState.campaignTiming && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getCampaignTimingSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("campaignTiming");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.campaignTiming ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.campaignTiming && (
+                <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="campaignDurationDays"
@@ -1394,8 +1940,40 @@ function EventCampaignBuilderPageContent() {
                   <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
                     How many days before the event should the campaign start? (3–30 days)
                   </p>
+                  </div>
+                </div>
+              )}
                 </div>
 
+            {/* Advanced Notes Section */}
+            <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div
+                className={`flex items-center justify-between p-4 border-b cursor-pointer ${isDark ? "border-slate-700" : "border-slate-200"}`}
+                onClick={() => toggleAccordion("advancedNotes")}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Advanced Notes
+                  </h3>
+                  {!accordionState.advancedNotes && (
+                    <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>
+                      {getAdvancedNotesSummary()}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccordion("advancedNotes");
+                  }}
+                  className={getSubtleButtonMediumClasses(isDark)}
+                >
+                  {accordionState.advancedNotes ? "Collapse" : "Expand"}
+                </button>
+              </div>
+              {accordionState.advancedNotes && (
+                <div className="p-4 space-y-4">
                 <div>
                   <label
                     htmlFor="notesForAI"
@@ -1428,6 +2006,7 @@ function EventCampaignBuilderPageContent() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             <button
@@ -1511,13 +2090,74 @@ function EventCampaignBuilderPageContent() {
       )}
 
       {/* Results */}
-      {result && (
+      {activeCampaign.length > 0 && (
         <OBDPanel isDark={isDark} className="mt-7 sm:mt-8" id="campaign-results">
           <div className="flex items-center justify-between mb-4">
             <OBDHeading level={2} isDark={isDark}>
               Generated Campaign
             </OBDHeading>
           </div>
+
+          {/* AI Help Desk Awareness Banner */}
+          {showHelpDeskBanner && (
+            <div
+              className={`mb-6 rounded-lg border p-4 flex items-start justify-between gap-4 ${
+                isDark
+                  ? "bg-blue-900/20 border-blue-700"
+                  : "bg-blue-50 border-blue-200"
+              }`}
+            >
+              <div className="flex items-start gap-3 flex-1">
+                <svg
+                  className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
+                    isDark ? "text-blue-300" : "text-blue-600"
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <div className="flex-1">
+                  <p
+                    className={`text-sm font-medium ${
+                      isDark ? "text-blue-300" : "text-blue-800"
+                    }`}
+                  >
+                    This event can be answered by your AI Help Desk once published.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleDismissHelpDeskBanner}
+                className={`flex-shrink-0 p-1 rounded transition-colors ${
+                  isDark
+                    ? "text-blue-400 hover:text-blue-300 hover:bg-blue-900/30"
+                    : "text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                }`}
+                aria-label="Dismiss"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+          )}
 
           {loading ? (
             <div className="flex items-center justify-center h-32">
@@ -1562,9 +2202,10 @@ function EventCampaignBuilderPageContent() {
                 <ResultCard
                   title=""
                   isDark={isDark}
-                  copyText={`${result.meta.primaryTagline}\n\n${result.meta.primaryCallToAction}${result.meta.recommendedStartDateNote ? `\n\n${result.meta.recommendedStartDateNote}` : ""}${result.meta.timezoneNote ? `\n\n${result.meta.timezoneNote}` : ""}`}
+                  copyText={`${primaryTagline?.content || ""}\n\n${primaryCallToAction?.content || ""}${recommendedStartDateNote?.content ? `\n\n${recommendedStartDateNote.content}` : ""}${timezoneNote?.content ? `\n\n${timezoneNote.content}` : ""}`}
                 >
                   <div className="space-y-3">
+                    {primaryTagline && (
                     <div>
                       <p
                         className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1578,9 +2219,11 @@ function EventCampaignBuilderPageContent() {
                           isDark ? "text-white" : "text-slate-900"
                         }`}
                       >
-                        {result.meta.primaryTagline}
+                          {primaryTagline.content}
                       </p>
                     </div>
+                    )}
+                    {primaryCallToAction && (
                     <div>
                       <p
                         className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1589,9 +2232,10 @@ function EventCampaignBuilderPageContent() {
                       >
                         Primary Call to Action
                       </p>
-                      <p className="font-medium">{result.meta.primaryCallToAction}</p>
+                        <p className="font-medium">{primaryCallToAction.content}</p>
                     </div>
-                    {result.meta.recommendedStartDateNote && (
+                    )}
+                    {recommendedStartDateNote && (
                       <div>
                         <p
                           className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1601,11 +2245,11 @@ function EventCampaignBuilderPageContent() {
                           Recommended Start Date
                         </p>
                         <p className="text-sm italic">
-                          {result.meta.recommendedStartDateNote}
+                          {recommendedStartDateNote.content}
                         </p>
                       </div>
                     )}
-                    {result.meta.timezoneNote && (
+                    {timezoneNote && (
                       <div>
                         <p
                           className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1614,7 +2258,7 @@ function EventCampaignBuilderPageContent() {
                         >
                           Timezone
                         </p>
-                        <p className="text-sm">{result.meta.timezoneNote}</p>
+                        <p className="text-sm">{timezoneNote.content}</p>
                       </div>
                     )}
                   </div>
@@ -1622,17 +2266,17 @@ function EventCampaignBuilderPageContent() {
               </div>
 
               {/* Event Titles */}
-              {result.assets.eventTitles.length > 0 && (
+              {eventTitles.length > 0 && (
                 <div>
                   <ResultCard
                     title="Event Titles"
                     isDark={isDark}
-                    copyText={result.assets.eventTitles.join("\n")}
+                    copyText={eventTitles.map((item) => item.content).join("\n")}
                   >
                     <div className="space-y-2">
-                      {result.assets.eventTitles.map((title, idx) => (
-                        <div key={idx} className="p-2 rounded border border-slate-300 dark:border-slate-600">
-                          <p className="font-medium">{title}</p>
+                      {eventTitles.map((item, idx) => (
+                        <div key={item.id} className="p-2 rounded border border-slate-300 dark:border-slate-600">
+                          <p className="font-medium">{item.content}</p>
                         </div>
                       ))}
                     </div>
@@ -1641,16 +2285,16 @@ function EventCampaignBuilderPageContent() {
               )}
 
               {/* Short Descriptions */}
-              {result.assets.shortDescriptions.length > 0 && (
+              {shortDescriptions.length > 0 && (
                 <div>
                   <ResultCard
                     title="Short Descriptions"
                     isDark={isDark}
-                    copyText={result.assets.shortDescriptions.join("\n\n")}
+                    copyText={shortDescriptions.map((item) => item.content).join("\n\n")}
                   >
                     <div className="space-y-3">
-                      {result.assets.shortDescriptions.map((desc, idx) => (
-                        <p key={idx} className="whitespace-pre-wrap">{desc}</p>
+                      {shortDescriptions.map((item) => (
+                        <p key={item.id} className="whitespace-pre-wrap">{item.content}</p>
                       ))}
                     </div>
                   </ResultCard>
@@ -1658,78 +2302,583 @@ function EventCampaignBuilderPageContent() {
               )}
 
               {/* Long Description */}
-              {result.assets.longDescription && (
+              {longDescription && (
                 <div>
                   <ResultCard
                     title="Long Description"
                     isDark={isDark}
-                    copyText={result.assets.longDescription}
+                    copyText={longDescription.content}
                   >
                     <p className="whitespace-pre-wrap">
-                      {result.assets.longDescription}
+                      {longDescription.content}
                     </p>
                   </ResultCard>
                 </div>
               )}
 
               {/* Social Posts */}
-              {(result.assets.facebookPosts.length > 0 ||
-                result.assets.instagramCaptions.length > 0 ||
-                result.assets.xPosts.length > 0 ||
-                result.assets.googleBusinessPosts.length > 0) && (
+              {(facebookPosts.length > 0 ||
+                instagramCaptions.length > 0 ||
+                xPosts.length > 0 ||
+                googleBusinessPosts.length > 0) && (
                 <div>
                   <div className={getDividerClass(isDark)} />
-                  <h3
-                    className={`text-base font-semibold mt-6 mb-4 ${
-                      isDark ? "text-white" : "text-slate-900"
-                    }`}
-                  >
-                    Social Media Posts
-                  </h3>
+                  <div className="flex items-center justify-between mt-6 mb-4">
+                    <h3
+                      className={`text-base font-semibold ${
+                        isDark ? "text-white" : "text-slate-900"
+                      }`}
+                    >
+                      Social Media Posts
+                    </h3>
+                    {/* Variant Selector */}
+                    {(xPosts.length > 0 || googleBusinessPosts.length > 0 || smsBlasts.length > 0) && (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <label
+                          className={`text-sm font-medium ${
+                            isDark ? "text-slate-300" : "text-slate-700"
+                          }`}
+                        >
+                          Countdown Variant:
+                        </label>
+                        <div className="relative group">
+                          <select
+                            value={selectedVariant}
+                            onChange={(e) => handleVariantChange(e.target.value as CountdownVariant)}
+                            disabled={isVariantLocked}
+                            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                              isDark
+                                ? "bg-slate-800 border-slate-600 text-white"
+                                : "bg-white border-slate-300 text-slate-900"
+                            } ${
+                              isVariantLocked
+                                ? "opacity-50 cursor-not-allowed"
+                                : "hover:border-[#29c4a9] cursor-pointer"
+                            }`}
+                            title={
+                              isVariantLocked
+                                ? "Variant switching is locked after editing to prevent content loss"
+                                : undefined
+                            }
+                          >
+                            <option value="7-days">7 days out</option>
+                            <option value="3-days">3 days out</option>
+                            <option value="day-of">Day-of</option>
+                          </select>
+                          {isVariantLocked && (
+                            <div className="absolute -top-10 left-0 z-20 px-2 py-1 text-xs rounded bg-slate-900 text-white whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity shadow-lg">
+                              Variant switching is locked after editing to prevent content loss
+                            </div>
+                          )}
+                        </div>
+                        {isVariantLocked && (
+                          <button
+                            onClick={handleResetAllEdits}
+                            className={getSubtleButtonSmallClasses(isDark)}
+                            title="Reset all edits to unlock variant switching"
+                          >
+                            Reset all edits
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {result.assets.facebookPosts.map((post, idx) => (
+                    {facebookPosts.map((item) => {
+                      const itemId = item.id;
+                      const isEditing = editingId === itemId;
+                      const isEdited = isItemEdited(itemId);
+                      const activeContent = isEditing ? editText : getActiveContent(itemId);
+                      
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={itemId}
+                            className={`rounded-2xl border p-4 transition-colors ${
+                              isDark
+                                ? "bg-slate-800/50 border-slate-700 hover:border-[#29c4a9]"
+                                : "bg-white border-slate-200 hover:border-[#29c4a9]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}>
+                                  Facebook
+                                </span>
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleSaveEdit(itemId)}
+                                  disabled={!editText.trim()}
+                                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                    !editText.trim()
+                                      ? isDark
+                                        ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                      : isDark
+                                      ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                      : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                  }`}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={6}
+                              className={getInputClasses(isDark, "resize-none w-full")}
+                              placeholder="Enter Facebook post text..."
+                            />
+                            {!editText.trim() && (
+                              <p className={`text-xs mt-2 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                Content cannot be empty
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+                      
+                      return (
                       <ResultCard
-                        key={`fb-${idx}`}
+                          key={itemId}
                         title="Facebook"
                         isDark={isDark}
-                        copyText={post}
-                      >
-                        <p className="whitespace-pre-wrap">{post}</p>
+                          copyText={activeContent}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <p className="whitespace-pre-wrap flex-1">{activeContent}</p>
+                            <div className="flex items-center gap-2 ml-2">
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleEdit(itemId)}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                              >
+                                Edit
+                              </button>
+                              {isEdited && (
+                                <button
+                                  onClick={() => handleResetItem(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                  title="Reset to generated version"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
                       </ResultCard>
-                    ))}
+                      );
+                    })}
 
-                    {result.assets.instagramCaptions.map((caption, idx) => (
+                    {instagramCaptions.map((item) => {
+                      const itemId = item.id;
+                      const isEditing = editingId === itemId;
+                      const isEdited = isItemEdited(itemId);
+                      const activeContent = isEditing ? editText : getActiveContent(itemId);
+                      
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={itemId}
+                            className={`rounded-2xl border p-4 transition-colors ${
+                              isDark
+                                ? "bg-slate-800/50 border-slate-700 hover:border-[#29c4a9]"
+                                : "bg-white border-slate-200 hover:border-[#29c4a9]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}>
+                                  Instagram Caption
+                                </span>
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleSaveEdit(itemId)}
+                                  disabled={!editText.trim()}
+                                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                    !editText.trim()
+                                      ? isDark
+                                        ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                      : isDark
+                                      ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                      : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                  }`}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={6}
+                              className={getInputClasses(isDark, "resize-none w-full")}
+                              placeholder="Enter Instagram caption text..."
+                            />
+                            {!editText.trim() && (
+                              <p className={`text-xs mt-2 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                Content cannot be empty
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+                      
+                      return (
                       <ResultCard
-                        key={`ig-${idx}`}
+                          key={itemId}
                         title="Instagram Caption"
                         isDark={isDark}
-                        copyText={caption}
-                      >
-                        <p className="whitespace-pre-wrap">{caption}</p>
+                          copyText={activeContent}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <p className="whitespace-pre-wrap flex-1">{activeContent}</p>
+                            <div className="flex items-center gap-2 ml-2">
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleEdit(itemId)}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                              >
+                                Edit
+                              </button>
+                              {isEdited && (
+                                <button
+                                  onClick={() => handleResetItem(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                  title="Reset to generated version"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
                       </ResultCard>
-                    ))}
+                      );
+                    })}
 
-                    {result.assets.xPosts.map((post, idx) => (
+                    {xPosts.map((item) => {
+                      const itemId = item.id;
+                      const isEditing = editingId === itemId;
+                      const isEdited = isItemEdited(itemId);
+                      const activeContent = isEditing ? editText : getVariantContent(item);
+                      const charCount = activeContent.length;
+                      const maxChars = 280;
+                      const charCountClass =
+                        charCount > maxChars
+                          ? "text-red-500"
+                          : charCount > maxChars * 0.9
+                          ? "text-yellow-500"
+                          : themeClasses.mutedText;
+                      
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={itemId}
+                            className={`rounded-2xl border p-4 transition-colors ${
+                              isDark
+                                ? "bg-slate-800/50 border-slate-700 hover:border-[#29c4a9]"
+                                : "bg-white border-slate-200 hover:border-[#29c4a9]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}>
+                                  X (Twitter)
+                                </span>
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleSaveEdit(itemId)}
+                                  disabled={!editText.trim()}
+                                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                    !editText.trim()
+                                      ? isDark
+                                        ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                      : isDark
+                                      ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                      : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                  }`}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={6}
+                              className={getInputClasses(isDark, "resize-none w-full")}
+                              placeholder="Enter X (Twitter) post text..."
+                            />
+                            <div className="mt-2 flex items-center justify-between">
+                              <p className={`text-xs ${charCountClass}`}>
+                                {charCount} / {maxChars} characters
+                              </p>
+                              {!editText.trim() && (
+                                <p className={`text-xs ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                  Content cannot be empty
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      return (
                       <ResultCard
-                        key={`x-${idx}`}
+                          key={itemId}
                         title="X (Twitter)"
                         isDark={isDark}
-                        copyText={post}
-                      >
-                        <p className="whitespace-pre-wrap">{post}</p>
+                          copyText={activeContent}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <p className={`text-sm mb-2 ${charCountClass}`}>
+                                {charCount} / {maxChars} characters
+                              </p>
+                              <p className="whitespace-pre-wrap">{activeContent}</p>
+                            </div>
+                            <div className="flex items-center gap-2 ml-2">
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleEdit(itemId)}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                              >
+                                Edit
+                              </button>
+                              {isEdited && (
+                                <button
+                                  onClick={() => handleResetItem(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                  title="Reset to generated version"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
                       </ResultCard>
-                    ))}
+                      );
+                    })}
 
-                    {result.assets.googleBusinessPosts.map((post, idx) => (
+                    {googleBusinessPosts.map((item) => {
+                      const itemId = item.id;
+                      const isEditing = editingId === itemId;
+                      const isEdited = isItemEdited(itemId);
+                      const activeContent = isEditing ? editText : getVariantContent(item);
+                      const charCount = activeContent.length;
+                      const maxChars = 1500;
+                      const charCountClass =
+                        charCount > maxChars
+                          ? "text-red-500"
+                          : charCount > maxChars * 0.9
+                          ? "text-yellow-500"
+                          : themeClasses.mutedText;
+                      
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={itemId}
+                            className={`rounded-2xl border p-4 transition-colors ${
+                              isDark
+                                ? "bg-slate-800/50 border-slate-700 hover:border-[#29c4a9]"
+                                : "bg-white border-slate-200 hover:border-[#29c4a9]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200"
+                                    : "bg-slate-100 text-slate-700"
+                                }`}>
+                                  Google Business Profile
+                                </span>
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleSaveEdit(itemId)}
+                                  disabled={!editText.trim()}
+                                  className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                    !editText.trim()
+                                      ? isDark
+                                        ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                      : isDark
+                                      ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                      : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                  }`}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={6}
+                              className={getInputClasses(isDark, "resize-none w-full")}
+                              placeholder="Enter Google Business post text..."
+                            />
+                            <div className="mt-2 flex items-center justify-between">
+                              <p className={`text-xs ${charCountClass}`}>
+                                {charCount} / {maxChars} characters
+                              </p>
+                              {!editText.trim() && (
+                                <p className={`text-xs ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                  Content cannot be empty
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      return (
                       <ResultCard
-                        key={`gbp-${idx}`}
+                          key={itemId}
                         title="Google Business Profile"
                         isDark={isDark}
-                        copyText={post}
-                      >
-                        <p className="whitespace-pre-wrap">{post}</p>
+                          copyText={activeContent}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <p className={`text-sm mb-2 ${charCountClass}`}>
+                                {charCount} / {maxChars} characters
+                              </p>
+                              <p className="whitespace-pre-wrap">{activeContent}</p>
+                            </div>
+                            <div className="flex items-center gap-2 ml-2">
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleEdit(itemId)}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                              >
+                                Edit
+                              </button>
+                              {isEdited && (
+                                <button
+                                  onClick={() => handleResetItem(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                  title="Reset to generated version"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
                       </ResultCard>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Create Event Social Posts CTA */}
@@ -1755,8 +2904,8 @@ function EventCampaignBuilderPageContent() {
                               const eventName = form.eventName.trim() || "Upcoming Event";
                               const eventDate = form.eventDate.trim() || "";
                               const location = form.eventLocation.trim() || "";
-                              const description = result.assets.longDescription || 
-                                               result.assets.shortDescriptions?.[0] || 
+                              const description = longDescription?.content || 
+                                               shortDescriptions[0]?.content || 
                                                form.eventDescription.trim() || 
                                                "";
 
@@ -1854,20 +3003,20 @@ function EventCampaignBuilderPageContent() {
               )}
 
               {/* Instagram Story Ideas */}
-              {result.assets.instagramStoryIdeas.length > 0 && (
+              {instagramStories.length > 0 && (
                 <div>
                   <ResultCard
                     title="Instagram Stories"
                     isDark={isDark}
-                    copyText={result.assets.instagramStoryIdeas.join("\n\n")}
+                    copyText={instagramStories.map((item) => item.content).join("\n\n")}
                   >
                     <div className="space-y-3">
-                      {result.assets.instagramStoryIdeas.map((idea, idx) => (
+                      {instagramStories.map((item) => (
                         <div
-                          key={idx}
+                          key={item.id}
                           className="p-3 rounded border border-slate-300 dark:border-slate-600"
                         >
-                          <p className="whitespace-pre-wrap">{idea}</p>
+                          <p className="whitespace-pre-wrap">{item.content}</p>
                         </div>
                       ))}
                     </div>
@@ -1876,14 +3025,32 @@ function EventCampaignBuilderPageContent() {
               )}
 
               {/* Email Announcement */}
-              {result.assets.emailAnnouncement && (
+              {emailItems.length > 0 && (
                 <div>
+                  {(() => {
+                    const subjectItem = emailItems.find((i) => i.type === "asset-emailSubject");
+                    const previewItem = emailItems.find((i) => i.type === "asset-emailPreviewText");
+                    const bodyItem = emailItems.find((i) => i.type === "asset-emailBodyText");
+                    const bodyHtmlItem = emailItems.find((i) => i.type === "asset-emailBodyHtml");
+                    const copyText = `Subject: ${subjectItem?.content || ""}\n\nPreview: ${previewItem?.content || ""}\n\n${bodyItem?.content || ""}`;
+                    return (
                   <ResultCard
                     title="Email Announcement"
                     isDark={isDark}
-                    copyText={`Subject: ${result.assets.emailAnnouncement.subject}\n\nPreview: ${result.assets.emailAnnouncement.previewText}\n\n${result.assets.emailAnnouncement.bodyText}`}
+                    copyText={copyText}
                   >
                     <div className="space-y-4">
+                      {/* Subject */}
+                      {(() => {
+                        const subjectItem = emailItems.find((i) => i.type === "asset-emailSubject");
+                        if (!subjectItem) return null;
+                        const itemId = subjectItem.id;
+                        const isEditing = editingId === itemId;
+                        const isEdited = isItemEdited(itemId);
+                        const activeContent = isEditing ? editText : getActiveContent(itemId);
+                        
+                        if (isEditing) {
+                          return (
                       <div>
                         <p
                           className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1892,8 +3059,104 @@ function EventCampaignBuilderPageContent() {
                         >
                           Subject
                         </p>
-                        <p>{result.assets.emailAnnouncement.subject}</p>
+                              <div className="flex items-start gap-2">
+                                <textarea
+                                  value={editText}
+                                  onChange={(e) => setEditText(e.target.value)}
+                                  rows={2}
+                                  className={getInputClasses(isDark, "resize-none flex-1")}
+                                  placeholder="Enter email subject..."
+                                />
+                                <div className="flex flex-col gap-2">
+                                  <button
+                                    onClick={() => handleSaveEdit(itemId)}
+                                    disabled={!editText.trim()}
+                                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                      !editText.trim()
+                                        ? isDark
+                                          ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                        : isDark
+                                        ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                        : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                    }`}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                  >
+                                    Cancel
+                                  </button>
                       </div>
+                              </div>
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded mt-2 inline-block ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div>
+                            <div className="flex items-start justify-between mb-2">
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-wide ${
+                                  isDark ? "text-slate-400" : "text-slate-500"
+                                }`}
+                              >
+                                Subject
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleEdit(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Edit
+                                </button>
+                                {isEdited && (
+                                  <button
+                                    onClick={() => handleResetItem(itemId)}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                    title="Reset to generated version"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <p>{activeContent}</p>
+                          </div>
+                        );
+                      })()}
+                      
+                      {/* Preview Text */}
+                      {(() => {
+                        const previewItem = emailItems.find((i) => i.type === "asset-emailPreviewText");
+                        if (!previewItem) return null;
+                        const itemId = previewItem.id;
+                        const isEditing = editingId === itemId;
+                        const isEdited = isItemEdited(itemId);
+                        const activeContent = isEditing ? editText : getActiveContent(itemId);
+                        
+                        if (isEditing) {
+                          return (
                       <div>
                         <p
                           className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1902,10 +3165,104 @@ function EventCampaignBuilderPageContent() {
                         >
                           Preview Text
                         </p>
-                        <p className="text-sm italic">
-                          {result.assets.emailAnnouncement.previewText}
-                        </p>
+                              <div className="flex items-start gap-2">
+                                <textarea
+                                  value={editText}
+                                  onChange={(e) => setEditText(e.target.value)}
+                                  rows={2}
+                                  className={getInputClasses(isDark, "resize-none flex-1")}
+                                  placeholder="Enter email preview text..."
+                                />
+                                <div className="flex flex-col gap-2">
+                                  <button
+                                    onClick={() => handleSaveEdit(itemId)}
+                                    disabled={!editText.trim()}
+                                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                      !editText.trim()
+                                        ? isDark
+                                          ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                        : isDark
+                                        ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                        : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                    }`}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded mt-2 inline-block ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div>
+                            <div className="flex items-start justify-between mb-2">
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-wide ${
+                                  isDark ? "text-slate-400" : "text-slate-500"
+                                }`}
+                              >
+                                Preview Text
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleEdit(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Edit
+                                </button>
+                                {isEdited && (
+                                  <button
+                                    onClick={() => handleResetItem(itemId)}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                    title="Reset to generated version"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
                       </div>
+                            </div>
+                            <p className="text-sm italic">{activeContent}</p>
+                          </div>
+                        );
+                      })()}
+                      
+                      {/* Body Text */}
+                      {(() => {
+                        const bodyItem = emailItems.find((i) => i.type === "asset-emailBodyText");
+                        if (!bodyItem) return null;
+                        const itemId = bodyItem.id;
+                        const isEditing = editingId === itemId;
+                        const isEdited = isItemEdited(itemId);
+                        const activeContent = isEditing ? editText : getActiveContent(itemId);
+                        
+                        if (isEditing) {
+                          return (
                       <div>
                         <p
                           className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1914,11 +3271,95 @@ function EventCampaignBuilderPageContent() {
                         >
                           Body (Text)
                         </p>
-                        <p className="whitespace-pre-wrap">
-                          {result.assets.emailAnnouncement.bodyText}
-                        </p>
+                              <div className="flex items-start gap-2">
+                                <textarea
+                                  value={editText}
+                                  onChange={(e) => setEditText(e.target.value)}
+                                  rows={8}
+                                  className={getInputClasses(isDark, "resize-none flex-1")}
+                                  placeholder="Enter email body text..."
+                                />
+                                <div className="flex flex-col gap-2">
+                                  <button
+                                    onClick={() => handleSaveEdit(itemId)}
+                                    disabled={!editText.trim()}
+                                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                      !editText.trim()
+                                        ? isDark
+                                          ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                        : isDark
+                                        ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                        : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                    }`}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded mt-2 inline-block ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div>
+                            <div className="flex items-start justify-between mb-2">
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-wide ${
+                                  isDark ? "text-slate-400" : "text-slate-500"
+                                }`}
+                              >
+                                Body (Text)
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleEdit(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Edit
+                                </button>
+                                {isEdited && (
+                                  <button
+                                    onClick={() => handleResetItem(itemId)}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                    title="Reset to generated version"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
                       </div>
-                      {result.assets.emailAnnouncement.bodyHtml && (
+                            </div>
+                            <p className="whitespace-pre-wrap">{activeContent}</p>
+                          </div>
+                        );
+                      })()}
+                      
+                      {/* Body HTML */}
+                      {bodyHtmlItem && (
                         <div>
                           <p
                             className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
@@ -1930,58 +3371,473 @@ function EventCampaignBuilderPageContent() {
                           <div
                             className="p-3 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
                             dangerouslySetInnerHTML={{
-                              __html: result.assets.emailAnnouncement.bodyHtml,
+                              __html: bodyHtmlItem.content,
                             }}
                           />
                         </div>
                       )}
                     </div>
                   </ResultCard>
+                    );
+                  })()}
                 </div>
               )}
 
               {/* SMS Blasts */}
-              {result.assets.smsBlasts && result.assets.smsBlasts.length > 0 && (
+              {smsBlasts.length > 0 && (
                 <div>
                   <ResultCard
                     title="SMS Messages"
                     isDark={isDark}
-                    copyText={result.assets.smsBlasts.join("\n\n")}
+                    copyText={smsBlasts.map((item) => item.content).join("\n\n")}
                   >
                     <div className="space-y-3">
-                      {result.assets.smsBlasts.map((sms, idx) => (
-                        <div
-                          key={idx}
+                      {smsBlasts.map((item) => {
+                        const itemId = item.id;
+                        const isEditing = editingId === itemId;
+                        const isEdited = isItemEdited(itemId);
+                        const activeContent = isEditing ? editText : getVariantContent(item);
+                        const charCount = activeContent.length;
+                        const maxChars = 160;
+                        const charCountClass =
+                          charCount > maxChars
+                            ? "text-red-500"
+                            : charCount > maxChars * 0.9
+                            ? "text-yellow-500"
+                            : themeClasses.mutedText;
+                        
+                        if (isEditing) {
+                          return (
+                            <div
+                              key={itemId}
+                              className={`p-3 rounded border ${
+                                isDark
+                                  ? "border-slate-600 bg-slate-800/50"
+                                  : "border-slate-300 bg-white"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  {isEdited && (
+                                    <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                      isDark
+                                        ? "bg-yellow-900/50 text-yellow-300"
+                                        : "bg-yellow-100 text-yellow-800"
+                                    }`}>
+                                      Edited
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleSaveEdit(itemId)}
+                                    disabled={!editText.trim()}
+                                    className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                      !editText.trim()
+                                        ? isDark
+                                          ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                        : isDark
+                                        ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                        : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                    }`}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                              <textarea
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                rows={4}
+                                className={getInputClasses(isDark, "resize-none w-full")}
+                                placeholder="Enter SMS message text..."
+                              />
+                              <div className="mt-2 flex items-center justify-between">
+                                <p className={`text-sm ${charCountClass}`}>
+                                  {charCount} / {maxChars} characters
+                                </p>
+                                {!editText.trim() && (
+                                  <p className={`text-xs ${isDark ? "text-red-400" : "text-red-600"}`}>
+                                    Content cannot be empty
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div
+                            key={itemId}
                           className="p-3 rounded border border-slate-300 dark:border-slate-600"
                         >
-                          <p className="whitespace-pre-wrap">{sms}</p>
-                          <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
-                            Length: {sms.length} characters
-                          </p>
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <p className={`text-sm mb-2 ${charCountClass}`}>
+                                  {charCount} / {maxChars} characters
+                                </p>
+                                <p className="whitespace-pre-wrap">{activeContent}</p>
                         </div>
-                      ))}
+                              <div className="flex items-center gap-2 ml-2">
+                                {isEdited && (
+                                  <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                    isDark
+                                      ? "bg-yellow-900/50 text-yellow-300"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }`}>
+                                    Edited
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleEdit(itemId)}
+                                  className={getSubtleButtonSmallClasses(isDark)}
+                                >
+                                  Edit
+                                </button>
+                                {isEdited && (
+                                  <button
+                                    onClick={() => handleResetItem(itemId)}
+                                    className={getSubtleButtonSmallClasses(isDark)}
+                                    title="Reset to generated version"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </ResultCard>
                 </div>
               )}
 
               {/* Image Caption */}
-              {result.assets.imageCaption && (
+              {imageCaption && (
                 <div>
+                  {(() => {
+                    const itemId = imageCaption.id;
+                    const isEditing = editingId === itemId;
+                    const isEdited = isItemEdited(itemId);
+                    const activeContent = isEditing ? editText : getActiveContent(itemId);
+                    
+                    if (isEditing) {
+                      return (
+                        <div
+                          className={`rounded-2xl border p-4 transition-colors ${
+                            isDark
+                              ? "bg-slate-800/50 border-slate-700 hover:border-[#29c4a9]"
+                              : "bg-white border-slate-200 hover:border-[#29c4a9]"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}>
+                                Image Caption
+                              </span>
+                              {isEdited && (
+                                <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                  isDark
+                                    ? "bg-yellow-900/50 text-yellow-300"
+                                    : "bg-yellow-100 text-yellow-800"
+                                }`}>
+                                  Edited
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleSaveEdit(itemId)}
+                                disabled={!editText.trim()}
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  !editText.trim()
+                                    ? isDark
+                                      ? "bg-slate-700/50 text-slate-500 cursor-not-allowed"
+                                      : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                    : isDark
+                                    ? "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                    : "bg-[#29c4a9] text-white hover:bg-[#24b39a]"
+                                }`}
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                          <textarea
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            rows={6}
+                            className={getInputClasses(isDark, "resize-none w-full")}
+                            placeholder="Enter image caption text..."
+                          />
+                          {!editText.trim() && (
+                            <p className={`text-xs mt-2 ${isDark ? "text-red-400" : "text-red-600"}`}>
+                              Content cannot be empty
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }
+                    
+                    return (
                   <ResultCard
                     title="Image Caption"
                     isDark={isDark}
-                    copyText={result.assets.imageCaption}
-                  >
-                    <p className="whitespace-pre-wrap">
-                      {result.assets.imageCaption}
-                    </p>
+                        copyText={activeContent}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="whitespace-pre-wrap flex-1">{activeContent}</p>
+                          <div className="flex items-center gap-2 ml-2">
+                            {isEdited && (
+                              <span className={`text-xs uppercase font-medium px-2 py-1 rounded ${
+                                isDark
+                                  ? "bg-yellow-900/50 text-yellow-300"
+                                  : "bg-yellow-100 text-yellow-800"
+                              }`}>
+                                Edited
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleEdit(itemId)}
+                              className={getSubtleButtonSmallClasses(isDark)}
+                            >
+                              Edit
+                            </button>
+                            {isEdited && (
+                              <button
+                                onClick={() => handleResetItem(itemId)}
+                                className={getSubtleButtonSmallClasses(isDark)}
+                                title="Reset to generated version"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+                        </div>
                   </ResultCard>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Turn into Landing Page CTA */}
+              {activeCampaign.length > 0 && (
+                <div className="mt-8">
+                  <OBDPanel isDark={isDark}>
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div>
+                        <h4 className={`text-base font-semibold mb-1 ${
+                          isDark ? "text-white" : "text-slate-900"
+                        }`}>
+                          Ready to create a landing page?
+                        </h4>
+                        <p className={`text-sm ${
+                          isDark ? "text-slate-400" : "text-slate-600"
+                        }`}>
+                          Turn this event into a landing page with AI Content Writer
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          try {
+                            // Build event facts
+                            const eventFacts = {
+                              eventName: form.eventName.trim() || "Upcoming Event",
+                              eventDate: form.eventDate.trim() || "",
+                              eventTime: form.eventTime.trim() || "",
+                              eventLocation: form.eventLocation.trim() || "",
+                              eventType: form.eventType,
+                              businessName: form.businessName.trim() || "",
+                              businessType: form.businessType.trim() || "",
+                              city: form.city.trim() || "",
+                              state: form.state.trim() || "",
+                            };
+
+                            // Build description from long description or short descriptions
+                            const description = longDescription?.content || 
+                                             shortDescriptions[0]?.content || 
+                                             form.eventDescription.trim() || 
+                                             "";
+
+                            // Build agenda bullets from schedule ideas
+                            const agendaBullets: string[] = [];
+                            if (scheduleIdeas.length > 0) {
+                              scheduleIdeas.forEach((item) => {
+                                const idea = item.metadata as { label: string; channel: string } | undefined;
+                                agendaBullets.push(`${idea?.label || ""}: ${item.content}`);
+                              });
+                            }
+
+                            // Build CTA from meta
+                            const cta = primaryCallToAction?.content || 
+                                       primaryTagline?.content || 
+                                       "Join us!";
+
+                            // Build FAQ seeds (parking, RSVP, timing)
+                            const faqSeeds: string[] = [];
+                            if (eventFacts.eventLocation) {
+                              faqSeeds.push("Where can I park?");
+                            }
+                            if (form.mainGoal === "RSVPs" || form.mainGoal === "TicketSales") {
+                              faqSeeds.push("How do I RSVP or register?");
+                            }
+                            if (eventFacts.eventDate || eventFacts.eventTime) {
+                              faqSeeds.push("What time does the event start?");
+                            }
+                            if (eventFacts.eventDate) {
+                              faqSeeds.push("What is the event date?");
+                            }
+
+                            // Build handoff payload
+                            const payload = {
+                              v: 1,
+                              source: "event-campaign-builder-to-content-writer",
+                              createdAt: new Date().toISOString(),
+                              sourceApp: "event-campaign-builder",
+                              intent: "landing-page",
+                              eventFacts,
+                              description,
+                              agendaBullets,
+                              cta,
+                              faqSeeds,
+                            };
+
+                            // Save to sessionStorage using standardized transport
+                            writeHandoff("event-campaign-builder-to-content-writer", payload);
+
+                            // Open new tab to Content Writer
+                            window.open("/apps/content-writer?handoff=1", "_blank");
+
+                            // Show toast
+                            showToast("Sent to AI Content Writer");
+                          } catch (error) {
+                            console.error("Failed to send to AI Content Writer:", error);
+                            showToast("Failed to send to AI Content Writer. Please try again.");
+                          }
+                        }}
+                        className={SUBMIT_BUTTON_CLASSES}
+                      >
+                        Turn this event into a landing page
+                      </button>
+                    </div>
+                  </OBDPanel>
+                </div>
+              )}
+
+              {/* Generate Image Captions CTA */}
+              {activeCampaign.length > 0 && (
+                <div>
+                  <div className={getDividerClass(isDark)} />
+                  <OBDPanel isDark={isDark} className="mt-6">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div>
+                        <h4 className={`text-base font-semibold mb-1 ${
+                          isDark ? "text-white" : "text-slate-900"
+                        }`}>
+                          Ready to create image captions?
+                        </h4>
+                        <p className={`text-sm ${
+                          isDark ? "text-slate-400" : "text-slate-600"
+                        }`}>
+                          Generate image captions for this event
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          try {
+                            // Build event facts
+                            const eventFacts = {
+                              eventName: form.eventName.trim() || "Upcoming Event",
+                              eventDate: form.eventDate.trim() || "",
+                              eventTime: form.eventTime.trim() || "",
+                              eventLocation: form.eventLocation.trim() || "",
+                              eventType: form.eventType,
+                              businessName: form.businessName.trim() || "",
+                              businessType: form.businessType.trim() || "",
+                              city: form.city.trim() || "",
+                              state: form.state.trim() || "",
+                            };
+
+                            // Build description from long description or short descriptions
+                            const description = longDescription?.content || 
+                                             shortDescriptions[0]?.content || 
+                                             form.eventDescription.trim() || 
+                                             "";
+
+                            // Extract tone/urgency from form
+                            const tone = form.brandVoice.trim() || form.personalityStyle || undefined;
+                            const urgencyLevel = form.urgencyLevel || undefined;
+
+                            // Extract hashtags from hashtag bundles (prefer Generic or first available)
+                            const hashtags: string[] = [];
+                            if (hashtagBundles.length > 0) {
+                              // Prefer Generic bundle, otherwise use first
+                              const genericBundle = hashtagBundles.find(
+                                (b) => (b.metadata as { platform?: string })?.platform === "Generic"
+                              );
+                              const bundleToUse = genericBundle || hashtagBundles[0];
+                              const bundleMeta = bundleToUse.metadata as { tags?: string[] } | undefined;
+                              if (bundleMeta?.tags && Array.isArray(bundleMeta.tags)) {
+                                hashtags.push(...bundleMeta.tags);
+                              }
+                            }
+
+                            // Build handoff payload
+                            const payload = {
+                              v: 1,
+                              source: "event-campaign-builder-to-image-caption-generator",
+                              createdAt: new Date().toISOString(),
+                              sourceApp: "event-campaign-builder" as const,
+                              intent: "image-captions" as const,
+                              eventFacts,
+                              description,
+                              ...(tone && { tone }),
+                              ...(urgencyLevel && { urgencyLevel }),
+                              ...(hashtags.length > 0 && { hashtags }),
+                            };
+
+                            // Save to sessionStorage using standardized transport
+                            writeHandoff("event-campaign-builder-to-image-caption-generator", payload);
+
+                            // Open new tab to Image Caption Generator
+                            window.open("/apps/image-caption-generator?handoff=1", "_blank");
+
+                            // Show toast
+                            showToast("Sent to AI Image Caption Generator");
+                          } catch (error) {
+                            console.error("Failed to send to AI Image Caption Generator:", error);
+                            showToast("Failed to send to AI Image Caption Generator. Please try again.");
+                          }
+                        }}
+                        className={SUBMIT_BUTTON_CLASSES}
+                      >
+                        Generate image captions for this event
+                      </button>
+                    </div>
+                  </OBDPanel>
                 </div>
               )}
 
               {/* Hashtag Bundles */}
-              {result.assets.hashtagBundles.length > 0 && (
+              {hashtagBundles.length > 0 && (
                 <div>
                   <div className={getDividerClass(isDark)} />
                   <h3
@@ -1992,15 +3848,18 @@ function EventCampaignBuilderPageContent() {
                     Hashtag Bundles
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {result.assets.hashtagBundles.map((bundle, idx) => (
+                    {hashtagBundles.map((item) => {
+                      const bundle = item.metadata as { platform: string; tags: string[] } | undefined;
+                      const tags = bundle?.tags || item.content.split(" ").filter(Boolean);
+                      return (
                       <ResultCard
-                        key={idx}
-                        title={`${bundle.platform} Hashtags`}
+                        key={item.id}
+                        title={`${bundle?.platform || "Generic"} Hashtags`}
                         isDark={isDark}
-                        copyText={bundle.tags.join(" ")}
+                        copyText={item.content}
                       >
                         <div className="flex flex-wrap gap-2">
-                          {bundle.tags.map((tag, tagIdx) => (
+                          {tags.map((tag, tagIdx) => (
                             <span
                               key={tagIdx}
                               className={`px-2 py-1 rounded text-xs ${
@@ -2014,13 +3873,14 @@ function EventCampaignBuilderPageContent() {
                           ))}
                         </div>
                       </ResultCard>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {/* Schedule Ideas */}
-              {result.assets.scheduleIdeas.length > 0 && (
+              {scheduleIdeas.length > 0 && (
                 <div>
                   <div className={getDividerClass(isDark)} />
                   <h3
@@ -2032,9 +3892,11 @@ function EventCampaignBuilderPageContent() {
                   </h3>
                   <ResultCard title="" isDark={isDark}>
                     <div className="space-y-4">
-                      {result.assets.scheduleIdeas.map((idea, idx) => (
+                      {scheduleIdeas.map((item) => {
+                        const idea = item.metadata as { dayOffset: number; label: string; channel: string } | undefined;
+                        return (
                         <div
-                          key={idx}
+                          key={item.id}
                           className="p-3 rounded border border-slate-300 dark:border-slate-600"
                         >
                           <div className="flex items-start justify-between mb-2">
@@ -2043,7 +3905,7 @@ function EventCampaignBuilderPageContent() {
                                 isDark ? "text-slate-400" : "text-slate-500"
                               }`}
                             >
-                              {idea.label}
+                              {idea?.label || ""}
                             </span>
                             <span
                               className={`text-xs px-2 py-1 rounded ${
@@ -2052,12 +3914,13 @@ function EventCampaignBuilderPageContent() {
                                   : "bg-slate-200 text-slate-700"
                               }`}
                             >
-                              {idea.channel}
+                              {idea?.channel || ""}
                             </span>
                           </div>
-                          <p className="whitespace-pre-wrap">{idea.suggestion}</p>
+                          <p className="whitespace-pre-wrap">{item.content}</p>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </ResultCard>
                 </div>
@@ -2067,7 +3930,7 @@ function EventCampaignBuilderPageContent() {
         </OBDPanel>
       )}
 
-      {!result && !loading && !error && (
+      {activeCampaign.length === 0 && !loading && !error && (
         <OBDPanel isDark={isDark} className="mt-7 sm:mt-8">
           <div className="text-center py-12">
             <div className="mb-4 text-4xl">📅</div>
@@ -2086,42 +3949,110 @@ function EventCampaignBuilderPageContent() {
         </OBDPanel>
       )}
 
-      {/* Sticky Bottom Action Bar */}
-      {result && !loading && (
-        <div
-          className={`sticky bottom-0 left-0 right-0 z-10 mt-12 border-t ${
-            isDark
-              ? "bg-slate-950 border-slate-800"
-              : "bg-white border-slate-200"
-          } shadow-lg`}
-        >
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-4">
-            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+      {/* Sticky Action Bar */}
+      <OBDStickyActionBar
+        isDark={isDark}
+        left={
+          campaignStatus !== "Draft" ? (
+            <span
+              className={`px-2 py-1 text-xs font-medium rounded flex-shrink-0 ${
+                campaignStatus === "Edited"
+                  ? isDark
+                    ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/50"
+                    : "bg-yellow-100 text-yellow-800 border border-yellow-300"
+                  : isDark
+                  ? "bg-slate-700 text-slate-200"
+                  : "bg-slate-200 text-slate-700"
+              }`}
+            >
+              {campaignStatus}
+            </span>
+          ) : undefined
+        }
+      >
+        {/* Primary Button: Generate Campaign */}
               <button
-                onClick={() => handleRegenerate()}
+          onClick={(e) => {
+            e.preventDefault();
+            handleSubmit();
+          }}
                 disabled={loading}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
+          className={SUBMIT_BUTTON_CLASSES}
+          title={
+            loading
+              ? "Generating campaign..."
+              : !form.businessName.trim() || !form.businessType.trim() || !form.eventName.trim() || !form.eventDescription.trim() || !form.eventDate.trim() || !form.eventTime.trim() || !form.eventLocation.trim()
+              ? "Please fill in all required fields"
+              : !form.includeFacebook && !form.includeInstagram && !form.includeX && !form.includeGoogleBusiness && !form.includeEmail && !form.includeSms
+              ? "Please select at least one channel"
+              : "Generate your event campaign"
+          }
+        >
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg
+                className="animate-spin h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
               >
-                Regenerate
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              Generating...
+            </span>
+          ) : (
+            "Generate Campaign"
+          )}
               </button>
+
+        {/* Reset Button */}
               <button
                 onClick={handleStartNew}
-                className={`px-6 py-2.5 font-medium rounded-xl transition-colors ${
-                  isDark
-                    ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                    : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                }`}
-              >
-                Start New Campaign
+          disabled={loading}
+          className={getSecondaryButtonClasses(isDark)}
+          title={loading ? "Please wait for generation to complete" : "Reset form and start a new campaign"}
+        >
+          Reset
               </button>
-            </div>
-          </div>
-        </div>
-      )}
+
+        {/* Export / Next Steps Button */}
+        <button
+          onClick={() => {
+            if (activeCampaign.length > 0) {
+              // Scroll to results section
+              const resultsElement = document.getElementById("campaign-results");
+              if (resultsElement) {
+                resultsElement.scrollIntoView({ behavior: "smooth", block: "start" });
+              } else {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }
+          }}
+          disabled={activeCampaign.length === 0 || loading}
+          className={getSecondaryButtonClasses(isDark)}
+          title={
+            activeCampaign.length === 0
+              ? "Generate a campaign to view export options"
+              : loading
+              ? "Please wait for generation to complete"
+              : "View campaign results and export options"
+          }
+        >
+          Export / Next Steps
+        </button>
+      </OBDStickyActionBar>
     </OBDPageContainer>
   );
 }

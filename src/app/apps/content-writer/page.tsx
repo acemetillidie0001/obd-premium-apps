@@ -25,11 +25,13 @@ import { recordGeneration, recordFixPackApplied } from "@/lib/bdw/local-analytic
 import { isContentReadyForExport } from "@/lib/apps/content-writer/content-ready";
 import { parseContentWriterHandoff, type ContentWriterHandoffPayload } from "@/lib/apps/content-writer/handoff-parser";
 import FAQImportBanner from "./components/FAQImportBanner";
+import OffersImportBanner from "./components/OffersImportBanner";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
   markHandoffImported,
 } from "@/lib/utils/handoff-guard";
+import { readHandoff, clearHandoff } from "@/lib/obd-framework/social-handoff-transport";
 import {
   clearHandoffParamsFromUrl,
   replaceUrlWithoutReload,
@@ -311,11 +313,15 @@ function ContentWriterPageContent() {
   const [editedContent, setEditedContent] = useState<ContentOutput | null>(null);
   const [editHistory, setEditHistory] = useState<ContentOutput[]>([]);
 
-  // Handoff state
+  // Handoff state (FAQ Generator)
   const [handoffPayload, setHandoffPayload] = useState<ContentWriterHandoffPayload | null>(null);
   const [handoffHash, setHandoffHash] = useState<string | null>(null);
   const [isHandoffAlreadyImported, setIsHandoffAlreadyImported] = useState(false);
   const [showImportBanner, setShowImportBanner] = useState(false);
+
+  // Offers Builder handoff state
+  const [offersHandoffPayload, setOffersHandoffPayload] = useState<any | null>(null);
+  const [showOffersImportBanner, setShowOffersImportBanner] = useState(false);
 
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
@@ -455,7 +461,7 @@ function ContentWriterPageContent() {
     }
   }, [applied]);
 
-  // Handle handoff on page load
+  // Handle handoff on page load (FAQ Generator from URL params)
   useEffect(() => {
     if (searchParams && typeof window !== "undefined") {
       try {
@@ -475,6 +481,65 @@ function ContentWriterPageContent() {
       } catch (error) {
         console.error("Failed to parse handoff payload:", error);
       }
+    }
+  }, [searchParams]);
+
+  // Handle Offers Builder handoff from sessionStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    // Only check for handoff if URL includes ?handoff=1
+    if (!searchParams || searchParams.get("handoff") !== "1") {
+      return;
+    }
+
+    try {
+      const handoffResult = readHandoff();
+      
+      // Handle expired payload
+      if (handoffResult.expired) {
+        showToast("Handoff expired.");
+        return;
+      }
+      
+      // Handle errors
+      if (handoffResult.error) {
+        console.error("Handoff error:", handoffResult.error);
+        return;
+      }
+
+      if (handoffResult.envelope) {
+        const { source, payload: envelopePayload } = handoffResult.envelope;
+        
+        // Check if this is an offers-builder handoff
+        if (source === "offers-builder-to-content-writer" && envelopePayload) {
+          // Validate payload structure
+          if (
+            envelopePayload.sourceApp === "offers-builder" &&
+            envelopePayload.intent === "landing-page" &&
+            envelopePayload.offerFacts
+          ) {
+            // Tenant safety: Check businessId if present in payload
+            // If payload includes businessId or tenant context, validate it matches current session
+            if (envelopePayload.businessId || envelopePayload.tenantId) {
+              // TODO: Get current session business context
+              // const currentBusinessId = getCurrentBusinessId(); // Would need session context
+              // if (envelopePayload.businessId && envelopePayload.businessId !== currentBusinessId) {
+              //   clearHandoff();
+              //   showToast("Invalid handoff for this business.");
+              //   return;
+              // }
+              // For now, tenant safety is handled at the session/auth level
+              // If needed, implement businessId validation here
+            }
+            
+            setOffersHandoffPayload(envelopePayload);
+            setShowOffersImportBanner(true);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to read offers handoff from sessionStorage:", error);
     }
   }, [searchParams]);
 
@@ -701,6 +766,96 @@ function ContentWriterPageContent() {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
       replaceUrlWithoutReload(cleanUrl);
     }
+  };
+
+  // Handle "Apply to inputs" for Offers Builder handoff
+  const handleApplyOffersToInputs = () => {
+    if (!offersHandoffPayload) return;
+
+    const { offerFacts, copy, pageDraft } = offersHandoffPayload;
+
+    // Build content goal with offer details
+    const offerDetails: string[] = [];
+    if (offerFacts.offerValue) offerDetails.push(offerFacts.offerValue);
+    if (offerFacts.newCustomersOnly) offerDetails.push("New customers only");
+    if (offerFacts.redemptionLimits) offerDetails.push(`Limits: ${offerFacts.redemptionLimits}`);
+    if (offerFacts.endDate) {
+      try {
+        const date = new Date(offerFacts.endDate);
+        offerDetails.push(`Expires: ${date.toLocaleDateString()}`);
+      } catch {
+        offerDetails.push(`Expires: ${offerFacts.endDate}`);
+      }
+    }
+
+    const contentGoalParts = [
+      pageDraft.pageGoal,
+      ...offerDetails,
+    ];
+    const contentGoal = contentGoalParts.join(". ");
+
+    // Build topic from offer title + business context
+    const topicParts: string[] = [];
+    if (offerFacts.promoTitle) topicParts.push(offerFacts.promoTitle);
+    if (offerFacts.businessName) topicParts.push(`for ${offerFacts.businessName}`);
+    const topic = topicParts.length > 0 ? topicParts.join(" ") : "Special Offer";
+
+    // Build custom outline from suggested sections
+    const customOutline = pageDraft.suggestedSections.join("\n");
+
+    // Apply form values additively (only fill empty fields)
+    setFormValues((prev) => ({
+      ...prev,
+      // Always set contentType for landing page
+      contentType: "LandingPage",
+      // Only set topic if empty
+      topic: prev.topic.trim() || topic,
+      // Only set contentGoal if empty
+      contentGoal: prev.contentGoal.trim() || contentGoal,
+      // Only set businessName if empty
+      businessName: prev.businessName.trim() || offerFacts.businessName || prev.businessName,
+      // Only set businessType if empty
+      businessType: prev.businessType.trim() || offerFacts.businessType || prev.businessType,
+      // Append to customOutline if it exists, otherwise set it
+      customOutline: prev.customOutline.trim() 
+        ? `${prev.customOutline}\n\n${customOutline}` 
+        : customOutline,
+      // Enable FAQs for offer landing page
+      includeFAQ: true,
+    }));
+
+    // Add FAQ seed questions to customOutline if available
+    if (pageDraft.faqSeedQuestions && pageDraft.faqSeedQuestions.length > 0) {
+      const faqHints = `\n\nSuggested FAQ Questions:\n${pageDraft.faqSeedQuestions.map((q: string, i: number) => `${i + 1}. ${q}`).join("\n")}`;
+      setFormValues((prev) => ({
+        ...prev,
+        customOutline: (prev.customOutline || "") + faqHints,
+      }));
+    }
+
+    // Clear handoff from sessionStorage (one-time import)
+    clearHandoff();
+    setOffersHandoffPayload(null);
+    setShowOffersImportBanner(false);
+
+    // Show success toast
+    showToast("Offer imported into AI Content Writer");
+
+    // Scroll to form
+    setTimeout(() => {
+      const formElement = document.querySelector("form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+  };
+
+  // Handle "Dismiss" for Offers Builder handoff
+  const handleDismissOffersImport = () => {
+    // Clear handoff from sessionStorage
+    clearHandoff();
+    setOffersHandoffPayload(null);
+    setShowOffersImportBanner(false);
   };
 
   // Collapsible sections state for Generated Content
@@ -1323,6 +1478,15 @@ function ContentWriterPageContent() {
           onAppendToCurrent={handleAppendToCurrent}
           onDismiss={handleDismissFaqImport}
           hasExistingContent={!!activeContent}
+        />
+      )}
+
+      {showOffersImportBanner && offersHandoffPayload && (
+        <OffersImportBanner
+          isDark={isDark}
+          payload={offersHandoffPayload}
+          onApplyToInputs={handleApplyOffersToInputs}
+          onDismiss={handleDismissOffersImport}
         />
       )}
 

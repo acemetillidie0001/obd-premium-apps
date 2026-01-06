@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Offers & Promotions Builder — Tier 5B + Tier 5C (2024-12-19)**
+  - **Tier 5B Core Features:**
+    - Lifecycle state derivation (Draft/Active/Expired/Archived) with status pill indicators
+    - Expiration awareness with countdown and warnings
+    - Regenerate with constraints (lockedFacts) preserving offer details while improving wording
+    - Drift detector automatically fixes numeric, date, CTA, and eligibility drift in regenerated content
+    - Inline editing for all output sections (social posts, GBP, email, SMS, website banner) with save/cancel/reset
+    - Version snapshots (lastGeneratedOutputs / currentOutputs) for edit tracking
+    - Authoritative export/handoff uses edited content via `getAuthoritativeOutput()`
+  - **Tier 5C Ecosystem Integration:**
+    - Social Auto-Poster handoff with hash/TTL duplicate detection and suggested posting window hint
+    - AI Content Writer landing page handoff (sender + receiver with import banner)
+    - Event Campaign Builder contextual suggestion + handoff with import banner
+    - AI Help Desk awareness callout (dismissible)
+    - URL param cleanup removes `?handoff=1` after Apply/Dismiss
+  - **Event Campaign Builder Receiver Utilities:**
+    - New `handoff-utils.ts` with `safeParseDate()`, `formatEventDateRange()`, and `validateEventHandoffPayload()`
+    - Additive apply behavior (only fills empty fields, appends to notesForAI)
+  - **Documentation:** Added `docs/deployments/OFFERS_PROMOTIONS_TIER5_AUDIT_REPORT.md` with comprehensive audit and verification checklist
+
 - **AI Image Caption Generator — Tier 4 + Tier 5A + Tier 5C (2025-01-XX)**
   - **Tier 4 Hardening:**
     - CaptionItem schema with stable string IDs (converted from numeric API IDs)

@@ -60,6 +60,27 @@ const offersBuilderRequestSchema = z.object({
   variationsCount: z.number().int().min(1).max(5).optional(),
   variationMode: z.enum(["Conservative", "Moderate", "Creative"]),
   wizardMode: z.boolean().optional(),
+  lockedFacts: z.object({
+    promoTitle: z.string().optional(),
+    promoType: z.enum([
+      "Discount",
+      "Limited-Time Offer",
+      "Seasonal Promotion",
+      "Holiday Special",
+      "Flash Sale",
+      "Referral Bonus",
+      "Loyalty Reward",
+      "New Customer Offer",
+      "Bundle Deal",
+      "Other",
+    ]),
+    offerValue: z.string().optional(),
+    newCustomersOnly: z.boolean().optional(),
+    endDate: z.string().optional(),
+    redemptionLimits: z.string().optional(),
+    primaryCTA: z.string().optional(),
+    urgencyLevel: z.enum(["low", "medium", "high"]).optional(),
+  }).optional(),
 });
 
 /**
@@ -91,6 +112,30 @@ async function generateOffers(
 ): Promise<OffersBuilderResponse> {
   // Build user message as JSON
   const userMessage = JSON.stringify(request, null, 2);
+  
+  // Extract locked facts if present (for regeneration)
+  const lockedFacts = request.lockedFacts;
+  
+  // Build locked facts context for prompt if present
+  const lockedFactsContext = lockedFacts ? `
+============================================================
+LOCKED FACTS (MUST PRESERVE EXACTLY)
+============================================================
+
+You are regenerating copy while preserving these exact offer facts:
+
+- Offer Title: "${lockedFacts.promoTitle || 'Not specified'}"
+- Offer Type: "${lockedFacts.promoType}"
+- Offer Value: "${lockedFacts.offerValue || 'Not specified'}"
+- New Customers Only: ${lockedFacts.newCustomersOnly ? 'Yes' : 'No'}
+- Expiration Date: "${lockedFacts.endDate || 'Not specified'}"
+- Redemption Limits: "${lockedFacts.redemptionLimits || 'Not specified'}"
+- Primary CTA: "${lockedFacts.primaryCTA || 'Not specified'}"
+- Urgency Level: "${lockedFacts.urgencyLevel || 'Not specified'}"
+
+**CRITICAL:** You MUST use these exact values in all generated content. Do NOT change, reword, or modify any of these facts. Only improve the wording of descriptions and copy outputs.
+
+` : '';
 
   const openai = getOpenAIClient();
   const completion = await withOpenAITimeout(async (signal) => {
@@ -103,6 +148,8 @@ async function generateOffers(
 
 Your job is to create high-converting promotional offers optimized for local Ocala businesses, with multi-platform output including headlines, body copy, social posts, Google Business Profile updates, emails, SMS, and website banners.
 
+${lockedFactsContext}
+
 ============================================================
 1. YOUR ROLE
 ============================================================
@@ -111,6 +158,36 @@ You generate local-business promotions optimized for Ocala. However:
 - Only mention "Ocala" or local phrasing if it feels natural and relevant.
 - DO NOT force geo-keyword stuffing or overuse local terms.
 - Keep promotions authentic and conversion-focused.
+
+============================================================
+1.5. REGENERATION WITH LOCKED FACTS (IF APPLICABLE)
+============================================================
+
+**IMPORTANT:** If the request includes a \`lockedFacts\` object, you are in REGENERATION MODE.
+
+In regeneration mode:
+- You MUST preserve ALL locked facts exactly as provided:
+  - promoTitle: Use this exact title (do not change wording)
+  - promoType: Keep this exact offer type
+  - offerValue: Preserve this exact value (e.g., "20% off", "$50 off")
+  - newCustomersOnly: Respect this eligibility rule
+  - endDate: Use this exact expiration date
+  - redemptionLimits: Include these exact limits if provided
+  - primaryCTA: Use this exact CTA text
+  - urgencyLevel: Match this urgency level in tone
+
+- You MAY ONLY rewrite:
+  - promoDescription (improve wording, clarity, flow)
+  - All generated copy outputs (headlines, body copy, social posts, etc.)
+  - Platform-specific adaptations
+
+- You MUST NOT:
+  - Change the offer title, type, value, or CTA
+  - Modify eligibility rules or expiration dates
+  - Alter redemption limits
+  - Change urgency interpretation
+
+**Your job in regeneration mode:** Improve the wording and copy quality while keeping all offer facts identical.
 
 ============================================================
 2. LANGUAGE RULES (STRICT)
@@ -597,6 +674,7 @@ export async function POST(request: NextRequest) {
       variationsCount: Math.max(1, Math.min(5, body.variationsCount || 1)),
       variationMode: body.variationMode || "Conservative",
       wizardMode: body.wizardMode ?? false,
+      lockedFacts: body.lockedFacts || undefined,
     };
 
     const aiResponse = await generateOffers(offersRequest);

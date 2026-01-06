@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -23,7 +24,18 @@ import {
   LanguageOption,
 } from "./types";
 // Note: Using standardized sessionStorage transport with TTL
-import { writeHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import { writeHandoff, readHandoff, clearHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
+import {
+  safeParseDate,
+  formatEventDateRange,
+  validateEventHandoffPayload,
+} from "@/lib/apps/event-campaign-builder/handoff-utils";
+import EventCampaignImportBanner from "./components/EventCampaignImportBanner";
 
 const defaultFormValues: EventCampaignFormValues = {
   businessName: "",
@@ -75,10 +87,11 @@ const BUDGET_LEVELS: ("Free" | "Low" | "Moderate" | "Premium")[] = [
 
 const URGENCY_LEVELS: ("Normal" | "Last-Minute")[] = ["Normal", "Last-Minute"];
 
-export default function EventCampaignBuilderPage() {
+function EventCampaignBuilderPageContent() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState<EventCampaignFormValues>(defaultFormValues);
   const [loading, setLoading] = useState(false);
@@ -88,6 +101,9 @@ export default function EventCampaignBuilderPage() {
     useState<EventCampaignFormValues | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  
+  // Handoff payload state
+  const [handoffPayload, setHandoffPayload] = useState<any | null>(null);
 
   // Helper to show toast and auto-clear
   const showToast = (message: string) => {
@@ -96,6 +112,224 @@ export default function EventCampaignBuilderPage() {
       setActionToast(null);
     }, 1200);
   };
+
+  // Use utility functions for date parsing and validation
+
+  // Apply handoff payload to form (additive - only fills empty fields)
+  const applyHandoffToForm = (envelopePayload: any) => {
+    setForm(prev => {
+      const updatedForm: Partial<EventCampaignFormValues> = {};
+
+      // Map offer title to eventName (only if field is empty)
+      if (!prev.eventName.trim()) {
+        if (envelopePayload.eventName) {
+          updatedForm.eventName = envelopePayload.eventName;
+        } else if (envelopePayload.title) {
+          updatedForm.eventName = envelopePayload.title;
+        }
+      }
+
+      // Map date fields (only if field is empty)
+      if (!prev.eventDate.trim()) {
+        // Try to get date from various sources
+        let dateValue: string | null = null;
+        
+        if (envelopePayload.eventDate) {
+          dateValue = String(envelopePayload.eventDate);
+        } else if (envelopePayload.dateRange && typeof envelopePayload.dateRange === "object") {
+          const range = envelopePayload.dateRange as Record<string, unknown>;
+          if (range.start) {
+            dateValue = String(range.start);
+          }
+        } else if (envelopePayload.startDate) {
+          dateValue = String(envelopePayload.startDate);
+        } else if (envelopePayload.date) {
+          dateValue = String(envelopePayload.date);
+        }
+        
+        if (dateValue) {
+          // Validate the date can be parsed before setting
+          const parsed = safeParseDate(dateValue);
+          if (parsed) {
+            updatedForm.eventDate = dateValue;
+          }
+        }
+      }
+
+      // Map eventDescription (combine description + summary if provided, only if empty)
+      if (!prev.eventDescription.trim()) {
+        const descriptionParts: string[] = [];
+        if (envelopePayload.description) {
+          descriptionParts.push(envelopePayload.description);
+        }
+        if (envelopePayload.summary) {
+          descriptionParts.push(envelopePayload.summary);
+        }
+        if (descriptionParts.length > 0) {
+          updatedForm.eventDescription = descriptionParts.join("\n\n");
+        }
+      }
+
+      // Map location (only if field is empty)
+      if (!prev.eventLocation.trim() && envelopePayload.location) {
+        updatedForm.eventLocation = envelopePayload.location;
+      }
+
+      // Map primaryCTA to notesForAI (additive - append if notesForAI has content)
+      if (envelopePayload.primaryCTA) {
+        if (prev.notesForAI.trim()) {
+          updatedForm.notesForAI = `${prev.notesForAI}\n\nPrimary CTA: ${envelopePayload.primaryCTA}`;
+        } else {
+          updatedForm.notesForAI = `Primary CTA: ${envelopePayload.primaryCTA}`;
+        }
+      }
+
+      // Map promoCopy to notesForAI (additive - append)
+      if (envelopePayload.promoCopy) {
+        const existingNotes = updatedForm.notesForAI || prev.notesForAI;
+        if (existingNotes.trim()) {
+          updatedForm.notesForAI = `${existingNotes}\n\nPromo Copy: ${envelopePayload.promoCopy}`;
+        } else {
+          updatedForm.notesForAI = `Promo Copy: ${envelopePayload.promoCopy}`;
+        }
+      }
+
+      // Map business context fields (only if fields are empty)
+      if (!prev.businessName.trim() && envelopePayload.businessName) {
+        updatedForm.businessName = envelopePayload.businessName;
+      }
+      if (!prev.businessType.trim() && envelopePayload.businessType) {
+        updatedForm.businessType = envelopePayload.businessType;
+      }
+      if (!prev.services.trim() && envelopePayload.services) {
+        updatedForm.services = envelopePayload.services;
+      }
+      if (!prev.city.trim() && envelopePayload.city) {
+        updatedForm.city = envelopePayload.city;
+      }
+      if (!prev.state.trim() && envelopePayload.state) {
+        updatedForm.state = envelopePayload.state;
+      }
+
+      // Map brand voice (only if field is empty)
+      if (!prev.brandVoice.trim() && envelopePayload.brandVoice) {
+        updatedForm.brandVoice = envelopePayload.brandVoice;
+      }
+
+      // Map personality style (only if not set or is "None")
+      if ((!prev.personalityStyle || prev.personalityStyle === "None") && envelopePayload.personalityStyle) {
+        updatedForm.personalityStyle = envelopePayload.personalityStyle as PersonalityStyle;
+      }
+
+      // Map language (only if field is empty or default)
+      if ((!prev.language || prev.language === "English") && envelopePayload.language) {
+        updatedForm.language = envelopePayload.language as LanguageOption;
+      }
+
+      return { ...prev, ...updatedForm };
+    });
+  };
+
+  // Handle "Apply to inputs" button
+  const handleApplyHandoff = () => {
+    if (handoffPayload) {
+      applyHandoffToForm(handoffPayload);
+      clearHandoff();
+      setHandoffPayload(null);
+      showToast("Offer imported into Event Campaign Builder");
+      
+      // Remove handoff query param from URL
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+      
+      // Scroll to form/top of builder section
+      setTimeout(() => {
+        const formElement = document.querySelector('form');
+        if (formElement) {
+          formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      }, 100);
+    }
+  };
+
+  // Handle "Dismiss" button
+  const handleDismissHandoff = () => {
+    clearHandoff();
+    setHandoffPayload(null);
+    
+    // Remove handoff query param from URL
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  // Handle Offers Builder handoff on page load
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!searchParams) return;
+
+    // Only check for handoff if URL includes ?handoff=1
+    if (searchParams.get("handoff") !== "1") {
+      return;
+    }
+
+    try {
+      const handoffResult = readHandoff();
+
+      // Handle expired payload
+      if (handoffResult.expired) {
+        clearHandoff();
+        showToast("Handoff expired.");
+        return;
+      }
+
+      // Handle errors
+      if (handoffResult.error) {
+        clearHandoff();
+        console.error("Handoff error:", handoffResult.error);
+        return;
+      }
+
+      if (handoffResult.envelope) {
+        const { source, payload: envelopePayload } = handoffResult.envelope;
+
+        // Check if this is an offers-builder-to-event-campaign handoff
+        if (source === "offers-builder-to-event-campaign" && envelopePayload) {
+          // Validate payload shape using utility
+          const validation = validateEventHandoffPayload(envelopePayload);
+          if (!validation.ok) {
+            clearHandoff();
+            showToast(validation.reason || "Invalid handoff payload.");
+            return;
+          }
+
+          // Tenant safety: Check businessId if present in payload
+          if (envelopePayload.businessId || envelopePayload.tenantId) {
+            const currentBusinessId = resolveBusinessId(searchParams);
+            if (envelopePayload.businessId && currentBusinessId && envelopePayload.businessId !== currentBusinessId) {
+              clearHandoff();
+              showToast("Invalid handoff for this business.");
+              return;
+            }
+            // If tenantId is present, validate it matches current session (future enhancement)
+            // For now, tenant safety is handled at the session/auth level
+          }
+
+          // Store payload for banner display (no auto-apply)
+          setHandoffPayload(envelopePayload);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to read offers handoff from sessionStorage:", error);
+      clearHandoff();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Brand Profile auto-apply toggle
   const [useBrandProfile, setUseBrandProfile] = useState(() => {
@@ -273,6 +507,16 @@ export default function EventCampaignBuilderPage() {
         }`}>
           {actionToast}
         </div>
+      )}
+
+      {/* Import Banner - Near top, above form sections */}
+      {handoffPayload && (
+        <EventCampaignImportBanner
+          isDark={isDark}
+          payload={handoffPayload}
+          onApplyToInputs={handleApplyHandoff}
+          onDismiss={handleDismissHandoff}
+        />
       )}
 
       {/* Form */}
@@ -1879,5 +2123,13 @@ export default function EventCampaignBuilderPage() {
         </div>
       )}
     </OBDPageContainer>
+  );
+}
+
+export default function EventCampaignBuilderPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <EventCampaignBuilderPageContent />
+    </Suspense>
   );
 }

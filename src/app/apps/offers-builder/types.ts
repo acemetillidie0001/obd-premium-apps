@@ -63,6 +63,18 @@ export interface OffersBuilderRequest {
 
   // Wizard
   wizardMode: boolean; // controls whether we show multi-step wizard
+
+  // Regenerate constraints (optional, only used for regeneration)
+  lockedFacts?: {
+    promoTitle?: string;
+    promoType: PromoType;
+    offerValue?: string;
+    newCustomersOnly?: boolean;
+    endDate?: string;
+    redemptionLimits?: string;
+    primaryCTA?: string;
+    urgencyLevel?: "low" | "medium" | "high";
+  };
 }
 
 export interface PromoOutput {

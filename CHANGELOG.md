@@ -46,6 +46,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Search→Chat bridge CTA with toast notification (reuses handleUseInChat)
   - Insights question clustering with filter capability and guardrails (client-side only)
 
+- **Social Auto-Poster — Tier 5A + Tier 5B + Tier 5C (2026-01-XX)**
+  - **Tier 5A Connection State Clarity:**
+    - Centralized connection state mapping in `connectionState.ts` with explicit UI states (connected, limited, pending, disabled, error)
+    - Connection status badge on all pages with calm, trust-safe messaging
+    - Replaced "Unable to load connection status" with actionable messages
+    - Queue status chips (Draft, Approved, Scheduled, Skipped, Blocked) with centralized mapping
+    - Blocked state appears when connection prevents publishing (pending/disabled/error + approved/scheduled)
+    - Queue bulk actions (Approve, Schedule, Delete) with sequential throttled execution and progress feedback
+    - Connection-aware copy in bulk action bar
+  - **Tier 5B Guided Setup & Trust Layer:**
+    - Guided setup sections with completion indicators (Posting Mode, Platforms, Schedule required; Brand & Content optional)
+    - Setup progress indicator: "{x} of {y} required sections complete"
+    - Sticky save bar with unsaved changes detection and validation
+    - Composer clarity banner showing Posting Mode and Brand source (Brand Kit vs Local Overrides)
+    - Deterministic brand source flag (`useBrandKit`) with backward compatibility
+    - First-run callouts (session-dismissable) on Setup, Queue, and Composer pages
+    - Activity logs with human-readable messages and next action labels (will_retry, paused, needs_attention)
+    - Retry policy info box on Activity page
+  - **Tier 5C Handoff Integration:**
+    - Added safe, manual handoffs from Offers Builder, AI Content Writer, and Event Campaign Builder
+    - Standardized sessionStorage transport with TTL (10-minute default) via `handoffTransport.ts`
+    - Dismissible import banners with source attribution (no automation)
+    - Guardrails: no auto-save, no auto-queue, prefill only if empty, clear after import/dismiss
+    - Offers Builder → Social Auto-Poster: Campaign import with structured offer payload
+    - AI Content Writer → Social Auto-Poster: Text import from Export Center
+    - Event Campaign Builder → Social Auto-Poster: Event import with countdown variants and safe variant selector
+    - Variant selector for events: disabled after user edits with helper message to protect changes
+    - URL cleanup: `?handoff=1` removed after import, payload cleared from sessionStorage
+  - **Documentation:** Updated `docs/apps/social-auto-poster/IMPLEMENTATION_MAP.md` with Tier 5C handoffs section
+  - **Verification:** Added `docs/deployments/SOCIAL_AUTO_POSTER_TIER5_VERIFICATION.md` with comprehensive checklist
+
 ### Tier 5C — Ecosystem Flow Polish
 - Added dismissible "Next steps" panels across apps
 - Link-only guidance between Website Draft Import, FAQ Generator, Schema Generator, and AI Help Desk

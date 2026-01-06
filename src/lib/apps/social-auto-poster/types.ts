@@ -73,6 +73,7 @@ export interface SocialAutoposterSettings {
   id?: string;
   userId: string;
   brandVoice?: string;
+  useBrandKit?: boolean; // Default true for backward compatibility
   postingMode: PostingMode;
   schedulingRules: SchedulingRules;
   enabledPlatforms: SocialPlatform[];
@@ -254,6 +255,7 @@ export interface ActivityListResponse {
 
 export interface SaveSettingsRequest {
   brandVoice?: string;
+  useBrandKit?: boolean;
   postingMode: PostingMode;
   schedulingRules: SchedulingRules;
   enabledPlatforms: SocialPlatform[];

@@ -81,10 +81,28 @@ export async function POST(request: NextRequest) {
       updateData.content = body.content.trim();
     }
 
-    const updatedItem = await prisma.socialQueueItem.update({
-      where: { id: body.id },
+    // Update the item (defense-in-depth: include userId in where clause)
+    const updateResult = await prisma.socialQueueItem.updateMany({
+      where: {
+        id: body.id,
+        userId, // Defense-in-depth: ensure we only update user's own items
+      },
       data: updateData,
     });
+
+    // If no rows were affected, return 404 (shouldn't happen after findFirst check, but defense-in-depth)
+    if (updateResult.count === 0) {
+      return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
+    }
+
+    // Fetch the updated item to return in response
+    const updatedItem = await prisma.socialQueueItem.findUnique({
+      where: { id: body.id },
+    });
+
+    if (!updatedItem) {
+      return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
+    }
 
     return NextResponse.json({
       item: {

@@ -138,6 +138,7 @@ export async function GET() {
         id: settings.id,
         userId: settings.userId,
         brandVoice: settings.brandVoice || undefined,
+        useBrandKit: settings.useBrandKit ?? true, // Default true for backward compatibility
         postingMode: settings.postingMode as "review" | "auto" | "campaign",
         schedulingRules: {
           frequency: settings.frequency || "daily",
@@ -275,6 +276,7 @@ export async function POST(request: NextRequest) {
       create: {
         userId,
         brandVoice: body.brandVoice || null,
+        useBrandKit: body.useBrandKit ?? true, // Default true for backward compatibility
         postingMode: body.postingMode,
         frequency: body.schedulingRules.frequency,
         allowedDays: body.schedulingRules.allowedDays,
@@ -290,6 +292,7 @@ export async function POST(request: NextRequest) {
       },
       update: {
         brandVoice: body.brandVoice || null,
+        useBrandKit: body.useBrandKit ?? true, // Default true for backward compatibility
         postingMode: body.postingMode,
         frequency: body.schedulingRules.frequency,
         allowedDays: body.schedulingRules.allowedDays,
@@ -374,6 +377,7 @@ export async function POST(request: NextRequest) {
         id: settings.id,
         userId: settings.userId,
         brandVoice: settings.brandVoice || undefined,
+        useBrandKit: settings.useBrandKit ?? true, // Default true for backward compatibility
         postingMode: settings.postingMode as "review" | "auto" | "campaign",
         schedulingRules: {
           frequency: settings.frequency || "daily",

@@ -7,9 +7,16 @@ import OBDFilterBar from "@/components/obd/OBDFilterBar";
 import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import SocialQueueCalendar from "@/components/obd/SocialQueueCalendar";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
-import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getMetaPublishingBannerMessage, isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getConnectionUIModel } from "@/lib/apps/social-auto-poster/connection/connectionState";
+import { getQueueStatusChip, type QueueChipTone } from "@/lib/apps/social-auto-poster/queue/queueStatusUI";
+import ConnectionStatusBadge from "@/components/obd/ConnectionStatusBadge";
+import SessionCallout from "../ui/SessionCallout";
+import { DISMISS_KEYS } from "@/lib/apps/social-auto-poster/ui/dismissKeys";
 import type { SocialQueueItem, QueueStatus } from "@/lib/apps/social-auto-poster/types";
 
+// Legacy STATUS_COLORS kept for backward compatibility (filter buttons, etc.)
+// New status chips use getQueueStatusChip() helper for centralized mapping
 const STATUS_COLORS: Record<QueueStatus, { bg: string; text: string; border: string }> = {
   draft: { bg: "bg-slate-500/20", text: "text-slate-400", border: "border-slate-500" },
   approved: { bg: "bg-blue-500/20", text: "text-blue-400", border: "border-blue-500" },
@@ -24,6 +31,30 @@ const PLATFORM_LABELS: Record<string, string> = {
   x: "X (Twitter)",
   googleBusiness: "Google Business",
 };
+
+/**
+ * Get CSS classes for queue status chip based on tone
+ */
+function getChipClasses(tone: QueueChipTone, isDark: boolean): { bg: string; text: string; border: string } {
+  const toneClasses: Record<QueueChipTone, { bg: string; text: string; border: string }> = {
+    neutral: {
+      bg: isDark ? "bg-slate-500/20" : "bg-slate-50",
+      text: isDark ? "text-slate-400" : "text-slate-600",
+      border: isDark ? "border-slate-500" : "border-slate-300",
+    },
+    success: {
+      bg: isDark ? "bg-blue-500/20" : "bg-blue-50",
+      text: isDark ? "text-blue-400" : "text-blue-700",
+      border: isDark ? "border-blue-500" : "border-blue-300",
+    },
+    warning: {
+      bg: isDark ? "bg-amber-500/20" : "bg-amber-50",
+      text: isDark ? "text-amber-400" : "text-amber-700",
+      border: isDark ? "border-amber-500" : "border-amber-300",
+    },
+  };
+  return toneClasses[tone];
+}
 
 export default function SocialAutoPosterQueuePage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -57,11 +88,50 @@ export default function SocialAutoPosterQueuePage() {
   }>>({});
   const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkActionProgress, setBulkActionProgress] = useState<{
+    action: string;
+    current: number;
+    total: number;
+  } | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    ok?: boolean;
+    configured?: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    facebook?: {
+      connected?: boolean;
+      pagesAccessGranted?: boolean;
+    };
+    publishing?: {
+      enabled?: boolean;
+      reasonIfDisabled?: string;
+    };
+  } | null>(null);
 
   useEffect(() => {
     loadQueue();
+    // Clear selection when filter changes
+    setSelectedIds(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Load connection status on mount
+  useEffect(() => {
+    const loadConnectionStatus = async () => {
+      try {
+        const res = await fetch("/api/social-connections/meta/status");
+        if (res.ok) {
+          const data = await res.json();
+          setConnectionStatus(data);
+        }
+      } catch (err) {
+        console.error("Failed to load connection status:", err);
+      }
+    };
+    loadConnectionStatus();
+  }, []);
 
   // Load image info for items with imageRequestId
   useEffect(() => {
@@ -256,6 +326,134 @@ export default function SocialAutoPosterQueuePage() {
     setSelectedItem(null);
   };
 
+  // Selection management
+  const toggleSelection = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === items.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map((item) => item.id)));
+    }
+  };
+
+  // Get visible items (for select all - only selects visible/filtered items)
+  const visibleItems = items; // Already filtered by the filter state
+
+  // Bulk action handlers
+  const executeBulkAction = async (
+    action: "approve" | "schedule" | "delete",
+    itemIds: string[]
+  ) => {
+    if (itemIds.length === 0) return;
+
+    setBulkActionProgress({ action, current: 0, total: itemIds.length });
+
+    const results: { success: string[]; failed: string[] } = {
+      success: [],
+      failed: [],
+    };
+
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    try {
+      for (let i = 0; i < itemIds.length; i++) {
+        const itemId = itemIds[i];
+        setBulkActionProgress({ action, current: i + 1, total: itemIds.length });
+
+        try {
+          if (action === "delete") {
+            const res = await fetch("/api/social-auto-poster/queue/delete", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: itemId }),
+            });
+            if (!res.ok) throw new Error("Delete failed");
+            results.success.push(itemId);
+          } else if (action === "approve") {
+            const res = await fetch("/api/social-auto-poster/queue/approve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: itemId, status: "approved" }),
+            });
+            if (!res.ok) throw new Error("Approve failed");
+            results.success.push(itemId);
+          } else if (action === "schedule") {
+            const scheduledAt = new Date(); // Schedule now
+            const res = await fetch("/api/social-auto-poster/queue/approve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: itemId,
+                status: "scheduled",
+                scheduledAt: scheduledAt.toISOString(),
+              }),
+            });
+            if (!res.ok) throw new Error("Schedule failed");
+            results.success.push(itemId);
+          }
+
+          // Throttle: delay between calls (200ms)
+          if (i < itemIds.length - 1) {
+            await delay(200);
+          }
+        } catch (err) {
+          results.failed.push(itemId);
+        }
+      }
+    } finally {
+      setBulkActionProgress(null);
+      setSelectedIds(new Set()); // Clear selection
+
+      // Show completion message
+      const actionLabel = action === "approve" ? "Approved" : action === "schedule" ? "Scheduled" : "Deleted";
+      if (results.failed.length === 0) {
+        setToast({
+          message: `${actionLabel} ${results.success.length} post${results.success.length !== 1 ? "s" : ""}`,
+          type: "success",
+        });
+      } else {
+        setToast({
+          message: `${actionLabel} ${results.success.length} post${results.success.length !== 1 ? "s" : ""}, ${results.failed.length} failed`,
+          type: "error",
+        });
+      }
+
+      // Refresh queue
+      await loadQueue();
+    }
+  };
+
+  const handleBulkApprove = () => {
+    const ids = Array.from(selectedIds);
+    executeBulkAction("approve", ids);
+  };
+
+  const handleBulkSchedule = () => {
+    const ids = Array.from(selectedIds);
+    executeBulkAction("schedule", ids);
+  };
+
+  const handleBulkDelete = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmBulkDelete = () => {
+    const ids = Array.from(selectedIds);
+    setShowDeleteConfirm(false);
+    executeBulkAction("delete", ids);
+  };
+
   // Filter items for calendar (only scheduled items)
   const scheduledItems = items.filter((item) => item.scheduledAt && item.status === "scheduled");
 
@@ -267,6 +465,49 @@ export default function SocialAutoPosterQueuePage() {
       tagline="Review and manage your scheduled posts"
     >
       <SocialAutoPosterNav isDark={isDark} />
+
+      {/* Connection Status Badge */}
+      {(() => {
+        try {
+          const publishingEnabled = isMetaPublishingEnabled();
+          const uiModel = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+          return (
+            <div className="mt-2 mb-4">
+              <ConnectionStatusBadge
+                state={uiModel.state}
+                label={uiModel.badgeLabel}
+                isDark={isDark}
+              />
+              {uiModel.message && (
+                <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                  {uiModel.message}
+                </p>
+              )}
+            </div>
+          );
+        } catch {
+          return (
+            <div className="mt-2 mb-4">
+              <ConnectionStatusBadge
+                state="error"
+                label="Error"
+                isDark={isDark}
+              />
+              <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                We couldn&apos;t verify connection status right now. Try again.
+              </p>
+            </div>
+          );
+        }
+      })()}
+
+      {/* First-run Callout: Blocked Status */}
+      <SessionCallout
+        dismissKey={DISMISS_KEYS.queueBlockedStatus}
+        title="About Blocked Status"
+        message="Blocked means publishing is temporarily unavailable. Your posts remain queued safely."
+        isDark={isDark}
+      />
 
       <div className="mt-7">
         {/* Feature Flag Banner */}
@@ -321,35 +562,112 @@ export default function SocialAutoPosterQueuePage() {
             </div>
           </div>
           {viewMode === "list" && (
-            <OBDFilterBar isDark={isDark} usePanel={false}>
-              <button
-                onClick={() => setFilter("all")}
-                className={`px-4 py-2 rounded-full text-sm transition-colors ${
-                  filter === "all"
-                    ? "bg-[#29c4a9] text-white"
-                    : isDark
-                    ? "bg-slate-800 text-slate-300"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-              >
-                All
-              </button>
-              {Object.keys(STATUS_COLORS).map((status) => (
+            <>
+              <OBDFilterBar isDark={isDark} usePanel={false}>
                 <button
-                  key={status}
-                  onClick={() => setFilter(status as QueueStatus)}
+                  onClick={() => setFilter("all")}
                   className={`px-4 py-2 rounded-full text-sm transition-colors ${
-                    filter === status
+                    filter === "all"
                       ? "bg-[#29c4a9] text-white"
                       : isDark
                       ? "bg-slate-800 text-slate-300"
                       : "bg-slate-100 text-slate-700"
                   }`}
                 >
-                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                  All
                 </button>
-              ))}
-            </OBDFilterBar>
+                {Object.keys(STATUS_COLORS).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setFilter(status as QueueStatus)}
+                    className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                      filter === status
+                        ? "bg-[#29c4a9] text-white"
+                        : isDark
+                        ? "bg-slate-800 text-slate-300"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </button>
+                ))}
+              </OBDFilterBar>
+              
+              {/* Bulk Action Bar */}
+              {selectedIds.size > 0 && (
+                <OBDPanel isDark={isDark} className="mt-4">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className={themeClasses.headingText}>
+                        {selectedIds.size} selected
+                      </span>
+                      {(() => {
+                        const publishingEnabled = isMetaPublishingEnabled();
+                        const connectionUI = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+                        if (connectionUI.state === "pending" || connectionUI.state === "disabled" || connectionUI.state === "error") {
+                          return (
+                            <span className={`text-xs ${themeClasses.mutedText}`}>
+                              Publishing will begin once accounts are connected.
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        onClick={handleBulkApprove}
+                        disabled={!!bulkActionProgress}
+                        className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                          bulkActionProgress
+                            ? "bg-slate-400 text-white cursor-not-allowed"
+                            : isDark
+                            ? "bg-blue-600 text-white hover:bg-blue-700"
+                            : "bg-blue-500 text-white hover:bg-blue-600"
+                        }`}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={handleBulkSchedule}
+                        disabled={!!bulkActionProgress}
+                        className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                          bulkActionProgress
+                            ? "bg-slate-400 text-white cursor-not-allowed"
+                            : isDark
+                            ? "bg-amber-600 text-white hover:bg-amber-700"
+                            : "bg-amber-500 text-white hover:bg-amber-600"
+                        }`}
+                      >
+                        Schedule
+                      </button>
+                      <button
+                        onClick={handleBulkDelete}
+                        disabled={!!bulkActionProgress}
+                        className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                          bulkActionProgress
+                            ? "bg-slate-400 text-white cursor-not-allowed"
+                            : isDark
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "bg-red-500 text-white hover:bg-red-600"
+                        }`}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {bulkActionProgress && (
+                    <div className="mt-3">
+                      <div className={`text-sm ${themeClasses.mutedText}`}>
+                        {bulkActionProgress.action === "approve" ? "Approving" :
+                         bulkActionProgress.action === "schedule" ? "Scheduling" :
+                         "Deleting"} {bulkActionProgress.current}/{bulkActionProgress.total}...
+                      </div>
+                    </div>
+                  )}
+                </OBDPanel>
+              )}
+            </>
           )}
         </OBDPanel>
 
@@ -388,16 +706,56 @@ export default function SocialAutoPosterQueuePage() {
           </OBDPanel>
         ) : (
           <div className="space-y-4">
+            {/* Select All Checkbox (Header) */}
+            {items.length > 0 && (
+              <OBDPanel isDark={isDark} className="mb-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === items.length && items.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4"
+                  />
+                  <span className={themeClasses.mutedText}>
+                    Select all ({items.length} {items.length === 1 ? "item" : "items"})
+                  </span>
+                </label>
+              </OBDPanel>
+            )}
+            
             {items.map((item) => {
-              const statusColors = STATUS_COLORS[item.status];
+              // Get connection UI model for blocked status determination
+              const publishingEnabled = isMetaPublishingEnabled();
+              const connectionUI = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+              
+              // Get status chip using centralized helper
+              const statusChip = getQueueStatusChip(item, connectionUI);
+              const chipClasses = getChipClasses(statusChip.tone, isDark);
+              
               return (
                 <OBDPanel key={item.id} isDark={isDark}>
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className={`px-2 py-1 text-xs rounded-full border ${statusColors.bg} ${statusColors.text} ${statusColors.border}`}>
-                          {item.status}
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                        {/* Selection Checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.id)}
+                          onChange={() => toggleSelection(item.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4"
+                        />
+                        <span 
+                          className={`px-2 py-1 text-xs rounded-full border ${chipClasses.bg} ${chipClasses.text} ${chipClasses.border}`}
+                          title={statusChip.helper || undefined}
+                        >
+                          {statusChip.label}
                         </span>
+                        {statusChip.helper && (
+                          <span className={`text-xs ${themeClasses.mutedText}`} title={statusChip.helper}>
+                            ℹ️
+                          </span>
+                        )}
                         <span className={themeClasses.mutedText}>{PLATFORM_LABELS[item.platform] || item.platform}</span>
                         {/* Image Status Badge */}
                         {(() => {
@@ -575,10 +933,29 @@ export default function SocialAutoPosterQueuePage() {
               </div>
               <div className="p-6 space-y-4">
                 <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className={`px-2 py-1 text-xs rounded-full border ${STATUS_COLORS[selectedItem.status].bg} ${STATUS_COLORS[selectedItem.status].text} ${STATUS_COLORS[selectedItem.status].border}`}>
-                      {selectedItem.status}
-                    </span>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    {(() => {
+                      // Get status chip for drawer using centralized helper
+                      const publishingEnabled = isMetaPublishingEnabled();
+                      const connectionUI = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+                      const statusChip = getQueueStatusChip(selectedItem, connectionUI);
+                      const chipClasses = getChipClasses(statusChip.tone, isDark);
+                      return (
+                        <>
+                          <span 
+                            className={`px-2 py-1 text-xs rounded-full border ${chipClasses.bg} ${chipClasses.text} ${chipClasses.border}`}
+                            title={statusChip.helper || undefined}
+                          >
+                            {statusChip.label}
+                          </span>
+                          {statusChip.helper && (
+                            <span className={`text-xs ${themeClasses.mutedText}`} title={statusChip.helper}>
+                              ℹ️
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
                     <span className={themeClasses.mutedText}>
                       {PLATFORM_LABELS[selectedItem.platform] || selectedItem.platform}
                     </span>
@@ -654,6 +1031,48 @@ export default function SocialAutoPosterQueuePage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className={`w-full max-w-md mx-4 rounded-xl shadow-xl ${
+              isDark ? "bg-slate-800" : "bg-white"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h3 className={`text-lg font-semibold mb-4 ${themeClasses.headingText}`}>
+                Delete {selectedIds.size} queued post{selectedIds.size !== 1 ? "s" : ""}?
+              </h3>
+              <p className={`mb-6 ${themeClasses.mutedText}`}>
+                This cannot be undone.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmBulkDelete}
+                  className="px-4 py-2 rounded-full text-sm bg-red-500 text-white hover:bg-red-600 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toast && (

@@ -9,8 +9,16 @@ import SocialAutoPosterNav from "@/components/obd/SocialAutoPosterNav";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { mapMetaError, mapCallbackError } from "@/lib/apps/social-auto-poster/metaErrorMapper";
-import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getMetaPublishingBannerMessage, isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getConnectionUIModel } from "@/lib/apps/social-auto-poster/connection/connectionState";
+import { getSetupCompletion } from "@/lib/apps/social-auto-poster/setup/setupValidation";
 import { isMetaReviewMode } from "@/lib/premium-client";
+import ConnectionStatusBadge from "@/components/obd/ConnectionStatusBadge";
+import SetupSection from "./components/SetupSection";
+import SetupProgress from "./components/SetupProgress";
+import StickySaveBar from "./components/StickySaveBar";
+import SessionCallout from "../ui/SessionCallout";
+import { DISMISS_KEYS } from "@/lib/apps/social-auto-poster/ui/dismissKeys";
 import type {
   SocialAutoposterSettings,
   PostingMode,
@@ -64,6 +72,7 @@ export default function SocialAutoPosterSetupPage() {
 
   const [settings, setSettings] = useState<Partial<SocialAutoposterSettings>>({
     brandVoice: "",
+    useBrandKit: true,
     postingMode: "review",
     schedulingRules: {
       frequency: "daily",
@@ -91,6 +100,7 @@ export default function SocialAutoPosterSetupPage() {
       allowTextOverlay: false,
     },
   });
+  const [savedSettingsSnapshot, setSavedSettingsSnapshot] = useState<string>("");
   const [expandedPlatforms, setExpandedPlatforms] = useState<Set<SocialPlatform>>(new Set());
 
   // Premium status
@@ -246,7 +256,14 @@ export default function SocialAutoPosterSetupPage() {
       }
       const data = await res.json();
       if (data.settings) {
-        setSettings(data.settings);
+        // Ensure useBrandKit defaults to true for backward compatibility
+        const settingsWithDefaults = {
+          ...data.settings,
+          useBrandKit: data.settings.useBrandKit ?? true,
+        };
+        setSettings(settingsWithDefaults);
+        // Store snapshot for dirty detection
+        setSavedSettingsSnapshot(JSON.stringify(settingsWithDefaults));
       }
       setIsPremiumUser(true); // Success means user is premium
     } catch (err) {
@@ -275,6 +292,7 @@ export default function SocialAutoPosterSetupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           brandVoice: settings.brandVoice || undefined,
+          useBrandKit: settings.useBrandKit ?? true,
           postingMode: settings.postingMode,
           schedulingRules: settings.schedulingRules,
           enabledPlatforms: settings.enabledPlatforms || [],
@@ -295,6 +313,8 @@ export default function SocialAutoPosterSetupPage() {
 
       setSuccess(true);
       setTimeout(() => setSuccess(false), 5000);
+      // Update snapshot after successful save
+      setSavedSettingsSnapshot(JSON.stringify(settings));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings");
     } finally {
@@ -690,6 +710,70 @@ export default function SocialAutoPosterSetupPage() {
     >
       <SocialAutoPosterNav isDark={isDark} />
 
+      {/* Connection Status Badge */}
+      {(() => {
+        try {
+          const publishingEnabled = isMetaPublishingEnabled();
+          const uiModel = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+          return (
+            <div className="mt-2 mb-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <ConnectionStatusBadge
+                  state={uiModel.state}
+                  label={uiModel.badgeLabel}
+                  isDark={isDark}
+                />
+                {(uiModel.state === "pending" || uiModel.state === "limited") && (
+                  <span className={`text-xs ${themeClasses.mutedText}`} title="This is due to Meta app review. Publishing will activate automatically once approved.">
+                    ℹ️ Learn more
+                  </span>
+                )}
+              </div>
+              {uiModel.message && (
+                <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                  {uiModel.message}
+                </p>
+              )}
+            </div>
+          );
+        } catch (err) {
+          // Non-blocking: if connection status fails, show error state
+          return (
+            <div className="mt-2 mb-4">
+              <ConnectionStatusBadge
+                state="error"
+                label="Error"
+                isDark={isDark}
+              />
+              <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                We couldn&apos;t verify connection status right now. Try again.
+              </p>
+            </div>
+          );
+        }
+      })()}
+
+      {/* First-run Callout: Connection States */}
+      {(() => {
+        try {
+          const publishingEnabled = isMetaPublishingEnabled();
+          const uiModel = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+          if (uiModel.state === "pending" || uiModel.state === "limited") {
+            return (
+              <SessionCallout
+                dismissKey={DISMISS_KEYS.setupConnectionStates}
+                title="About Connection States"
+                message="You can queue posts now. Publishing activates once accounts are connected."
+                isDark={isDark}
+              />
+            );
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      })()}
+
       <div className="mt-7">
         {loading ? (
           <OBDPanel isDark={isDark}>
@@ -697,9 +781,29 @@ export default function SocialAutoPosterSetupPage() {
           </OBDPanel>
         ) : (
           <form onSubmit={handleSave}>
-            <div className="space-y-6">
-              {/* Connect Accounts */}
-              <OBDPanel isDark={isDark}>
+            {(() => {
+              // Calculate completion state
+              const publishingEnabled = isMetaPublishingEnabled();
+              const connectionUI = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+              const completion = getSetupCompletion(settings, connectionUI);
+              
+              // Detect dirty state
+              const currentSettingsString = JSON.stringify(settings);
+              const isDirty = savedSettingsSnapshot !== "" && currentSettingsString !== savedSettingsSnapshot;
+              const canSave = completion.requiredCompleteCount === completion.requiredTotal && !saving;
+              
+              return (
+                <>
+                  {/* Setup Progress */}
+                  <SetupProgress
+                    requiredComplete={completion.requiredCompleteCount}
+                    requiredTotal={completion.requiredTotal}
+                    isDark={isDark}
+                  />
+                  
+                  <div className="space-y-6">
+                    {/* Connect Accounts - Keep as is, not part of guided setup */}
+                    <OBDPanel isDark={isDark}>
                 <OBDHeading level={2} isDark={isDark} className="mb-4">
                   Connect Accounts
                 </OBDHeading>
@@ -929,17 +1033,28 @@ export default function SocialAutoPosterSetupPage() {
                     ) : googleStatus && googleStatus.ok === false ? (
                       <div className={`p-4 rounded-xl border ${
                         isDark 
-                          ? "border-red-700/50 bg-red-900/20 text-red-400" 
-                          : "border-red-200 bg-red-50 text-red-700"
+                          ? "border-slate-700/50 bg-slate-800/50 text-slate-300" 
+                          : "border-slate-200 bg-slate-50 text-slate-700"
                       }`}>
                         <p className="text-sm">
-                          {googleStatus.errorCode === "GOOGLE_NOT_CONFIGURED" 
-                            ? "Google Business Profile connection not configured. Please contact support."
-                            : googleStatus.errorCode === "DB_ERROR"
-                            ? "Database update required. Run Prisma migration."
-                            : googleStatus.errorCode === "UNAUTHORIZED"
-                            ? "Please sign in again."
-                            : googleStatus.errorMessage || "Unable to load connection status. Please refresh or try again."}
+                          {(() => {
+                            // Use centralized mapping for Google status errors
+                            const publishingEnabled = isMetaPublishingEnabled();
+                            const googleUI = getConnectionUIModel(
+                              {
+                                ok: googleStatus.ok,
+                                configured: googleStatus.configured,
+                                errorCode: googleStatus.errorCode,
+                                errorMessage: googleStatus.errorMessage,
+                              },
+                              undefined,
+                              publishingEnabled
+                            );
+                            if (googleStatus.errorCode === "GOOGLE_NOT_CONFIGURED") {
+                              return "Google Business Profile connection not configured. Please contact support.";
+                            }
+                            return googleUI.message;
+                          })()}
                         </p>
                       </div>
                     ) : null}
@@ -1388,31 +1503,44 @@ export default function SocialAutoPosterSetupPage() {
                     )}
                   </div>
                 ) : isPremiumUser === true && connectionStatus ? (
-                  // Premium user but status has error - show specific error message
+                  // Premium user but status has error - use centralized mapping for calm messaging
                   <div className={`p-4 rounded-xl border ${
                     isDark 
-                      ? "border-red-700/50 bg-red-900/20 text-red-400" 
-                      : "border-red-200 bg-red-50 text-red-700"
+                      ? "border-slate-700/50 bg-slate-800/50 text-slate-300" 
+                      : "border-slate-200 bg-slate-50 text-slate-700"
                   }`}>
                     <p className="text-sm">
-                      {connectionStatus.errorCode === "META_NOT_CONFIGURED" 
-                        ? "Meta connection not configured. Please contact support."
-                        : connectionStatus.errorCode === "DB_ERROR"
-                        ? "Database update required. Run Prisma migration."
-                        : connectionStatus.errorCode === "UNAUTHORIZED"
-                        ? "Please sign in again."
-                        : connectionStatus.errorMessage || "Unable to load connection status. Please refresh or try again."}
+                      {(() => {
+                        try {
+                          const publishingEnabled = isMetaPublishingEnabled();
+                          const uiModel = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+                          if (connectionStatus.errorCode === "META_NOT_CONFIGURED") {
+                            return "Meta connection not configured. Please contact support.";
+                          }
+                          return uiModel.message;
+                        } catch {
+                          return "We couldn't verify connection status right now. Try again.";
+                        }
+                      })()}
                     </p>
                   </div>
                 ) : isPremiumUser === true ? (
-                  // Premium user but no status data yet - show generic error
+                  // Premium user but no status data yet - use centralized error message
                   <div className={`p-4 rounded-xl border ${
                     isDark 
-                      ? "border-red-700/50 bg-red-900/20 text-red-400" 
-                      : "border-red-200 bg-red-50 text-red-700"
+                      ? "border-slate-700/50 bg-slate-800/50 text-slate-300" 
+                      : "border-slate-200 bg-slate-50 text-slate-700"
                   }`}>
                     <p className="text-sm">
-                      Unable to load connection status. Please refresh or try again.
+                      {(() => {
+                        try {
+                          const publishingEnabled = isMetaPublishingEnabled();
+                          const uiModel = getConnectionUIModel(null, undefined, publishingEnabled);
+                          return uiModel.message;
+                        } catch {
+                          return "We couldn't verify connection status right now. Try again.";
+                        }
+                      })()}
                     </p>
                   </div>
                 ) : isPremiumUser === false ? (
@@ -1424,34 +1552,14 @@ export default function SocialAutoPosterSetupPage() {
                 )}
               </OBDPanel>
 
-              {/* Brand Voice */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Brand Voice
-                </OBDHeading>
-                <div>
-                  <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Brand Voice Guidelines
-                  </label>
-                  <textarea
-                    id="brandVoice"
-                    value={settings.brandVoice || ""}
-                    onChange={(e) => setSettings({ ...settings, brandVoice: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    rows={4}
-                    placeholder="Describe your brand's voice, tone, and style preferences..."
-                  />
-                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                    This will be used to generate posts that match your brand&apos;s personality.
-                  </p>
-                </div>
-              </OBDPanel>
-
-              {/* Posting Mode */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Posting Mode
-                </OBDHeading>
+                    {/* Posting Mode Section */}
+                    <SetupSection
+                      title="Posting Mode"
+                      subtitle="Choose how posts are published"
+                      required
+                      complete={completion.postingMode}
+                      isDark={isDark}
+                    >
                 <div className="space-y-3">
                   {POSTING_MODES.map((mode) => (
                     <label
@@ -1481,13 +1589,20 @@ export default function SocialAutoPosterSetupPage() {
                     </label>
                   ))}
                 </div>
-              </OBDPanel>
+                    </SetupSection>
 
-              {/* Enabled Platforms */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Enabled Platforms
-                </OBDHeading>
+                    {/* Platforms Section */}
+                    <SetupSection
+                      title="Platforms"
+                      subtitle="Select which platforms to post to"
+                      required
+                      complete={completion.platforms}
+                      isDark={isDark}
+                    >
+                      <div>
+                        <h4 className={`text-sm font-medium mb-3 ${themeClasses.headingText}`}>
+                          Enabled Platforms
+                        </h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {PLATFORMS.map((platform) => {
                     const isEnabled = settings.enabledPlatforms?.includes(platform.value) || false;
@@ -1513,13 +1628,13 @@ export default function SocialAutoPosterSetupPage() {
                     );
                   })}
                 </div>
-              </OBDPanel>
+                      </div>
 
-              {/* Per-Platform Settings */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Per-Platform Settings
-                </OBDHeading>
+                      {/* Per-Platform Settings */}
+                      <div className="mt-6">
+                        <h4 className={`text-sm font-medium mb-3 ${themeClasses.headingText}`}>
+                          Per-Platform Settings
+                        </h4>
                 <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
                   Configure individual platform enable/disable and posting overrides.
                 </p>
@@ -1632,13 +1747,58 @@ export default function SocialAutoPosterSetupPage() {
                     );
                   })}
                 </div>
-              </OBDPanel>
+                      </div>
+                    </SetupSection>
 
-              {/* Content Pillars */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Content Pillars
-                </OBDHeading>
+                    {/* Brand & Content Section (Optional) */}
+                    <SetupSection
+                      title="Brand & Content"
+                      subtitle="Optional: Customize your brand voice and content preferences"
+                      isDark={isDark}
+                    >
+                      {/* Brand Source Toggle */}
+                      <div className="mb-6">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={settings.useBrandKit ?? true}
+                            onChange={(e) => setSettings({ ...settings, useBrandKit: e.target.checked })}
+                            className="rounded"
+                          />
+                          <span className={`font-medium ${themeClasses.headingText}`}>
+                            Use Brand Kit defaults
+                          </span>
+                        </label>
+                        <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
+                          When enabled, Social Auto-Poster inherits your Brand Kit voice. Disable to use local overrides just for social posts.
+                        </p>
+                      </div>
+
+                      {/* Brand Voice (shown when useBrandKit is false) */}
+                      {!settings.useBrandKit && (
+                        <div className="mb-6">
+                          <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                            Brand Voice Guidelines
+                          </label>
+                          <textarea
+                            id="brandVoice"
+                            value={settings.brandVoice || ""}
+                            onChange={(e) => setSettings({ ...settings, brandVoice: e.target.value })}
+                            className={getInputClasses(isDark)}
+                            rows={4}
+                            placeholder="Describe your brand's voice, tone, and style preferences..."
+                          />
+                          <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                            This will be used to generate posts that match your brand&apos;s personality.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Content Pillars */}
+                      <div className="mb-6">
+                        <h3 className={`text-base font-semibold mb-4 ${themeClasses.headingText}`}>
+                          Content Pillars
+                        </h3>
                 <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
                   Choose how content themes are selected for your posts.
                 </p>
@@ -1775,13 +1935,13 @@ export default function SocialAutoPosterSetupPage() {
                     </div>
                   )}
                 </div>
-              </OBDPanel>
+                      </div>
 
-              {/* Hashtag Bank */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Local Hashtag Bank
-                </OBDHeading>
+                      {/* Hashtag Bank */}
+                      <div className="mb-6">
+                        <h3 className={`text-base font-semibold mb-4 ${themeClasses.headingText}`}>
+                          Local Hashtag Bank
+                        </h3>
                 <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
                   Automatically include Ocala-focused hashtags in your posts.
                 </p>
@@ -1838,292 +1998,171 @@ export default function SocialAutoPosterSetupPage() {
                     </div>
                   )}
                 </div>
-              </OBDPanel>
-
-              {/* Image Settings */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Image Generation (Optional)
-                </OBDHeading>
-                <div className="space-y-4">
-                  <div>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={settings.imageSettings?.enableImages || false}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            imageSettings: {
-                              ...settings.imageSettings!,
-                              enableImages: e.target.checked,
-                            },
-                          })
-                        }
-                        className="rounded"
-                      />
-                      <span className={`font-medium ${themeClasses.headingText}`}>
-                        Include images (optional)
-                      </span>
-                    </label>
-                    <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
-                      If image generation fails, posts will still publish normally.
-                    </p>
-                  </div>
-
-                  {settings.imageSettings?.enableImages && (
-                    <>
-                      <div>
-                        <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                          Image Category Mode
-                        </label>
-                        <select
-                          value={settings.imageSettings?.imageCategoryMode || "auto"}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              imageSettings: {
-                                ...settings.imageSettings!,
-                                imageCategoryMode: e.target.value as
-                                  | "auto"
-                                  | "educational"
-                                  | "promotion"
-                                  | "social_proof"
-                                  | "local_abstract"
-                                  | "evergreen",
-                              },
-                            })
-                          }
-                          className={getInputClasses(isDark)}
-                        >
-                          <option value="auto">Auto (inferred from post content)</option>
-                          <option value="educational">Educational</option>
-                          <option value="promotion">Promotion</option>
-                          <option value="social_proof">Social Proof</option>
-                          <option value="local_abstract">Local Abstract</option>
-                          <option value="evergreen">Evergreen</option>
-                        </select>
-                        <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                          Auto mode maps post content to appropriate image category
-                        </p>
                       </div>
 
-                      <div>
-                        <label className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={settings.imageSettings?.allowTextOverlay || false}
-                            onChange={(e) =>
-                              setSettings({
-                                ...settings,
-                                imageSettings: {
-                                  ...settings.imageSettings!,
-                                  allowTextOverlay: e.target.checked,
-                                },
-                              })
-                            }
-                            className="rounded"
-                          />
-                          <span className={`font-medium ${themeClasses.headingText}`}>
-                            Allow Text Overlay
-                          </span>
-                        </label>
-                        <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
-                          Allow minimal text overlays on generated images (category rules still apply)
-                        </p>
+                      {/* Image Settings */}
+                      <div className="mb-6">
+                        <h3 className={`text-base font-semibold mb-4 ${themeClasses.headingText}`}>
+                          Image Generation (Optional)
+                        </h3>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={settings.imageSettings?.enableImages || false}
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    imageSettings: {
+                                      ...settings.imageSettings!,
+                                      enableImages: e.target.checked,
+                                    },
+                                  })
+                                }
+                                className="rounded"
+                              />
+                              <span className={`font-medium ${themeClasses.headingText}`}>
+                                Include images (optional)
+                              </span>
+                            </label>
+                            <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
+                              If image generation fails, posts will still publish normally.
+                            </p>
+                          </div>
+
+                          {settings.imageSettings?.enableImages && (
+                            <>
+                              <div>
+                                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                                  Image Category Mode
+                                </label>
+                                <select
+                                  value={settings.imageSettings?.imageCategoryMode || "auto"}
+                                  onChange={(e) =>
+                                    setSettings({
+                                      ...settings,
+                                      imageSettings: {
+                                        ...settings.imageSettings!,
+                                        imageCategoryMode: e.target.value as
+                                          | "auto"
+                                          | "educational"
+                                          | "promotion"
+                                          | "social_proof"
+                                          | "local_abstract"
+                                          | "evergreen",
+                                      },
+                                    })
+                                  }
+                                  className={getInputClasses(isDark)}
+                                >
+                                  <option value="auto">Auto (inferred from post content)</option>
+                                  <option value="educational">Educational</option>
+                                  <option value="promotion">Promotion</option>
+                                  <option value="social_proof">Social Proof</option>
+                                  <option value="local_abstract">Local Abstract</option>
+                                  <option value="evergreen">Evergreen</option>
+                                </select>
+                                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                                  Auto mode maps post content to appropriate image category
+                                </p>
+                              </div>
+
+                              <div>
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={settings.imageSettings?.allowTextOverlay || false}
+                                    onChange={(e) =>
+                                      setSettings({
+                                        ...settings,
+                                        imageSettings: {
+                                          ...settings.imageSettings!,
+                                          allowTextOverlay: e.target.checked,
+                                        },
+                                      })
+                                    }
+                                    className="rounded"
+                                  />
+                                  <span className={`font-medium ${themeClasses.headingText}`}>
+                                    Allow Text Overlay
+                                  </span>
+                                </label>
+                                <p className={`text-xs mt-1 ml-7 ${themeClasses.mutedText}`}>
+                                  Allow minimal text overlays on generated images (category rules still apply)
+                                </p>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </>
-                  )}
-                </div>
-              </OBDPanel>
+                    </SetupSection>
 
-              {/* Scheduling Rules */}
-              <OBDPanel isDark={isDark}>
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Scheduling Rules
-                </OBDHeading>
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="frequency" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      Posting Frequency
-                    </label>
-                    <input
-                      type="text"
-                      id="frequency"
-                      value={settings.schedulingRules?.frequency || ""}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          schedulingRules: {
-                            ...settings.schedulingRules!,
-                            frequency: e.target.value,
-                          },
-                        })
-                      }
-                      className={getInputClasses(isDark)}
-                      placeholder="e.g., daily, weekly, 3x per week"
-                    />
-                  </div>
+                    {/* Error/Success Messages */}
+                    {error && (
+                      <div className={getErrorPanelClasses(isDark)}>
+                        <p>{error}</p>
+                      </div>
+                    )}
 
-                  <div>
-                    <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      Allowed Days
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {DAYS_OF_WEEK.map((day) => {
-                        const isSelected = settings.schedulingRules?.allowedDays?.includes(day.value) || false;
-                        return (
-                          <button
-                            key={day.value}
-                            type="button"
-                            onClick={() => toggleDay(day.value)}
-                            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                              isSelected
-                                ? "bg-[#29c4a9] text-white"
-                                : isDark
-                                ? "bg-slate-800 text-slate-300 border border-slate-700"
-                                : "bg-slate-100 text-slate-700 border border-slate-200"
-                            }`}
+                    {success && (
+                      <div
+                        className={`rounded-xl border p-3 ${
+                          isDark
+                            ? "bg-green-900/20 border-green-700 text-green-400"
+                            : "bg-green-50 border-green-200 text-green-600"
+                        }`}
+                      >
+                        <p>Settings saved successfully!</p>
+                      </div>
+                    )}
+
+                    {/* Compliance Links */}
+                    <OBDPanel isDark={isDark} className="mt-6">
+                      <div className={`text-sm space-y-2 ${themeClasses.mutedText}`}>
+                        <div className="flex flex-wrap gap-4">
+                          <a
+                            href="https://ocalabusinessdirectory.com/obd-business-suite-terms-of-service/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
                           >
-                            {day.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                            Terms of Service
+                          </a>
+                          <a
+                            href="https://ocalabusinessdirectory.com/obd-business-suite-privacy-policy/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
+                          >
+                            Privacy Policy
+                          </a>
+                          <a
+                            href="/data-deletion"
+                            className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
+                          >
+                            Data Deletion Request
+                          </a>
+                        </div>
+                      </div>
+                    </OBDPanel>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="timeStart" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                        Time Window Start
-                      </label>
-                      <input
-                        type="time"
-                        id="timeStart"
-                        value={settings.schedulingRules?.timeWindow?.start || ""}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            schedulingRules: {
-                              ...settings.schedulingRules!,
-                              timeWindow: {
-                                ...settings.schedulingRules!.timeWindow,
-                                start: e.target.value,
-                              },
-                            },
-                          })
-                        }
-                        className={getInputClasses(isDark)}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="timeEnd" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                        Time Window End
-                      </label>
-                      <input
-                        type="time"
-                        id="timeEnd"
-                        value={settings.schedulingRules?.timeWindow?.end || ""}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            schedulingRules: {
-                              ...settings.schedulingRules!,
-                              timeWindow: {
-                                ...settings.schedulingRules!.timeWindow,
-                                end: e.target.value,
-                              },
-                            },
-                          })
-                        }
-                        className={getInputClasses(isDark)}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="timezone" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      Timezone
-                    </label>
-                    <input
-                      type="text"
-                      id="timezone"
-                      value={settings.schedulingRules?.timezone || ""}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          schedulingRules: {
-                            ...settings.schedulingRules!,
-                            timezone: e.target.value,
-                          },
-                        })
-                      }
-                      className={getInputClasses(isDark)}
-                      placeholder="America/New_York"
-                    />
-                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                      IANA timezone identifier (e.g., America/New_York, America/Los_Angeles)
-                    </p>
-                  </div>
-                </div>
-              </OBDPanel>
-
-              {/* Error/Success Messages */}
-              {error && (
-                <div className={getErrorPanelClasses(isDark)}>
-                  <p>{error}</p>
-                </div>
-              )}
-
-              {success && (
-                <div
-                  className={`rounded-xl border p-3 ${
-                    isDark
-                      ? "bg-green-900/20 border-green-700 text-green-400"
-                      : "bg-green-50 border-green-200 text-green-600"
-                  }`}
-                >
-                  <p>Settings saved successfully!</p>
-                </div>
-              )}
-
-              {/* Submit Button */}
-              <OBDPanel isDark={isDark}>
-                <button type="submit" className={SUBMIT_BUTTON_CLASSES} disabled={saving}>
-                  {saving ? "Saving..." : "Save Settings"}
-                </button>
-              </OBDPanel>
-
-              {/* Compliance Links */}
-              <OBDPanel isDark={isDark}>
-                <div className={`text-sm space-y-2 ${themeClasses.mutedText}`}>
-                  <div className="flex flex-wrap gap-4">
-                    <a
-                      href="https://ocalabusinessdirectory.com/obd-business-suite-terms-of-service/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
-                    >
-                      Terms of Service
-                    </a>
-                    <a
-                      href="https://ocalabusinessdirectory.com/obd-business-suite-privacy-policy/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
-                    >
-                      Privacy Policy
-                    </a>
-                    <a
-                      href="/data-deletion"
-                      className={`hover:underline ${isDark ? "text-[#29c4a9]" : "text-[#1EB9A7]"}`}
-                    >
-                      Data Deletion Request
-                    </a>
-                  </div>
-                </div>
-              </OBDPanel>
-            </div>
+                  
+                  {/* Sticky Save Bar */}
+                  <StickySaveBar
+                    isDirty={isDirty}
+                    canSave={canSave}
+                    onSave={() => {
+                      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+                      handleSave(fakeEvent);
+                    }}
+                    isSaving={saving}
+                    helperText={!canSave ? "Complete required sections to save" : undefined}
+                    isDark={isDark}
+                  />
+                </>
+              );
+            })()}
           </form>
         )}
       </div>

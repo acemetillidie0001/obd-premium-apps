@@ -22,6 +22,8 @@ import {
   PersonalityStyle,
   LanguageOption,
 } from "./types";
+// Note: Using standardized sessionStorage transport with TTL
+import { writeHandoff } from "@/lib/obd-framework/social-handoff-transport";
 
 const defaultFormValues: EventCampaignFormValues = {
   businessName: "",
@@ -1484,6 +1486,125 @@ export default function EventCampaignBuilderPage() {
                         <p className="whitespace-pre-wrap">{post}</p>
                       </ResultCard>
                     ))}
+                  </div>
+
+                  {/* Create Event Social Posts CTA */}
+                  <div className="mt-6">
+                    <OBDPanel isDark={isDark}>
+                      <div className="flex items-center justify-between flex-wrap gap-4">
+                        <div>
+                          <h4 className={`text-base font-semibold mb-1 ${
+                            isDark ? "text-white" : "text-slate-900"
+                          }`}>
+                            Ready to promote?
+                          </h4>
+                          <p className={`text-sm ${
+                            isDark ? "text-slate-400" : "text-slate-600"
+                          }`}>
+                            Create social media posts for this event
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            try {
+                              // Extract event details
+                              const eventName = form.eventName.trim() || "Upcoming Event";
+                              const eventDate = form.eventDate.trim() || "";
+                              const location = form.eventLocation.trim() || "";
+                              const description = result.assets.longDescription || 
+                                               result.assets.shortDescriptions?.[0] || 
+                                               form.eventDescription.trim() || 
+                                               "";
+
+                              // Generate countdown variants using simple date math
+                              const generateCountdownVariants = (eventDateStr: string): string[] => {
+                                const variants: string[] = [];
+                                try {
+                                  const eventDateObj = new Date(eventDateStr);
+                                  const now = new Date();
+                                  const diffTime = eventDateObj.getTime() - now.getTime();
+                                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                  
+                                  const eventDayOfWeek = eventDateObj.getDay(); // 0 = Sunday, 6 = Saturday
+                                  const isWeekend = eventDayOfWeek === 0 || eventDayOfWeek === 6;
+                                  const isWithin5Days = diffDays >= 0 && diffDays <= 5;
+
+                                  // Generate variants based on requirements
+                                  if (diffDays === 1) {
+                                    variants.push("Happening tomorrow!");
+                                  } else if (diffDays >= 2 && diffDays <= 6) {
+                                    variants.push(`${diffDays} days to go!`);
+                                  } else if (diffDays >= 7 && diffDays <= 9) {
+                                    variants.push("Next week!");
+                                  } else if (diffDays >= 10) {
+                                    variants.push("Save the date!");
+                                  }
+
+                                  // Include "This weekend!" if event falls on Sat/Sun or within 5 days
+                                  if ((isWeekend || isWithin5Days) && !variants.includes("This weekend!")) {
+                                    variants.push("This weekend!");
+                                  }
+
+                                  // Ensure we have 2-5 variants
+                                  if (variants.length === 0) {
+                                    variants.push("Save the date!");
+                                    variants.push("This weekend!");
+                                  } else if (variants.length === 1) {
+                                    // Add one more variant
+                                    if (diffDays >= 2 && diffDays <= 6) {
+                                      variants.push("This weekend!");
+                                    } else {
+                                      variants.push(`${diffDays} days to go!`);
+                                    }
+                                  }
+                                } catch {
+                                  // Fallback if date parsing fails
+                                  variants.push("Save the date!");
+                                  variants.push("This weekend!");
+                                }
+                                
+                                return variants.slice(0, 5); // Ensure max 5 variants
+                              };
+
+                              const countdownVariants = generateCountdownVariants(eventDate);
+                              const firstVariant = countdownVariants[0] || "Save the date!";
+
+                              // Build text: first variant + eventName + date/location + description
+                              const text = `${firstVariant}\n\n${eventName}\n${eventDate}${location ? " • " + location : ""}\n\n${description}`;
+
+                              // Build canonical handoff payload
+                              const payload = {
+                                v: 1,
+                                source: "event-campaign-builder",
+                                campaignType: "event",
+                                createdAt: new Date().toISOString(),
+                                eventName,
+                                eventDate,
+                                location,
+                                description,
+                                countdownVariants: countdownVariants,
+                                text: text,
+                              };
+
+                              // Save to sessionStorage using standardized transport
+                              writeHandoff("event-campaign-builder", payload);
+
+                              // Open new tab to composer
+                              window.open("/apps/social-auto-poster/composer?handoff=1", "_blank");
+
+                              // Show toast
+                              showToast("Sent to Social Auto-Poster composer");
+                            } catch (error) {
+                              console.error("Failed to create social posts:", error);
+                              showToast("Failed to create social posts. Please try again.");
+                            }
+                          }}
+                          className={SUBMIT_BUTTON_CLASSES}
+                        >
+                          Create Event Social Posts
+                        </button>
+                      </div>
+                    </OBDPanel>
                   </div>
                 </div>
               )}

@@ -1,0 +1,160 @@
+warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'prisma/schema.prisma', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/apps/event-campaign-builder/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/apps/offers-builder/page.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/CHANGELOG.md b/CHANGELOG.md[m
+[1mindex 99cbf85..ec1efd2 100644[m
+[1m--- a/CHANGELOG.md[m
+[1m+++ b/CHANGELOG.md[m
+[36m@@ -46,6 +46,37 @@[m [mand this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0[m
+   - Search→Chat bridge CTA with toast notification (reuses handleUseInChat)[m
+   - Insights question clustering with filter capability and guardrails (client-side only)[m
+ [m
+[32m+[m[32m- **Social Auto-Poster — Tier 5A + Tier 5B + Tier 5C (2026-01-XX)**[m
+[32m+[m[32m  - **Tier 5A Connection State Clarity:**[m
+[32m+[m[32m    - Centralized connection state mapping in `connectionState.ts` with explicit UI states (connected, limited, pending, disabled, error)[m
+[32m+[m[32m    - Connection status badge on all pages with calm, trust-safe messaging[m
+[32m+[m[32m    - Replaced "Unable to load connection status" with actionable messages[m
+[32m+[m[32m    - Queue status chips (Draft, Approved, Scheduled, Skipped, Blocked) with centralized mapping[m
+[32m+[m[32m    - Blocked state appears when connection prevents publishing (pending/disabled/error + approved/scheduled)[m
+[32m+[m[32m    - Queue bulk actions (Approve, Schedule, Delete) with sequential throttled execution and progress feedback[m
+[32m+[m[32m    - Connection-aware copy in bulk action bar[m
+[32m+[m[32m  - **Tier 5B Guided Setup & Trust Layer:**[m
+[32m+[m[32m    - Guided setup sections with completion indicators (Posting Mode, Platforms, Schedule required; Brand & Content optional)[m
+[32m+[m[32m    - Setup progress indicator: "{x} of {y} required sections complete"[m
+[32m+[m[32m    - Sticky save bar with unsaved changes detection and validation[m
+[32m+[m[32m    - Composer clarity banner showing Posting Mode and Brand source (Brand Kit vs Local Overrides)[m
+[32m+[m[32m    - Deterministic brand source flag (`useBrandKit`) with backward compatibility[m
+[32m+[m[32m    - First-run callouts (session-dismissable) on Setup, Queue, and Composer pages[m
+[32m+[m[32m    - Activity logs with human-readable messages and next action labels (will_retry, paused, needs_attention)[m
+[32m+[m[32m    - Retry policy info box on Activity page[m
+[32m+[m[32m  - **Tier 5C Handoff Integration:**[m
+[32m+[m[32m    - Added safe, manual handoffs from Offers Builder, AI Content Writer, and Event Campaign Builder[m
+[32m+[m[32m    - Standardized sessionStorage transport with TTL (10-minute default) via `handoffTransport.ts`[m
+[32m+[m[32m    - Dismissible import banners with source attribution (no automation)[m
+[32m+[m[32m    - Guardrails: no auto-save, no auto-queue, prefill only if empty, clear after import/dismiss[m
+[32m+[m[32m    - Offers Builder → Social Auto-Poster: Campaign import with structured offer payload[m
+[32m+[m[32m    - AI Content Writer → Social Auto-Poster: Text import from Export Center[m
+[32m+[m[32m    - Event Campaign Builder → Social Auto-Poster: Event import with countdown variants and safe variant selector[m
+[32m+[m[32m    - Variant selector for events: disabled after user edits with helper message to protect changes[m
+[32m+[m[32m    - URL cleanup: `?handoff=1` removed after import, payload cleared from sessionStorage[m
+[32m+[m[32m  - **Documentation:** Updated `docs/apps/social-auto-poster/IMPLEMENTATION_MAP.md` with Tier 5C handoffs section[m
+[32m+[m[32m  - **Verification:** Added `docs/deployments/SOCIAL_AUTO_POSTER_TIER5_VERIFICATION.md` with comprehensive checklist[m
+[32m+[m
+ ### Tier 5C — Ecosystem Flow Polish[m
+ - Added dismissible "Next steps" panels across apps[m
+ - Link-only guidance between Website Draft Import, FAQ Generator, Schema Generator, and AI Help Desk[m
+[1mdiff --git a/VERIFICATION_CHECKLIST.md b/VERIFICATION_CHECKLIST.md[m
+[1mdeleted file mode 100644[m
+[1mindex 6d22761..0000000[m
+[1m--- a/VERIFICATION_CHECKLIST.md[m
+[1m+++ /dev/null[m
+[36m@@ -1,169 +0,0 @@[m
+[31m-# Database Configuration Verification Checklist[m
+[31m-[m
+[31m-## 60-Second Verification[m
+[31m-[m
+[31m-Use this checklist to verify the dual-URL database setup is working correctly.[m
+[31m-[m
+[31m-### Prerequisites[m
+[31m-- `DATABASE_URL_DIRECT` must be in `.env` file at repo root[m
+[31m-- `DATABASE_URL` must be in `.env.local` or Vercel environment variables[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-## Step-by-Step Verification[m
+[31m-[m
+[31m-### ✅ Step 1: Verify Environment Variables[m
+[31m-[m
+[31m-```bash[m
+[31m-# Check DATABASE_URL_DIRECT is in .env (for Prisma CLI)[m
+[31m-cat .env | grep DATABASE_URL_DIRECT[m
+[31m-# Expected: DATABASE_URL_DIRECT=postgresql://...[m
+[31m-[m
+[31m-# Check DATABASE_URL is in .env.local (for runtime)[m
+[31m-cat .env.local | grep DATABASE_URL[m
+[31m-# Expected: DATABASE_URL=prisma+postgres://... or postgresql://...[m
+[31m-```[m
+[31m-[m
+[31m-**Pass Criteria:** Both commands show their respective environment variables.[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-### ✅ Step 2: Verify Prisma CLI Can Connect[m
+[31m-[m
+[31m-```bash[m
+[31m-# Check migration status (uses DATABASE_URL_DIRECT)[m
+[31m-pnpm db:status[m
+[31m-```[m
+[31m-[m
+[31m-**Pass Criteria:** [m
+[31m-- No connection errors[m
+[31m-- Shows migration status (e.g., "Database schema is up to date!" or lists pending migrations)[m
+[31m-- Does NOT show: "The prisma+postgres protocol with localhost is not supported"[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-### ✅ Step 3: Verify Prisma Studio Launches[m
+[31m-[m
+[31m-```bash[m
+[31m-# Launch Prisma Studio (uses DATABASE_URL_DIRECT)[m
+[31m-pnpm db:studio[m
+[31m-```[m
+[31m-[m
+[31m-**Pass Criteria:**[m
+[31m-- Browser opens at `http://localhost:5555`[m
+[31m-- **Tables are visible** (User, Account, Session, etc.)[m
+[31m-- Does NOT show: "No tables found"[m
+[31m-- Does NOT show protocol errors about `prisma+postgres://`[m
+[31m-[m
+[31m-**Common Failure:** If you see "No tables found", check:[m
+[31m-- Is `DATABASE_URL_DIRECT` correctly formatted? (must be `postgresql://`, not `prisma+postgres://`)[m
+[31m-- Are migrations applied? Run `pnpm db:deploy`[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-### ✅ Step 4: Verify Runtime Database Connection[m
+[31m-[m
+[31m-```bash[m
+[31m-# Start development server[m
+[31m-pnpm dev[m
+[31m-```[m
+[31m-[m
+[31m-**Check startup logs for:**[m
+[31m-```[m
+[31m-[DB Startup] DATABASE_URL present: YES[m
+[31m-[DB Startup] DATABASE_URL_DIRECT present: YES[m
+[31m-[DB Startup] ✓ Database connection successful[m
+[31m-[DB Startup] ✓ Database tables found (migrations appear applied)[m
+[31m-```[m
+[31m-[m
+[31m-**Pass Criteria:**[m
+[31m-- Both URLs show as present[m
+[31m-- No connection errors[m
+[31m-- Tables found message appears[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-### ✅ Step 5: Verify Premium Gate Does Not Regress[m
+[31m-[m
+[31m-1. Login to the app as a premium user[m
+[31m-2. Navigate to Social Auto-Poster setup page[m
+[31m-3. Verify you do NOT see "Upgrade to Premium" CTA[m
+[31m-4. Verify the page loads normally[m
+[31m-[m
+[31m-**Pass Criteria:**[m
+[31m-- Premium users see normal functionality[m
+[31m-- No false "Upgrade to Premium" messages[m
+[31m-- No "Subscription Status Unavailable" warnings (unless DB is actually down)[m
+[31m-[m
+[31m----[m
+[31m-[m
+[31m-### ✅ Step 6: Verify Data Deletion Page Loads[m
+[31m-[m
+[31m-1. Navigate to `/data-deletion` page[m
+[31m-2. Verify page loads without errors[m
+[31m-3. Check browser console for any 500 errors[m
+[31m-[m
+[31m-**Pass Criteria:**[m
+[31m-- Page loads successfully[m
+[31m-- No databa

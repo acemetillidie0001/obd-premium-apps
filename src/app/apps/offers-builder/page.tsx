@@ -28,6 +28,8 @@ import {
   PersonalityStyle,
   LanguageOption,
 } from "./types";
+// Note: Using standardized sessionStorage transport with TTL
+import { writeHandoff } from "@/lib/obd-framework/social-handoff-transport";
 
 const defaultFormValues: OffersBuilderRequest = {
   businessName: "",
@@ -1922,6 +1924,88 @@ function OffersBuilderPageContent() {
                         </ResultCard>
                       );
                     })}
+                  </div>
+
+                  {/* Create Social Campaign CTA */}
+                  <div className="mt-6">
+                    <OBDPanel isDark={isDark}>
+                      <div className="flex items-center justify-between flex-wrap gap-4">
+                        <div>
+                          <h4 className={`text-base font-semibold mb-1 ${
+                            isDark ? "text-white" : "text-slate-900"
+                          }`}>
+                            Ready to launch?
+                          </h4>
+                          <p className={`text-sm ${
+                            isDark ? "text-slate-400" : "text-slate-600"
+                          }`}>
+                            Create a social media campaign from this offer
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            try {
+                              // Extract offer details (same logic as old handoff-builder)
+                              const headline = result.offerSummary?.headline || 
+                                               result.headlineOptions?.[0]?.headline || 
+                                               result.socialPosts?.[0]?.headline || 
+                                               "Special Offer";
+
+                              const description = result.offerSummary?.fullPitch || 
+                                                 result.bodyOptions?.[0]?.body || 
+                                                 result.socialPosts?.[0]?.mainCopy || 
+                                                 "";
+
+                              const cta = result.gbpPost?.suggestedCTA || 
+                                        result.socialPosts?.[0]?.callToAction || 
+                                        undefined;
+
+                              const expirationDate = form?.endDate || undefined;
+
+                              // Build simple draft text: headline + blank line + description + blank line + cta
+                              const textParts: string[] = [headline.trim()];
+                              if (description.trim()) {
+                                textParts.push(""); // blank line
+                                textParts.push(description.trim());
+                              }
+                              if (cta) {
+                                textParts.push(""); // blank line
+                                textParts.push(cta.trim());
+                              }
+                              const text = textParts.join("\n");
+
+                              // Build canonical handoff payload
+                              const payload = {
+                                v: 1,
+                                source: "offers-builder" as const,
+                                campaignType: "offer" as const,
+                                createdAt: new Date().toISOString(),
+                                headline: headline.trim(),
+                                description: description.trim(),
+                                cta: cta?.trim(),
+                                expirationDate: expirationDate,
+                                text: text,
+                              };
+
+                              // Save to sessionStorage using standardized transport
+                              writeHandoff("offers-builder", payload);
+
+                              // Open new tab to composer
+                              window.open("/apps/social-auto-poster/composer?handoff=1", "_blank");
+
+                              // Show toast
+                              showToast("Sent to Social Auto-Poster composer");
+                            } catch (error) {
+                              console.error("Failed to create social campaign:", error);
+                              showToast("Failed to create campaign. Please try again.");
+                            }
+                          }}
+                          className={SUBMIT_BUTTON_CLASSES}
+                        >
+                          Create Social Campaign
+                        </button>
+                      </div>
+                    </OBDPanel>
                   </div>
                 </div>
               )}

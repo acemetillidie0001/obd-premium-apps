@@ -3,7 +3,11 @@
  * 
  * Provides standardized connection status states and error handling
  * for Meta (Facebook/Instagram) connections.
+ * 
+ * Uses centralized connection state mapping (Tier 5A) for calm, trust-safe messaging.
  */
+
+import { getConnectionUIModel, type ConnectionUIModel } from "./connection/connectionState";
 
 export type MetaConnectionStatus = 
   | "NOT_CONNECTED"
@@ -22,7 +26,29 @@ export interface MetaConnectionState {
 }
 
 /**
+ * Maps ConnectionUIState to legacy MetaConnectionStatus
+ */
+function mapUIStateToMetaStatus(state: ConnectionUIModel["state"]): MetaConnectionStatus {
+  switch (state) {
+    case "connected":
+      return "CONNECTED";
+    case "limited":
+    case "pending":
+      return "CONNECTED"; // Limited/pending still considered connected
+    case "disabled":
+      return "NOT_CONNECTED";
+    case "error":
+      return "ERROR";
+    default:
+      return "ERROR";
+  }
+}
+
+/**
  * Derives connection status from API response and error codes
+ * 
+ * Uses centralized connection state mapping (Tier 5A) to provide
+ * calm, trust-safe messaging instead of scary error messages.
  */
 export function deriveMetaConnectionStatus(
   apiResponse: {
@@ -36,6 +62,10 @@ export function deriveMetaConnectionStatus(
       pagesAccessGranted?: boolean;
       pageName?: string;
     };
+    publishing?: {
+      enabled?: boolean;
+      reasonIfDisabled?: string;
+    };
   },
   metaError?: {
     code?: string;
@@ -43,117 +73,48 @@ export function deriveMetaConnectionStatus(
     type?: string;
   }
 ): MetaConnectionState {
-  // Not configured
-  if (!apiResponse.configured) {
-    return {
-      status: "NOT_CONNECTED",
-      message: "Meta integration is not configured. Please contact support.",
-      actionLabel: "Contact Support",
-      actionUrl: "mailto:support@ocalabusinessdirectory.com",
-      errorCode: apiResponse.errorCode || "NOT_CONFIGURED",
-    };
-  }
+  // Use centralized mapping
+  const publishingEnabled = isMetaPublishingEnabled(); // Defined below
+  const uiModel = getConnectionUIModel(apiResponse, metaError || null, publishingEnabled);
 
-  // API error
-  if (!apiResponse.ok) {
-    const errorCode = apiResponse.errorCode || "UNKNOWN_ERROR";
-    
-    if (errorCode === "UNAUTHORIZED" || errorCode === "PREMIUM_REQUIRED") {
-      return {
-        status: "NOT_CONNECTED",
-        message: "Please sign in and ensure you have premium access.",
-        actionLabel: "Sign In",
-        actionUrl: "/login",
-        errorCode,
-      };
+  // Map to legacy status format for backward compatibility
+  const status = mapUIStateToMetaStatus(uiModel.state);
+
+  // Determine action label based on state
+  let actionLabel = "Try Again";
+  let actionUrl: string | undefined;
+
+  if (uiModel.state === "connected") {
+    actionLabel = "Disconnect";
+  } else if (uiModel.state === "limited") {
+    const facebook = apiResponse?.facebook;
+    if (facebook?.connected && !facebook?.pagesAccessGranted) {
+      actionLabel = "Enable Pages Access";
+    } else {
+      actionLabel = "Connect";
     }
-
-    if (errorCode === "DB_ERROR") {
-      return {
-        status: "ERROR",
-        message: "Unable to load connection status. Please try again later.",
-        actionLabel: "Try Again",
-        errorCode,
-      };
+  } else if (uiModel.state === "disabled") {
+    if (!apiResponse?.configured) {
+      actionLabel = "Contact Support";
+      actionUrl = "mailto:support@ocalabusinessdirectory.com";
+    } else {
+      actionLabel = "Connect Facebook";
     }
-
-    return {
-      status: "ERROR",
-      message: apiResponse.errorMessage || "Unable to load connection status.",
-      actionLabel: "Try Again",
-      errorCode,
-    };
+  } else if (uiModel.state === "pending") {
+    actionLabel = "Learn More";
   }
 
-  // Check Facebook connection
-  const facebook = apiResponse.facebook;
-  if (!facebook?.connected) {
-    return {
-      status: "NOT_CONNECTED",
-      message: "Facebook is not connected. Connect your account to get started.",
-      actionLabel: "Connect Facebook",
-    };
-  }
+  // Preserve error details in errorMessage for debugging
+  const errorCode = apiResponse?.errorCode;
+  const errorMessage = uiModel.detail || undefined;
 
-  // Check for Meta API errors
-  if (metaError) {
-    const errorCode = metaError.code || metaError.type || "UNKNOWN";
-    
-    // Token expired or invalid
-    if (errorCode === "190" || errorCode.includes("expired") || errorCode.includes("invalid_token")) {
-      return {
-        status: "NEEDS_REAUTH",
-        message: "Your Facebook connection has expired. Please reconnect to continue posting.",
-        actionLabel: "Reconnect",
-        errorCode,
-        errorMessage: metaError.message,
-      };
-    }
-
-    // Permissions revoked
-    if (errorCode === "200" || errorCode === "10" || errorCode.includes("permission") || errorCode.includes("revoked")) {
-      return {
-        status: "ACCESS_REVOKED",
-        message: "Facebook access has been revoked. Please reconnect to grant permissions again.",
-        actionLabel: "Reconnect",
-        errorCode,
-        errorMessage: metaError.message,
-      };
-    }
-
-    // Generic error
-    return {
-      status: "ERROR",
-      message: "An error occurred with your Facebook connection. Please try reconnecting.",
-      actionLabel: "Reconnect",
-      errorCode,
-      errorMessage: metaError.message,
-    };
-  }
-
-  // Connected successfully
-  if (facebook.connected && facebook.pagesAccessGranted) {
-    return {
-      status: "CONNECTED",
-      message: `Connected to ${facebook.pageName || "Facebook Page"}`,
-      actionLabel: "Disconnect",
-    };
-  }
-
-  // Connected but needs pages access
-  if (facebook.connected && !facebook.pagesAccessGranted) {
-    return {
-      status: "CONNECTED",
-      message: "Connected. Enable Pages access to select a Page for posting.",
-      actionLabel: "Enable Pages Access",
-    };
-  }
-
-  // Fallback
   return {
-    status: "CONNECTED",
-    message: "Facebook is connected.",
-    actionLabel: "Disconnect",
+    status,
+    message: uiModel.message, // Use calm message from centralized mapping
+    actionLabel,
+    actionUrl,
+    errorCode,
+    errorMessage,
   };
 }
 

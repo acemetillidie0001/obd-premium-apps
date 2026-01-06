@@ -12,8 +12,17 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
 import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
-import { getMetaPublishingBannerMessage } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getMetaPublishingBannerMessage, isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import { getConnectionUIModel } from "@/lib/apps/social-auto-poster/connection/connectionState";
 import { parseSocialAutoPosterHandoff, normalizePlatform, type SocialAutoPosterHandoffPayload } from "@/lib/apps/social-auto-poster/handoff-parser";
+import { parseSocialHandoff } from "@/lib/apps/social-auto-poster/handoff/parseSocialHandoff";
+import { clearHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import { getSourceDisplayName, type SocialComposerHandoffPayload } from "@/lib/apps/social-auto-poster/handoff/socialHandoffTypes";
+import PopularCustomerQuestionsPanel from "./components/PopularCustomerQuestionsPanel";
+import { flags } from "@/lib/flags";
+import ConnectionStatusBadge from "@/components/obd/ConnectionStatusBadge";
+import SessionCallout from "../ui/SessionCallout";
+import { DISMISS_KEYS } from "@/lib/apps/social-auto-poster/ui/dismissKeys";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -94,7 +103,23 @@ function SocialAutoPosterComposerPageContent() {
   const [settings, setSettings] = useState<{
     enabledPlatforms?: SocialPlatform[];
     brandVoice?: string;
+    useBrandKit?: boolean;
+    postingMode?: "review" | "auto" | "campaign";
     contentPillarSettings?: { contentPillarMode?: string; defaultPillar?: string };
+  } | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    ok?: boolean;
+    configured?: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    facebook?: {
+      connected?: boolean;
+      pagesAccessGranted?: boolean;
+    };
+    publishing?: {
+      enabled?: boolean;
+      reasonIfDisabled?: string;
+    };
   } | null>(null);
 
   // Handoff state
@@ -106,6 +131,15 @@ function SocialAutoPosterComposerPageContent() {
   const [handoffImportCompleted, setHandoffImportCompleted] = useState(false);
   const handoffProcessed = useRef(false);
   const setupLoaded = useRef(false);
+  
+  // Event countdown variant state
+  const [selectedCountdownIndex, setSelectedCountdownIndex] = useState(0);
+
+  // Canonical handoff state
+  const [canonicalHandoff, setCanonicalHandoff] = useState<SocialComposerHandoffPayload | null>(null);
+  const canonicalHandoffProcessed = useRef(false);
+  const originalImportedText = useRef<string | null>(null); // Store original imported text for variant switching
+  const [handoffExpired, setHandoffExpired] = useState(false);
 
   // Handoff imports must run before setup gating (review-first ingestion)
   // Step A: Parse handoff payload (URL + localStorage fallback) - runs first
@@ -157,10 +191,204 @@ function SocialAutoPosterComposerPageContent() {
     }
   }, [handoffImportCompleted]);
 
+  // Canonical handoff handler - runs after settings are loaded
+  useEffect(() => {
+    if (typeof window === "undefined" || canonicalHandoffProcessed.current || !settings) {
+      return;
+    }
+
+    // Only process once
+    canonicalHandoffProcessed.current = true;
+
+    // Parse canonical handoff
+    const result = parseSocialHandoff(searchParams);
+    
+    if (result.error) {
+      // Handle expired handoffs with user-friendly banner
+      if (result.error === "expired") {
+        setHandoffExpired(true);
+        return;
+      }
+      // Silently handle other errors - don't block user
+      console.warn("Handoff parse error:", result.error);
+      return;
+    }
+
+      if (result.payload) {
+      // Store payload for banner display
+      setCanonicalHandoff(result.payload);
+      
+      // Initialize countdown variant index if variants exist
+      if (result.payload.countdownVariants && result.payload.countdownVariants.length > 0) {
+        setSelectedCountdownIndex(0);
+      }
+
+      // For events, set posting mode UI to Campaign (do NOT save)
+      if (result.payload.campaignType === "event") {
+        setSettings((prev) => ({
+          ...prev,
+          postingMode: "campaign",
+        }));
+      }
+
+      // Prefill composer ONLY if editor is empty
+      const currentTopic = formData.topic?.trim() || "";
+      const currentDetails = formData.details?.trim() || "";
+      
+      if (!currentTopic && !currentDetails) {
+        // Build text from payload
+        let textToInsert = "";
+        
+        if (result.payload.text) {
+          // Use direct text if provided
+          textToInsert = result.payload.text;
+        } else {
+          // Build from structured fields
+          const parts: string[] = [];
+          
+          if (result.payload.headline) {
+            parts.push(result.payload.headline);
+          }
+          
+          if (result.payload.description) {
+            parts.push(result.payload.description);
+          }
+          
+          if (result.payload.campaignType === "offer" && result.payload.expirationDate) {
+            parts.push(`Offer expires: ${result.payload.expirationDate}`);
+          }
+          
+          if (result.payload.campaignType === "event") {
+            // For events, use first countdown variant if available
+            const firstVariant = result.payload.countdownVariants?.[0];
+            if (firstVariant) {
+              parts.push(firstVariant);
+            }
+            
+            const eventParts: string[] = [];
+            if (result.payload.eventName) eventParts.push(result.payload.eventName);
+            if (result.payload.eventDate) eventParts.push(`Date: ${result.payload.eventDate}`);
+            if (result.payload.location) eventParts.push(`Location: ${result.payload.location}`);
+            if (eventParts.length > 0) {
+              parts.push(eventParts.join("\n"));
+            }
+          }
+          
+          textToInsert = parts.join("\n\n");
+        }
+
+        if (textToInsert.trim()) {
+          // Store original imported text for variant switching
+          originalImportedText.current = textToInsert.trim();
+          
+          // For ACW content, place in details field (it's longer content)
+          if (result.payload.source === "ai-content-writer") {
+            setFormData((prev) => ({
+              ...prev,
+              details: textToInsert.trim(),
+            }));
+          } else {
+            // For other sources, split into topic and details if it's long
+            const lines = textToInsert.split("\n");
+            if (lines.length > 3) {
+              setFormData((prev) => ({
+                ...prev,
+                topic: lines[0] || "",
+                details: lines.slice(1).join("\n").trim(),
+              }));
+            } else {
+              setFormData((prev) => ({
+                ...prev,
+                topic: textToInsert.trim(),
+              }));
+            }
+          }
+        }
+      }
+
+      // Clear URL param if present
+      if (typeof window !== "undefined" && searchParams?.get("handoff")) {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+    }
+  }, [settings, searchParams, formData.topic, formData.details]);
+
   // Helper to show toast
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Helper to rebuild event text with a different countdown variant
+  const rebuildEventTextWithVariant = (variant: string): string => {
+    if (!canonicalHandoff || canonicalHandoff.campaignType !== "event") {
+      return "";
+    }
+    
+    // Format: ${variant}\n\n${eventName}\n${eventDate}${location ? " • " + location : ""}\n\n${description}
+    const eventName = canonicalHandoff.eventName || "";
+    const eventDate = canonicalHandoff.eventDate || "";
+    const location = canonicalHandoff.location || "";
+    const description = canonicalHandoff.description || "";
+    
+    const dateLocationLine = eventDate + (location ? " • " + location : "");
+    
+    // Build exactly as specified: variant\n\neventName\ndateLocation\n\ndescription
+    return `${variant}\n\n${eventName}\n${dateLocationLine}\n\n${description}`.trim();
+  };
+
+  // Check if editor has been edited since import
+  const hasEditorBeenEdited = (): boolean => {
+    if (!originalImportedText.current) {
+      return false; // No import to compare against
+    }
+    const currentTopic = formData.topic?.trim() || "";
+    const currentDetails = formData.details?.trim() || "";
+    const currentText = currentTopic + (currentDetails ? "\n\n" + currentDetails : "");
+    const originalText = originalImportedText.current || "";
+    return currentText.trim() !== originalText.trim();
+  };
+
+  // Handle variant selection - only update if editor still matches original
+  const handleVariantChange = (variantIndex: number) => {
+    if (!canonicalHandoff?.countdownVariants || variantIndex < 0 || variantIndex >= canonicalHandoff.countdownVariants.length) {
+      return;
+    }
+
+    // Check if current editor content matches original imported text
+    const currentTopic = formData.topic?.trim() || "";
+    const currentDetails = formData.details?.trim() || "";
+    const currentText = currentTopic + (currentDetails ? "\n\n" + currentDetails : "");
+    const originalText = originalImportedText.current || "";
+
+    // Only update if content matches (user hasn't edited)
+    if (currentText.trim() === originalText.trim()) {
+      const newVariant = canonicalHandoff.countdownVariants[variantIndex];
+      const newText = rebuildEventTextWithVariant(newVariant);
+      
+      if (newText.trim()) {
+        // Store new text as the "original" for future checks
+        originalImportedText.current = newText.trim();
+        
+        // Split into topic and details
+        const lines = newText.split("\n");
+        if (lines.length > 3) {
+          setFormData((prev) => ({
+            ...prev,
+            topic: lines[0] || "",
+            details: lines.slice(1).join("\n").trim(),
+          }));
+        } else {
+          setFormData((prev) => ({
+            ...prev,
+            topic: newText.trim(),
+            details: "",
+          }));
+        }
+      }
+    }
+    // If content doesn't match, silently do nothing (user has edited)
   };
 
   // Import captions from handoff
@@ -211,7 +439,12 @@ function SocialAutoPosterComposerPageContent() {
       let importedCount = 0;
       let skippedCount = 0;
 
-      // Import each caption
+      // Import each caption (only for image-caption-generator)
+      if (!handoffPayload.captions || handoffPayload.captions.length === 0) {
+        setHandoffImportCompleted(true);
+        return;
+      }
+
       for (const caption of handoffPayload.captions) {
         const platform = normalizePlatform(caption.platform);
         if (!platform) {
@@ -316,13 +549,180 @@ function SocialAutoPosterComposerPageContent() {
     }
   };
 
+  // Handle event-campaign-builder handoff (event import)
+  const handleImportEvent = () => {
+    if (!handoffPayload || handoffPayload.sourceApp !== "event-campaign-builder") {
+      setHandoffImportCompleted(true);
+      return;
+    }
+
+    setHandoffImporting(true);
+
+    try {
+      // Guardrail: Only import if composer is empty
+      const currentTopic = formData.topic?.trim() || "";
+      const currentDetails = formData.details?.trim() || "";
+      
+      if (currentTopic || currentDetails) {
+        // Composer has content - don't override, just mark as completed
+        setHandoffImporting(false);
+        setHandoffImportCompleted(true);
+        setHandoffPayload(null);
+        setHandoffHash(null);
+        return;
+      }
+
+      // Use first suggested countdown copy as default
+      const countdownCopy = handoffPayload.suggestedCountdownCopy?.[0] || "Coming soon!";
+      const eventInfo = [
+        handoffPayload.eventName || "Event",
+        handoffPayload.eventDate ? `Date: ${handoffPayload.eventDate}` : "",
+        handoffPayload.location ? `Location: ${handoffPayload.location}` : "",
+      ].filter(Boolean).join("\n");
+
+      // Build topic with countdown copy
+      const topic = `${countdownCopy}\n\n${eventInfo}`;
+      const details = handoffPayload.description || "";
+
+      // Set form data (draft copy)
+      setFormData((prev) => ({
+        ...prev,
+        topic: topic.trim(),
+        details: details.trim(),
+        campaignType: "Event",
+      }));
+
+      // Auto-select Campaign mode (do NOT save automatically)
+      setSettings((prev) => ({
+        ...prev,
+        postingMode: "campaign",
+      }));
+
+      // Mark handoff as imported
+      if (handoffHash) {
+        markHandoffImported("social-auto-poster", handoffHash);
+      }
+
+      // Clear handoff state (but keep payload for countdown dropdown)
+      // We'll clear it when user dismisses the banner
+      setHandoffHash(null);
+
+      // Clear localStorage if handoffId was used
+      if (typeof window !== "undefined" && handoffId) {
+        const storageKey = `obd_handoff:${handoffId}`;
+        localStorage.removeItem(storageKey);
+      }
+      setHandoffId(null);
+
+      // Clear handoff params from URL
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+
+      setHandoffImportCompleted(true);
+    } catch (error) {
+      console.error("Failed to import event:", error);
+      showToast("Failed to import event. Please try again.");
+      setHandoffImportCompleted(true);
+    } finally {
+      setHandoffImporting(false);
+    }
+  };
+
+  // Handle offers-builder handoff (campaign import)
+  const handleImportOffer = () => {
+    if (!handoffPayload || handoffPayload.sourceApp !== "offers-builder") {
+      setHandoffImportCompleted(true);
+      return;
+    }
+
+    setHandoffImporting(true);
+
+    try {
+      // Guardrail: Only import if composer is empty
+      const currentTopic = formData.topic?.trim() || "";
+      const currentDetails = formData.details?.trim() || "";
+      
+      if (currentTopic || currentDetails) {
+        // Composer has content - don't override, just mark as completed
+        setHandoffImporting(false);
+        setHandoffImportCompleted(true);
+        setHandoffPayload(null);
+        setHandoffHash(null);
+        return;
+      }
+
+      // Proceed with import
+      // Generate draft copy from offer data
+      const topic = handoffPayload.headline || "Special Offer";
+      const details = handoffPayload.description || "";
+      const expirationNote = handoffPayload.expirationDate 
+        ? `\n\nOffer expires: ${handoffPayload.expirationDate}`
+        : "";
+      const fullDetails = details + expirationNote;
+
+      // Set form data (draft copy)
+      setFormData((prev) => ({
+        ...prev,
+        topic: topic.trim(),
+        details: fullDetails.trim(),
+        campaignType: "Limited-Time Offer",
+      }));
+
+      // Auto-select Campaign mode (do NOT save automatically)
+      setSettings((prev) => ({
+        ...prev,
+        postingMode: "campaign",
+      }));
+
+      // Mark handoff as imported
+      if (handoffHash) {
+        markHandoffImported("social-auto-poster", handoffHash);
+      }
+
+      // Clear handoff state
+      setHandoffPayload(null);
+      setHandoffHash(null);
+
+      // Clear localStorage if handoffId was used
+      if (typeof window !== "undefined" && handoffId) {
+        const storageKey = `obd_handoff:${handoffId}`;
+        localStorage.removeItem(storageKey);
+      }
+      setHandoffId(null);
+
+      // Clear handoff params from URL
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+
+      setHandoffImportCompleted(true);
+    } catch (error) {
+      console.error("Failed to import offer:", error);
+      showToast("Failed to import campaign. Please try again.");
+      setHandoffImportCompleted(true);
+    } finally {
+      setHandoffImporting(false);
+    }
+  };
+
   // Auto-import on mount if handoff exists (step B: Run duplicate-safe additive import)
   // This runs immediately when handoff is detected, before setup loading
   const handoffImportedRef = useRef(false);
   useEffect(() => {
     if (handoffPayload && handoffHash && !handoffImporting && !handoffImportedRef.current) {
       handoffImportedRef.current = true;
-      handleImportCaptions();
+      
+      // Route to appropriate handler based on source
+      if (handoffPayload.sourceApp === "offers-builder") {
+        handleImportOffer();
+      } else if (handoffPayload.sourceApp === "event-campaign-builder") {
+        handleImportEvent();
+      } else {
+        handleImportCaptions();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoffPayload, handoffHash]);
@@ -455,6 +855,8 @@ function SocialAutoPosterComposerPageContent() {
           setSettings({
             enabledPlatforms: data.settings.enabledPlatforms,
             brandVoice: data.settings.brandVoice,
+            useBrandKit: data.settings.useBrandKit ?? true,
+            postingMode: data.settings.postingMode,
             contentPillarSettings: data.settings.contentPillarSettings,
           });
         }
@@ -463,6 +865,23 @@ function SocialAutoPosterComposerPageContent() {
       console.error("Failed to load settings:", err);
     }
   };
+
+  const loadConnectionStatus = async () => {
+    try {
+      const res = await fetch("/api/social-connections/meta/status");
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionStatus(data);
+      }
+    } catch (err) {
+      console.error("Failed to load connection status:", err);
+    }
+  };
+
+  // Load connection status on mount
+  useEffect(() => {
+    loadConnectionStatus();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -601,6 +1020,135 @@ function SocialAutoPosterComposerPageContent() {
 
       <SocialAutoPosterNav isDark={isDark} />
 
+      {/* Connection Status Badge */}
+      {(() => {
+        try {
+          const publishingEnabled = isMetaPublishingEnabled();
+          const uiModel = getConnectionUIModel(connectionStatus, undefined, publishingEnabled);
+          return (
+            <div className="mt-2 mb-4">
+              <ConnectionStatusBadge
+                state={uiModel.state}
+                label={uiModel.badgeLabel}
+                isDark={isDark}
+              />
+              {uiModel.message && (
+                <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                  {uiModel.message}
+                </p>
+              )}
+            </div>
+          );
+        } catch {
+          return (
+            <div className="mt-2 mb-4">
+              <ConnectionStatusBadge
+                state="error"
+                label="Error"
+                isDark={isDark}
+              />
+              <p className={`text-sm mt-2 ${themeClasses.mutedText}`}>
+                We couldn&apos;t verify connection status right now. Try again.
+              </p>
+            </div>
+          );
+        }
+      })()}
+
+      {/* First-run Callout: Workflow */}
+      <SessionCallout
+        dismissKey={DISMISS_KEYS.composerWorkflow}
+        title="How It Works"
+        message="Create posts here, then approve/schedule them in the Queue."
+        isDark={isDark}
+      />
+
+      {/* Expired Handoff Banner */}
+      {handoffExpired && (
+        <SessionCallout
+          dismissKey={DISMISS_KEYS.importBanner}
+          title="Import expired"
+          message="Please resend from the source app."
+          isDark={isDark}
+          onDismiss={() => {
+            // Clear handoff when banner is dismissed
+            clearHandoff();
+            setHandoffExpired(false);
+          }}
+        />
+      )}
+
+      {/* Canonical Import Banner */}
+      {canonicalHandoff && (
+        <SessionCallout
+          dismissKey={DISMISS_KEYS.importBanner}
+          title={
+            canonicalHandoff.source === "event-campaign-builder"
+              ? "Event content imported from Event Campaign Builder"
+              : canonicalHandoff.source === "ai-content-writer"
+              ? "Imported content from AI Content Writer"
+              : canonicalHandoff.campaignType === "event"
+              ? `Event content imported from ${getSourceDisplayName(canonicalHandoff.source)}`
+              : canonicalHandoff.campaignType === "offer"
+              ? `Imported campaign draft from ${getSourceDisplayName(canonicalHandoff.source)}`
+              : `Imported content from ${getSourceDisplayName(canonicalHandoff.source)}`
+          }
+          message="Review and edit the draft copy below. You can modify or discard it."
+          isDark={isDark}
+          onDismiss={() => {
+            // Clear handoff when banner is dismissed
+            clearHandoff();
+          }}
+          customContent={
+            canonicalHandoff.source === "event-campaign-builder" &&
+            canonicalHandoff.countdownVariants &&
+            canonicalHandoff.countdownVariants.length > 1 ? (
+              <div className="mt-3">
+                <div className="flex items-center gap-2">
+                  <label className={`text-xs font-medium ${
+                    isDark ? "text-slate-400" : "text-slate-600"
+                  }`}>
+                    Variant:
+                  </label>
+                  <select
+                    value={selectedCountdownIndex}
+                    onChange={(e) => {
+                      const newIndex = parseInt(e.target.value, 10);
+                      setSelectedCountdownIndex(newIndex);
+                      handleVariantChange(newIndex);
+                    }}
+                    disabled={hasEditorBeenEdited()}
+                    title={hasEditorBeenEdited() ? "Variant selection is disabled after edits to protect your changes." : undefined}
+                    className={`text-xs px-2 py-1 rounded border ${
+                      hasEditorBeenEdited()
+                        ? isDark
+                          ? "bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed"
+                          : "bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed"
+                        : isDark
+                        ? "bg-slate-800 border-slate-700 text-slate-200"
+                        : "bg-white border-slate-300 text-slate-900"
+                    } focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50`}
+                  >
+                    {canonicalHandoff.countdownVariants.map((variant, idx) => (
+                      <option key={idx} value={idx}>
+                        {variant}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {hasEditorBeenEdited() && (
+                  <p className={`text-xs mt-1 ${
+                    isDark ? "text-slate-500" : "text-slate-500"
+                  }`}>
+                    Variant selection is disabled after edits to protect your changes.
+                  </p>
+                )}
+              </div>
+            ) : undefined
+          }
+        />
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-4 right-4 z-50">
@@ -608,7 +1156,215 @@ function SocialAutoPosterComposerPageContent() {
         </div>
       )}
 
+      {/* Composer Clarity Banner */}
+      {settings && (
+        <OBDPanel isDark={isDark} className="mt-4 mb-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              {settings.postingMode && (
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-medium ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Mode:
+                  </span>
+                  <span className={`text-sm ${
+                    isDark ? "text-slate-400" : "text-slate-600"
+                  }`}>
+                    {settings.postingMode === "review" ? "Review" : 
+                     settings.postingMode === "auto" ? "Auto" : 
+                     settings.postingMode === "campaign" ? "Campaign" : 
+                     settings.postingMode}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${
+                  isDark ? "text-slate-300" : "text-slate-700"
+                }`}>
+                  Brand:
+                </span>
+                <span className={`text-sm ${
+                  isDark ? "text-slate-400" : "text-slate-600"
+                }`}>
+                  {settings.useBrandKit ?? true
+                    ? "Using Brand Kit defaults"
+                    : "Using local overrides"}
+                </span>
+              </div>
+            </div>
+            <Link
+              href="/apps/social-auto-poster/setup"
+              className={`text-sm font-medium transition-colors ${
+                isDark
+                  ? "text-[#29c4a9] hover:text-[#25b09a]"
+                  : "text-[#1EB9A7] hover:text-[#1a9d8f]"
+              }`}
+            >
+              Edit in Setup →
+            </Link>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* Campaign Import Banner (Offers Builder) */}
+      {handoffPayload?.sourceApp === "offers-builder" && !handoffImportCompleted && (
+        <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-amber-500">📢</span>
+                <span className={`text-sm font-semibold ${
+                  isDark ? "text-amber-400" : "text-amber-700"
+                }`}>
+                  Campaign draft imported from Offers & Promotions
+                </span>
+              </div>
+              <p className={`text-sm ${
+                isDark ? "text-slate-400" : "text-slate-600"
+              }`}>
+                Review and edit the draft copy below. Posting Mode has been set to Campaign.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setHandoffPayload(null);
+                setHandoffHash(null);
+                setHandoffImportCompleted(true);
+                if (typeof window !== "undefined" && handoffId) {
+                  const storageKey = `obd_handoff:${handoffId}`;
+                  localStorage.removeItem(storageKey);
+                }
+                setHandoffId(null);
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+              }}
+              className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                isDark
+                  ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+              }`}
+            >
+              Dismiss
+            </button>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* Event Import Banner (Event Campaign Builder) */}
+      {handoffPayload?.sourceApp === "event-campaign-builder" && handoffPayload.suggestedCountdownCopy && (
+        <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-blue-500/30 bg-blue-500/5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-blue-500">📅</span>
+                <span className={`text-sm font-semibold ${
+                  isDark ? "text-blue-400" : "text-blue-700"
+                }`}>
+                  Event content imported from Event Campaign Builder
+                </span>
+              </div>
+              
+              {/* Countdown Variant Dropdown */}
+              {handoffPayload.suggestedCountdownCopy.length > 1 && (
+                <div className="mb-3">
+                  <label htmlFor="countdown-variant" className={`block text-xs font-medium mb-1 ${
+                    isDark ? "text-slate-300" : "text-slate-700"
+                  }`}>
+                    Countdown Copy Variant:
+                  </label>
+                  <select
+                    id="countdown-variant"
+                    value={selectedCountdownIndex}
+                    onChange={(e) => {
+                      const newIndex = parseInt(e.target.value, 10);
+                      setSelectedCountdownIndex(newIndex);
+                      
+                      // Update topic with selected countdown copy
+                      const countdownCopy = handoffPayload.suggestedCountdownCopy?.[newIndex] || "Coming soon!";
+                      const eventInfo = [
+                        handoffPayload.eventName || "Event",
+                        handoffPayload.eventDate ? `Date: ${handoffPayload.eventDate}` : "",
+                        handoffPayload.location ? `Location: ${handoffPayload.location}` : "",
+                      ].filter(Boolean).join("\n");
+                      
+                      const newTopic = `${countdownCopy}\n\n${eventInfo}`;
+                      setFormData((prev) => ({
+                        ...prev,
+                        topic: newTopic.trim(),
+                      }));
+                    }}
+                    className={`text-sm px-3 py-1.5 rounded border ${
+                      isDark
+                        ? "bg-slate-800 border-slate-600 text-slate-200"
+                        : "bg-white border-slate-300 text-slate-900"
+                    }`}
+                  >
+                    {handoffPayload.suggestedCountdownCopy.map((copy, idx) => (
+                      <option key={idx} value={idx}>
+                        {copy}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              
+              <p className={`text-sm ${
+                isDark ? "text-slate-400" : "text-slate-600"
+              }`}>
+                Review and edit the draft copy below. Posting Mode has been set to Campaign.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setHandoffPayload(null);
+                setHandoffHash(null);
+                setHandoffImportCompleted(true);
+                if (typeof window !== "undefined" && handoffId) {
+                  const storageKey = `obd_handoff:${handoffId}`;
+                  localStorage.removeItem(storageKey);
+                }
+                setHandoffId(null);
+                if (typeof window !== "undefined") {
+                  const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                  replaceUrlWithoutReload(cleanUrl);
+                }
+              }}
+              className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                isDark
+                  ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+              }`}
+            >
+              Dismiss
+            </button>
+          </div>
+        </OBDPanel>
+      )}
+
       <div className="mt-7 space-y-6">
+        {/* Popular Customer Questions Panel (Feature Flag) */}
+        {flags.socialAutoPosterCustomerQuestions && (
+          <PopularCustomerQuestionsPanel
+            isDark={isDark}
+            onUseAsPostIdea={(question) => {
+              // Insert question into topic field (editable)
+              setFormData((prev) => ({
+                ...prev,
+                topic: question,
+              }));
+              // Scroll to topic field
+              const topicField = document.getElementById("topic");
+              if (topicField) {
+                topicField.focus();
+                topicField.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            }}
+          />
+        )}
+
         {/* Generate Form */}
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark} className="mb-4">

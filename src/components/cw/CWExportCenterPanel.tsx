@@ -12,6 +12,8 @@ import { isContentReadyForExport, type ContentOutput } from "@/lib/apps/content-
 import { getSecondaryButtonClasses } from "@/lib/obd-framework/layout-helpers";
 import { buildWebDraftPayload } from "@/lib/apps/content-writer/webDraft";
 import { validateWebDraftPayload } from "@/lib/handoff/validators";
+import { writeHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import type { SocialComposerHandoffPayload } from "@/lib/apps/social-auto-poster/handoff/socialHandoffTypes";
 
 interface CWExportCenterPanelProps {
   content: ContentOutput;
@@ -380,6 +382,37 @@ export default function CWExportCenterPanel({
     }
   };
 
+  const handleSendToSocialAutoPoster = () => {
+    if (!canUseTools || !isContentReadyForExport(content)) {
+      return;
+    }
+
+    try {
+      // Format content as plain text (same as export)
+      const contentText = formatContentPlainText(content);
+
+      // Build canonical handoff payload
+      const payload: SocialComposerHandoffPayload = {
+        v: 1,
+        source: "ai-content-writer" as const,
+        createdAt: new Date().toISOString(),
+        text: contentText,
+      };
+
+      // Save to sessionStorage using standardized transport
+      writeHandoff("ai-content-writer", payload);
+
+      // Open new tab to composer
+      window.open("/apps/social-auto-poster/composer?handoff=1", "_blank");
+
+      // Show toast
+      onToast("Sent to Social Auto-Poster composer");
+    } catch (error) {
+      console.error("Failed to send to Social Auto-Poster:", error);
+      onToast(error instanceof Error ? error.message : "Failed to send. Please try again.");
+    }
+  };
+
   const handleCopy = async (itemId: string, content: string, exportType?: string) => {
     try {
       await navigator.clipboard.writeText(content);
@@ -649,6 +682,39 @@ export default function CWExportCenterPanel({
             </div>
             <button
               onClick={handleSendWebDraft}
+              disabled={!canUseTools || !isContentReadyForExport(content)}
+              className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
+            >
+              Send
+            </button>
+          </div>
+
+          {/* Send to Social Auto-Poster */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <button
+                onClick={handleSendToSocialAutoPoster}
+                disabled={!canUseTools || !isContentReadyForExport(content)}
+                className={`text-left text-sm font-medium transition-colors ${
+                  canUseTools && isContentReadyForExport(content)
+                    ? isDark
+                      ? "text-slate-200 hover:text-white"
+                      : "text-slate-700 hover:text-slate-900"
+                    : isDark
+                    ? "text-slate-500 cursor-not-allowed"
+                    : "text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                Send to Social Auto-Poster
+              </button>
+              {(!canUseTools || !isContentReadyForExport(content)) && (
+                <p className={`text-xs mt-1 ${isDark ? "text-slate-500" : "text-slate-400"}`}>
+                  Generate content to enable
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleSendToSocialAutoPoster}
               disabled={!canUseTools || !isContentReadyForExport(content)}
               className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
             >

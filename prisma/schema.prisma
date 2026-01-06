@@ -225,6 +225,7 @@ model SocialAutoposterSettings {
   id                    String   @id @default(cuid())
   userId                String   @unique
   brandVoice            String?
+  useBrandKit           Boolean? @default(true)
   postingMode           String   @default("review")
   frequency             String?
   allowedDays           String[] @default([])

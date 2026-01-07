@@ -43,11 +43,23 @@ async function isDemoReadOnlyError(response: Response): Promise<boolean> {
  * 
  * This ensures all fetch calls (including existing code) automatically
  * show toast notifications when demo mode blocks mutations.
+ * 
+ * Production-safe: Guards against multiple patches and ensures response
+ * parsing never breaks downstream consumers.
  */
 export function initGlobalFetchInterceptor(): void {
   if (typeof window === "undefined") {
     return; // SSR-safe
   }
+
+  // Guard: Prevent patching fetch more than once
+  const windowAny = window as any;
+  if (windowAny.__obdFetchPatched) {
+    return; // Already patched, do nothing
+  }
+
+  // Mark as patched
+  windowAny.__obdFetchPatched = true;
 
   // Store original fetch
   const originalFetch = window.fetch;
@@ -60,13 +72,21 @@ export function initGlobalFetchInterceptor(): void {
     // Call original fetch
     const response = await originalFetch(input, init);
 
-    // Check for Demo Mode read-only error
-    if (await isDemoReadOnlyError(response)) {
-      // Show toast notification
-      showDemoToast();
+    // Check for Demo Mode read-only error (non-blocking, wrapped in try/catch)
+    try {
+      if (await isDemoReadOnlyError(response)) {
+        // Show toast notification
+        showDemoToast();
+      }
+    } catch (error) {
+      // If error checking fails, silently continue (don't break the request)
+      // This ensures production safety even if response parsing has edge cases
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[Demo Toast] Error checking for DEMO_READ_ONLY:", error);
+      }
     }
 
-    // Return response unchanged (existing error handling continues to work)
+    // Return original response unchanged (existing error handling continues to work)
     return response;
   };
 }

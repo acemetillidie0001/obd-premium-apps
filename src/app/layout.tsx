@@ -8,6 +8,8 @@ import UserMenu from "@/components/auth/UserMenu";
 import SignOutButton from "@/components/auth/SignOutButton";
 import ConditionalLayout from "@/components/layout/ConditionalLayout";
 import { hasDemoCookie } from "@/lib/demo/demo-cookie";
+import { GlobalDemoToast } from "@/components/obd/GlobalDemoToast";
+import { FetchInterceptorInit } from "@/components/obd/FetchInterceptorInit";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -164,6 +166,8 @@ export default async function RootLayout({
               {children}
             </main>
           </ConditionalLayout>
+          <FetchInterceptorInit />
+          <GlobalDemoToast />
         </SessionProvider>
       </body>
     </html>

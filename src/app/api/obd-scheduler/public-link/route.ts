@@ -105,6 +105,11 @@ export async function GET(request: NextRequest) {
  * Update slug for BookingPublicLink
  */
 export async function PUT(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 

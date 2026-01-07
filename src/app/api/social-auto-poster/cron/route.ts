@@ -15,10 +15,23 @@ import { isLikelyVercelCron } from "@/lib/apps/social-auto-poster/vercelCronVeri
  * For manual testing or external cron services, use /api/social-auto-poster/runner instead.
  */
 export async function GET(request: NextRequest) {
+  // Block demo mode - background jobs should not run in demo
+  const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  if (isDemoRequest(request)) {
+    return NextResponse.json(
+      { ok: false, error: "DEMO_READ_ONLY", message: "Demo Mode is view-only." },
+      { status: 403 }
+    );
+  }
   return handleCronRequest(request);
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   return handleCronRequest(request);
 }
 

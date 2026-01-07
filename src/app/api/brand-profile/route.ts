@@ -106,6 +106,11 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   const requestId = randomUUID();
   let userId: string | null = null;
   

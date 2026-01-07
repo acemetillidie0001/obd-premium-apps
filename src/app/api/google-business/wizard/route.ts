@@ -216,9 +216,36 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessWizardRequest;
     const isDebug = getDebugFlag(req);
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse = {
+        description: "Quality services for Ocala, Florida. We're committed to excellence and customer satisfaction.",
+        posts: [
+          {
+            title: "Welcome to Our Business",
+            content: "We're excited to serve the Ocala community!",
+          },
+        ],
+        faqs: [
+          { question: "What services do you offer?", answer: "We provide a comprehensive range of services tailored to your needs." },
+          { question: "Do you serve the Ocala area?", answer: "Yes, we proudly serve Ocala and the surrounding communities." },
+        ],
+      };
+      if (isDebug) {
+        return NextResponse.json({ ...demoResponse, _debug: { model: "demo" } });
+      }
+      return NextResponse.json(demoResponse);
+    }
 
     // Call OpenAI chat completion
     const userMessage = JSON.stringify(body, null, 2);

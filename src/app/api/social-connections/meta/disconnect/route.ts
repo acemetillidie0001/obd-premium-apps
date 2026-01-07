@@ -9,7 +9,12 @@ import { hasPremiumAccess } from "@/lib/premium";
  * Disconnects Meta (Facebook/Instagram) connections for the current user.
  * Deletes both connection records and destination selections.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

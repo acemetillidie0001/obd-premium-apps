@@ -190,9 +190,34 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessAuditRequest;
     const isDebug = getDebugFlag(req);
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse = {
+        score: 75,
+        summary: "Your Google Business Profile has good potential with room for improvement.",
+        strengths: ["Complete business information", "Regular updates"],
+        weaknesses: ["Could add more photos", "Consider adding FAQs"],
+        recommendations: [
+          "Add more high-quality photos",
+          "Respond to reviews regularly",
+          "Keep business hours updated",
+        ],
+      };
+      if (isDebug) {
+        return NextResponse.json({ ...demoResponse, _debug: { model: "demo" } });
+      }
+      return NextResponse.json(demoResponse);
+    }
 
     // Call OpenAI chat completion
     const userMessage = JSON.stringify(body, null, 2);

@@ -29,6 +29,11 @@ export const runtime = "nodejs";
  * Create demo contacts, tags, and notes for development
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // DEV ONLY: Block in production
   if (process.env.NODE_ENV === "production") {
     return apiErrorResponse(

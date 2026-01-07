@@ -411,6 +411,11 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessProRequest;
     const isDebug = getDebugFlag(req);
@@ -431,6 +436,50 @@ export async function POST(req: NextRequest) {
       state: body.state?.trim() || "Florida",
       faqCount: clampFaqCount(body.faqCount),
     };
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResult: GoogleBusinessProResult = {
+        audit: {
+          score: 75,
+          summary: "Your Google Business Profile has good potential with room for improvement.",
+          strengths: ["Complete business information", "Regular updates"],
+          issues: ["Could add more photos", "Consider adding FAQs"],
+          quickWins: ["Add business hours", "Respond to reviews"],
+          priorityFixes: [
+            {
+              title: "Add more photos",
+              description: "Include photos of your products, services, and team",
+              impact: "High" as const,
+            },
+          ],
+          suggestedKeywords: ["Ocala", "Florida", normalizedBody.businessType || "business"],
+          suggestedSections: ["Services", "About"],
+        },
+        content: {
+          shortDescription: "Quality services for Ocala, Florida.",
+          longDescription: "Quality services for Ocala, Florida. We're committed to excellence and customer satisfaction.",
+          servicesSection: "We offer a comprehensive range of services tailored to your needs.",
+          aboutSection: "We're proud to serve the Ocala community with dedication and excellence.",
+          faqSuggestions: Array.from({ length: normalizedBody.faqCount || 5 }, (_, i) => ({
+            question: `FAQ ${i + 1} Question?`,
+            answer: `This is a sample answer for FAQ ${i + 1}.`,
+          })),
+          postIdeas: [
+            "Welcome to our business! We're excited to serve the Ocala community!",
+          ],
+          keywordSuggestions: ["Ocala", "Florida", normalizedBody.businessType || "business"],
+        },
+      };
+      if (isDebug) {
+        return NextResponse.json({
+          ...demoResult,
+          _debug: { fromCache: false, model: "demo" },
+        });
+      }
+      return NextResponse.json(demoResult);
+    }
 
     // Check cache
     cleanupCache();

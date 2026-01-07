@@ -489,6 +489,11 @@ FIELDS:
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -513,24 +518,55 @@ export async function POST(request: NextRequest) {
     }
 
     const body = parsed.data;
-    const businessName = body.businessName?.trim();
-    const businessType = body.businessType?.trim();
-    const services = body.services;
+    const businessName = body.businessName?.trim() || "Our Business";
     const city = body.city?.trim() || "Ocala";
     const state = body.state?.trim() || "Florida";
-    const imageContext = body.imageContext.trim();
-    const imageDetails = body.imageDetails?.trim();
     const platform = body.platform || "Generic";
     const goal = body.goal || "Awareness";
+    const captionLength = body.captionLength || "Medium";
+    const includeHashtags = body.includeHashtags ?? false;
+    const variationMode = body.variationMode || "Safe";
+    const language = body.language || "English";
+    const variationsCount = Math.min(Math.max(1, body.variationsCount || 3), 5);
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const hashtags = includeHashtags ? ["#OcalaBusiness", "#Local"] : [];
+      const demoResponse: ImageCaptionResponse = {
+        captions: Array.from({ length: variationsCount }, (_, i) => ({
+          id: i + 1,
+          label: `Caption ${i + 1}`,
+          lengthMode: captionLength as "Short" | "Medium" | "Long",
+          variationMode: variationMode as "Safe" | "Creative" | "Storytelling" | "Punchy",
+          platform: platform as "Facebook" | "Instagram" | "InstagramStory" | "GoogleBusinessProfile" | "X" | "Generic",
+          text: `This image captures the essence of our business in ${city}, ${state}. We're proud to serve our community with quality and dedication.`,
+          hashtags: includeHashtags ? hashtags : [],
+          previewHint: "Perfect for showcasing your business",
+        })),
+        meta: {
+          businessName,
+          city,
+          state,
+          platform,
+          goal,
+          captionLength,
+          includeHashtags,
+          variationMode,
+          language,
+        },
+      };
+      return apiSuccessResponse(demoResponse);
+    }
+
+    const businessType = body.businessType?.trim();
+    const services = body.services;
+    const imageContext = body.imageContext.trim();
+    const imageDetails = body.imageDetails?.trim();
     const callToActionPreference = body.callToActionPreference || "Soft";
     const brandVoice = body.brandVoice?.trim();
     const personalityStyle = body.personalityStyle || "";
-    const captionLength = body.captionLength || "Medium";
-    const includeHashtags = body.includeHashtags ?? false;
     const hashtagStyle = body.hashtagStyle || "Local";
-    const variationsCount = Math.min(Math.max(1, body.variationsCount || 3), 5);
-    const variationMode = body.variationMode || "Safe";
-    const language = body.language || "English";
 
     const aiResponse = await generateImageCaptions({
       businessName,

@@ -9,6 +9,11 @@ import { hasPremiumAccess } from "@/lib/premium";
  * Deletes a queue item (tenant-safe by construction).
  */
 export async function DELETE(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

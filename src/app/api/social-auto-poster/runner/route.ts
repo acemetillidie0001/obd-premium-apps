@@ -19,6 +19,11 @@ import { runDuePosts } from "@/lib/apps/social-auto-poster/runDuePosts";
  * For Vercel Cron (automatic), use /api/social-auto-poster/cron instead.
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     // Verify CRON_SECRET is configured
     const cronSecret = process.env.CRON_SECRET;

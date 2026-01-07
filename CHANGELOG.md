@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Demo Mode — Complete Implementation (2026-01-06)**
+  - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit
+  - Demo banner displayed only within `/apps` routes with mobile-responsive design
+  - Tenant safety: demo cookie forces `DEMO_BUSINESS_ID` for complete demo tenant isolation
+  - Read-only enforcement: all mutation API routes (POST/PUT/PATCH/DELETE) return `403 DEMO_READ_ONLY` in demo mode
+  - Zero-cost demo: AI endpoints short-circuit to sample payloads (no OpenAI/AnythingLLM API calls)
+  - Verification and audit documentation:
+    - `docs/deployments/DEMO_MODE_VERIFICATION.md` — comprehensive verification checklist
+    - `docs/deployments/DEMO_MODE_AI_COST_PROTECTION_AUDIT_REPORT.md` — AI cost protection audit
+
 - **Offers & Promotions Builder — Tier 5B + Tier 5C (2024-12-19)**
   - **Tier 5B Core Features:**
     - Lifecycle state derivation (Draft/Active/Expired/Archived) with status pill indicators

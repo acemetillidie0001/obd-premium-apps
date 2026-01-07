@@ -54,6 +54,11 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessRewritesRequest;
     const isDebug = getDebugFlag(req);
@@ -63,6 +68,21 @@ export async function POST(req: NextRequest) {
         { error: "proResult and tone are required." },
         { status: 400 }
       );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse: GoogleBusinessRewritesResult = {
+        shortDescription: `[Rewritten in ${body.tone} tone] Quality services for Ocala, Florida.`,
+        longDescription: `[Rewritten in ${body.tone} tone] Quality services for Ocala, Florida. We're committed to excellence and customer satisfaction.`,
+        servicesSection: `[Rewritten in ${body.tone} tone] We offer a comprehensive range of services tailored to your needs.`,
+        aboutSection: `[Rewritten in ${body.tone} tone] We're proud to serve the Ocala community with dedication and excellence.`,
+      };
+      if (isDebug) {
+        return NextResponse.json({ ...demoResponse, _debug: { model: "demo" } });
+      }
+      return NextResponse.json(demoResponse);
     }
 
     const userMessage = JSON.stringify({

@@ -392,6 +392,11 @@ export async function GET(request: NextRequest) {
  * Create a new booking request (public form or authenticated)
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Check rate limit
   const rateLimitCheck = await checkRateLimit(request, "obd-scheduler:requests");
   if (rateLimitCheck) return rateLimitCheck;

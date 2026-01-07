@@ -128,6 +128,11 @@ function parseJsonFromModel(raw: string): unknown {
 }
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as LocalHiringAssistantRequest;
 
@@ -211,6 +216,35 @@ export async function POST(req: Request) {
 
     const city = body.city || 'Ocala';
     const state = body.state || 'Florida';
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req as any)) {
+      const demoResponse = {
+        jobTitle: body.roleTitle,
+        companyName: body.businessName,
+        location: `${city}, ${state}`,
+        jobDescriptionSections: [
+          {
+            title: "About the Role",
+            body: `We're seeking a ${body.roleTitle} to join our team in ${city}, ${state}. This is a ${body.employmentType} position with ${body.workLocationType} work arrangements.`,
+          },
+          {
+            title: "Responsibilities",
+            body: "Key responsibilities include supporting our team, contributing to business growth, and delivering excellent service to our customers.",
+          },
+          {
+            title: "Requirements",
+            body: "We're looking for someone with relevant experience, strong communication skills, and a commitment to excellence.",
+          },
+        ],
+        meta: {
+          modelVersion: "local-hiring-v1",
+          createdAt: new Date().toISOString(),
+        },
+      };
+      return NextResponse.json(demoResponse);
+    }
 
     const userPrompt = {
       ...body,

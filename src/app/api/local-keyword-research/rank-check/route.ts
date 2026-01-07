@@ -159,6 +159,11 @@ async function validateUrl(url: string): Promise<boolean> {
 }
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -195,6 +200,22 @@ export async function POST(req: Request) {
         "VALIDATION_ERROR",
         400
       );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req as any)) {
+      const demoResponse = {
+        keyword,
+        targetUrl,
+        city,
+        state,
+        rank: 5,
+        position: "Top 10",
+        estimatedTraffic: 50,
+        notes: "Demo mode: Sample rank check result",
+      };
+      return apiSuccessResponse(demoResponse);
     }
 
     // Call rank check helper with timeout

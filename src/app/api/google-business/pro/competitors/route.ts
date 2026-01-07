@@ -68,6 +68,11 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessCompetitorInsightsRequest;
     const isDebug = getDebugFlag(req);
@@ -77,6 +82,26 @@ export async function POST(req: NextRequest) {
         { error: "proRequest, proResult, and at least one competitor are required." },
         { status: 400 }
       );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse = {
+        insights: [
+          {
+            competitor: body.competitors[0]?.name || "Competitor",
+            strengths: ["Strong online presence", "Regular updates"],
+            weaknesses: ["Limited local focus", "Could improve engagement"],
+            recommendations: ["Focus on local SEO", "Increase review responses"],
+          },
+        ],
+        summary: "Competitor analysis shows opportunities for improvement in local market positioning.",
+      };
+      if (isDebug) {
+        return NextResponse.json({ ...demoResponse, _debug: { model: "demo" } });
+      }
+      return NextResponse.json(demoResponse);
     }
 
     // Limit to 3 competitors

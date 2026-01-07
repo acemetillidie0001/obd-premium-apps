@@ -38,6 +38,11 @@ const reputationDashboardRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     // Auth check
     const session = await auth();

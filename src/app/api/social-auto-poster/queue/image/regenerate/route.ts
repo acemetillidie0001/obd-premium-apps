@@ -27,6 +27,11 @@ export interface RegenerateImageResponse {
  * Body: { queueItemId: string }
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     // Auth check - always return 200 with ok=false
     const session = await auth();

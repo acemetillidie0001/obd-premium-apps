@@ -661,6 +661,11 @@ ${request.generateVariants ? "Generate 2 additional variants per platform with d
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -698,6 +703,19 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const demoResponse = {
+        posts: body.platforms.map((platform) => ({
+          platform,
+          content: `Exciting update about ${body.topic}! We're here to serve the Ocala community.`,
+          hashtags: ["#OcalaBusiness"],
+        })),
+      };
+      return NextResponse.json(demoResponse);
     }
 
     const response = await generatePosts(body, userId);

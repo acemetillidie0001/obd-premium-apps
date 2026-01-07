@@ -425,6 +425,11 @@ async function generateLogoImages(
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     // Authentication check
     const session = await auth();
@@ -529,6 +534,34 @@ export async function POST(request: NextRequest) {
     const stateTrimmed = body.state?.trim() || "Florida";
     const logoStyle = body.logoStyle || "Modern";
     const personalityStyle = body.personalityStyle || "";
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const demoConcepts: LogoConcept[] = Array.from({ length: variationsCount }, (_, i) => ({
+        id: i + 1,
+        description: `A ${logoStyle.toLowerCase()} logo design for ${businessNameTrimmed}, featuring clean lines and professional styling suitable for ${businessTypeTrimmed}.`,
+        styleNotes: "Modern and professional design",
+        colorPalette: ["#1E88E5", "#43A047", "#FFB300"],
+      }));
+      const demoResponse: LogoGeneratorResponse = {
+        concepts: demoConcepts,
+        images: body.generateImages ? demoConcepts.map((c) => ({
+          id: c.id,
+          conceptId: c.id,
+          imageUrl: null,
+          prompt: c.description,
+        })) : [],
+        meta: {
+          businessName: businessNameTrimmed,
+          city: cityTrimmed,
+          state: stateTrimmed,
+          logoStyle,
+          personalityStyle: personalityStyle || "",
+        },
+      };
+      return NextResponse.json(demoResponse);
+    }
 
     // Check and increment usage quotas (before making OpenAI calls)
     const generateImages = body.generateImages === true;

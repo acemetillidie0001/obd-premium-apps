@@ -48,6 +48,11 @@ function getDebugFlag(req: NextRequest): boolean {
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = (await req.json()) as GoogleBusinessPhotoOptimizationRequest;
     const isDebug = getDebugFlag(req);
@@ -57,6 +62,29 @@ export async function POST(req: NextRequest) {
         { error: "proResult is required." },
         { status: 400 }
       );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse = {
+        recommendations: [
+          "Add more photos of your products/services",
+          "Include photos of your team",
+          "Showcase your location and facilities",
+        ],
+        photoIdeas: [
+          {
+            title: "Team Photo",
+            description: "Show your team in action",
+            priority: "High",
+          },
+        ],
+      };
+      if (isDebug) {
+        return NextResponse.json({ ...demoResponse, _debug: { model: "demo" } });
+      }
+      return NextResponse.json(demoResponse);
     }
 
     const userMessage = JSON.stringify({

@@ -234,6 +234,11 @@ END OF SYSTEM PROMPT
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -258,6 +263,42 @@ export async function POST(request: NextRequest) {
     }
 
     const body = parsed.data;
+    const faqCount = body.faqCount ? Math.min(Math.max(3, body.faqCount), 12) : 5;
+    const hasEmoji = body.hasEmoji || "Minimal";
+
+    if (!body.topic) {
+      return NextResponse.json(
+        { error: "Topic is required." },
+        { status: 400 }
+      );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const emoji = hasEmoji !== "None" ? "✨" : "";
+      const demoResponse = `FAQ 1
+Q: What services do you offer?
+A: We provide a comprehensive range of services tailored to meet your needs. ${emoji}
+
+FAQ 2
+Q: How can I get started?
+A: Getting started is easy! Simply reach out to us and we'll guide you through the process. ${emoji}
+
+FAQ 3
+Q: What makes you different?
+A: Our commitment to excellence and personalized service sets us apart. We focus on building lasting relationships with our clients. ${emoji}
+
+FAQ 4
+Q: Do you serve the Ocala area?
+A: Yes! We're proud to serve Ocala and the surrounding communities. ${emoji}
+
+FAQ 5
+Q: How can I contact you?
+A: You can reach us through our website, phone, or visit us in person. We're here to help! ${emoji}`;
+      return apiSuccessResponse({ response: demoResponse });
+    }
+
     const businessName = body.businessName?.trim() || null;
     const businessType = body.businessType?.trim() || null;
     const city = body.city?.trim() || null;
@@ -266,18 +307,9 @@ export async function POST(request: NextRequest) {
     const details = body.details?.trim() || null;
     const brandVoice = body.brandVoice?.trim() || null;
     const personalityStyle = body.personalityStyle || null;
-    const faqCount = body.faqCount ? Math.min(Math.max(3, body.faqCount), 12) : 5;
     const answerLength = body.answerLength || "Medium";
     const tone = body.tone?.trim() || null;
-    const hasEmoji = body.hasEmoji || "Minimal";
     const theme = body.theme?.trim() || null;
-
-    if (!topic) {
-      return NextResponse.json(
-        { error: "Topic is required." },
-        { status: 400 }
-      );
-    }
 
     const aiResponse = await generateFAQs({
       businessName,

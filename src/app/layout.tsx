@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import SessionProvider from "@/components/auth/SessionProvider";
 import UserMenu from "@/components/auth/UserMenu";
 import SignOutButton from "@/components/auth/SignOutButton";
 import ConditionalLayout from "@/components/layout/ConditionalLayout";
+import { hasDemoCookie } from "@/lib/demo/demo-cookie";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -53,60 +55,67 @@ function BuildStamp() {
   );
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   const currentYear = new Date().getFullYear();
+  
+  // Check if demo mode is active via cookies
+  const cookieStore = await cookies();
+  const isDemo = hasDemoCookie(cookieStore);
 
   return (
     <html lang="en">
       <body className={`${inter.className} antialiased min-h-screen flex flex-col`}>
         <SessionProvider>
           <ConditionalLayout
+            isDemo={isDemo}
             header={
-              <header className="w-full bg-[#050816] text-white shadow-md border-b-2 border-[#29c4a9]/60">
-                <div className="mx-auto max-w-7xl px-6 py-4">
-                  {/* 3-column layout: Left | Middle | Right */}
-                  <div className="flex items-center gap-4 flex-wrap">
-                    {/* LEFT: Logo + Product Title */}
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <img src="/obd-logo.png" alt="OBD Logo" className="h-10 w-auto" />
-                      <div className="flex flex-col leading-tight">
-                        <span className="text-xs uppercase tracking-wide text-teal-300">
-                          Ocala Business Directory
-                        </span>
-                        <span className="text-lg font-semibold text-white">
-                          OBD Premium Apps
-                        </span>
+              <>
+                <header className="w-full bg-[#050816] text-white shadow-md border-b-2 border-[#29c4a9]/60">
+                  <div className="mx-auto max-w-7xl px-6 py-4">
+                    {/* 3-column layout: Left | Middle | Right */}
+                    <div className="flex items-center gap-4 flex-wrap">
+                      {/* LEFT: Logo + Product Title */}
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <img src="/obd-logo.png" alt="OBD Logo" className="h-10 w-auto" />
+                        <div className="flex flex-col leading-tight">
+                          <span className="text-xs uppercase tracking-wide text-teal-300">
+                            Ocala Business Directory
+                          </span>
+                          <span className="text-lg font-semibold text-white">
+                            OBD Premium Apps
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* MIDDLE: Logged in as (centered, flex-1) */}
+                      <div className="flex-1 flex justify-center min-w-0 hidden md:flex">
+                        <UserMenu />
+                      </div>
+                      
+                      {/* RIGHT: Buttons */}
+                      <div className="flex items-center gap-3 flex-shrink-0 ml-auto">
+                        <Link
+                          href="https://ocalabusinessdirectory.com"
+                          className="rounded-full bg-gradient-to-r from-[#1EB9A7] to-[#0AC8E9] px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 transition whitespace-nowrap"
+                          aria-label="Return to Ocala Business Directory"
+                        >
+                          Return to Directory
+                        </Link>
+                        <SignOutButton />
                       </div>
                     </div>
                     
-                    {/* MIDDLE: Logged in as (centered, flex-1) */}
-                    <div className="flex-1 flex justify-center min-w-0 hidden md:flex">
+                    {/* Mobile: Logged in as (shown below on small screens) */}
+                    <div className="flex justify-center mt-3 md:hidden">
                       <UserMenu />
                     </div>
-                    
-                    {/* RIGHT: Buttons */}
-                    <div className="flex items-center gap-3 flex-shrink-0 ml-auto">
-                      <Link
-                        href="https://ocalabusinessdirectory.com"
-                        className="rounded-full bg-gradient-to-r from-[#1EB9A7] to-[#0AC8E9] px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 transition whitespace-nowrap"
-                        aria-label="Return to Ocala Business Directory"
-                      >
-                        Return to Directory
-                      </Link>
-                      <SignOutButton />
-                    </div>
                   </div>
-                  
-                  {/* Mobile: Logged in as (shown below on small screens) */}
-                  <div className="flex justify-center mt-3 md:hidden">
-                    <UserMenu />
-                  </div>
-                </div>
-              </header>
+                </header>
+              </>
             }
             footer={
               <footer className="w-full bg-[#050816] text-slate-400 border-t border-[#29c4a9]/40 py-4">

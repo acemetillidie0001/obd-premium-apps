@@ -433,6 +433,11 @@ function extractMetadata(proResult: GoogleBusinessProResult): {
 }
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   try {
     let body;
     try {

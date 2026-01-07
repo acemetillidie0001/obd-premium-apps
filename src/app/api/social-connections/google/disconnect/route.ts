@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
@@ -9,7 +9,12 @@ import { hasPremiumAccess } from "@/lib/premium";
  * Disconnects Google Business Profile connection for the current user.
  * Deletes connection and destination records.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

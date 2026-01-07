@@ -11,7 +11,12 @@ import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
  * Initiates Meta OAuth flow by generating an authorization URL.
  * Uses state parameter for CSRF protection.
  */
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

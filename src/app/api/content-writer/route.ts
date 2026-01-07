@@ -481,6 +481,11 @@ Additional rules:
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -505,6 +510,67 @@ export async function POST(request: NextRequest) {
     }
 
     const body = parsed.data;
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const includeFAQ = body.includeFAQ ?? false;
+      const includeSocialBlurb = body.includeSocialBlurb ?? false;
+      const includeMetaDescription = body.includeMetaDescription ?? false;
+      const mode = body.mode || "Content";
+      
+      const demoResponse: ContentWriterResponse = {
+        mode: mode as "Content" | "Ideas" | "Both",
+        blogIdeas: [
+          {
+            title: "5 Essential Tips for Local Business Success",
+            angle: "Practical advice for Ocala entrepreneurs",
+            description: "Discover proven strategies to grow your business in the Ocala market.",
+            targetAudience: "Local business owners",
+            recommendedLength: "Medium",
+          },
+        ],
+        content: {
+          title: "Welcome to Our Business",
+          seoTitle: "Welcome to Our Business | Ocala, Florida",
+          metaDescription: includeMetaDescription ? "Discover quality services in Ocala, Florida. We're here to help your business thrive." : "",
+          slugSuggestion: "welcome-to-our-business",
+          outline: ["Introduction", "Our Services", "Why Choose Us", "Conclusion"],
+          sections: [
+            {
+              heading: "Introduction",
+              body: "Welcome to our business! We're proud to serve the Ocala community with quality services tailored to your needs.",
+            },
+            {
+              heading: "Our Services",
+              body: "We offer a comprehensive range of services designed to help you succeed. From consultation to implementation, we're here every step of the way.",
+            },
+            {
+              heading: "Why Choose Us",
+              body: "Our commitment to excellence and local expertise sets us apart. We understand the unique needs of Ocala businesses and deliver personalized solutions.",
+            },
+            {
+              heading: "Conclusion",
+              body: "Ready to get started? Contact us today to learn how we can help your business grow.",
+            },
+          ],
+          faq: includeFAQ ? [
+            { question: "What services do you offer?", answer: "We provide a wide range of services tailored to your business needs." },
+            { question: "How can I get started?", answer: "Simply reach out to us and we'll schedule a consultation to discuss your requirements." },
+          ] : [],
+          socialBlurb: includeSocialBlurb ? "Discover how we can help your business thrive in Ocala! #OcalaBusiness" : "",
+          preview: {
+            cardTitle: "Welcome to Our Business",
+            cardSubtitle: "Quality services for Ocala businesses",
+            cardExcerpt: "We're here to help your business succeed with personalized solutions and local expertise.",
+          },
+          wordCountApprox: 250,
+          keywordsUsed: ["Ocala", "business", "services"],
+        },
+      };
+      return apiSuccessResponse(demoResponse);
+    }
+
     const businessName = body.businessName?.trim();
     const businessType = body.businessType?.trim();
     const services = body.services?.trim();

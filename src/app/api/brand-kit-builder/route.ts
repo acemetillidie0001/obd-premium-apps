@@ -485,18 +485,15 @@ function generateRequestId(): string {
 }
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   const startTime = Date.now();
   const requestId = generateRequestId();
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      return errorResponse(
-        "Server is not configured with an OpenAI API key.",
-        500,
-        { requestId }
-      );
-    }
-
     const json = await req.json().catch(() => null);
     if (!json) {
       return errorResponse("Invalid JSON body.", 400, { requestId });
@@ -525,12 +522,149 @@ export async function POST(req: Request) {
         : formValues.hashtagStyle || "Local",
     };
 
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req as any)) {
+      const demoResponse: BrandKitBuilderResponse = {
+        meta: {
+          model: "gpt-4o-mini",
+          createdAtISO: new Date().toISOString(),
+          latencyMs: 0,
+          requestId,
+          languageUsed: formValues.language || "English",
+        },
+        brandSummary: {
+          businessName: formValues.businessName,
+          tagline: "Quality service for Ocala",
+          positioning: "A trusted local business serving the Ocala community with dedication and excellence.",
+        },
+        colorPalette: {
+          colors: [
+            {
+              hex: "#1E88E5",
+              name: "Primary",
+              usageGuidance: "Use for primary buttons, links, and key brand elements",
+              accessibilityNote: "Good contrast on white backgrounds",
+            },
+            {
+              hex: "#43A047",
+              name: "Secondary",
+              usageGuidance: "Use for secondary actions and accents",
+              accessibilityNote: "Good contrast on white backgrounds",
+            },
+            {
+              hex: "#FFB300",
+              name: "Accent",
+              usageGuidance: "Use sparingly for highlights and call-to-action elements",
+              accessibilityNote: "Ensure sufficient contrast when used on colored backgrounds",
+            },
+            {
+              hex: "#F5F5F5",
+              name: "Background",
+              usageGuidance: "Use for page backgrounds and subtle sections",
+              accessibilityNote: "Provides good contrast for dark text",
+            },
+            {
+              hex: "#212121",
+              name: "Text",
+              usageGuidance: "Primary text color for body content",
+              accessibilityNote: "Excellent contrast on light backgrounds",
+            },
+          ],
+        },
+        typography: {
+          headlineFont: "Inter",
+          bodyFont: "Inter",
+          fallbackStack: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          usageNotes: "Inter provides excellent readability across all devices and maintains a professional, modern appearance.",
+        },
+        brandVoice: {
+          description: "Our brand voice is friendly and professional, reflecting our commitment to serving the Ocala community with excellence. We communicate clearly and authentically, building trust through transparency and genuine care for our customers.",
+          do: [
+            "Use clear, conversational language",
+            "Show genuine care for customers",
+            "Highlight local community connections",
+            "Be professional yet approachable",
+          ],
+          dont: [
+            "Use overly technical jargon",
+            "Make unrealistic promises",
+            "Sound generic or corporate",
+            "Ignore local context",
+          ],
+        },
+        messaging: {
+          taglines: [
+            "Your trusted partner in Ocala",
+            "Quality service, local expertise",
+            "Serving Ocala with excellence",
+            "Your local business partner",
+            "Quality you can trust",
+          ],
+          valueProps: [
+            "Local expertise and personalized service",
+            "Commitment to customer satisfaction",
+            "Deep roots in the Ocala community",
+            "Quality services you can rely on",
+            "Dedicated to your success",
+          ],
+          elevatorPitch: "We're a trusted local business serving the Ocala community with quality services and personalized attention. Our commitment to excellence and deep understanding of local needs sets us apart. We're here to help you succeed with solutions tailored to your unique requirements.",
+        },
+        readyToUseCopy: {
+          websiteHero: {
+            headline: "Welcome to " + formValues.businessName,
+            subheadline: "Quality service for the Ocala community",
+          },
+          aboutUs: "We're proud to serve Ocala and the surrounding areas with dedication and excellence. Our team brings years of experience and a deep commitment to customer satisfaction. We understand the unique needs of our local community and deliver personalized solutions that make a real difference. Every interaction is an opportunity to build lasting relationships and contribute to the success of our neighbors and friends in Ocala.",
+          socialBios: {
+            instagram: "Quality service for Ocala ✨ Local expertise you can trust",
+            facebook: "Serving Ocala with quality services and personalized attention. Your trusted local business partner.",
+            x: "Quality service for Ocala. Local expertise, personalized attention.",
+          },
+          emailSignature: "Best regards,\n" + formValues.businessName + "\nServing Ocala, Florida",
+        },
+        extras: {
+          ...(formValues.includeSocialPostTemplates ? {
+            socialPostTemplates: [
+              "Excited to share what we've been working on! Stay tuned for updates. #OcalaBusiness",
+              "Thank you to our amazing Ocala community for your continued support! #LocalLove",
+              "New opportunities are here! Visit us to learn more about how we can help. #Ocala",
+            ],
+          } : {}),
+          ...(formValues.includeFAQStarter ? {
+            faqStarter: [
+              { question: "What services do you offer?", answer: "We provide a comprehensive range of services tailored to meet your specific needs." },
+              { question: "Do you serve the Ocala area?", answer: "Yes, we proudly serve Ocala and the surrounding communities." },
+              { question: "How can I get started?", answer: "Simply reach out to us and we'll schedule a consultation to discuss your requirements." },
+              { question: "What makes you different?", answer: "Our commitment to excellence, local expertise, and personalized service sets us apart." },
+              { question: "How can I contact you?", answer: "You can reach us through our website, phone, or visit us in person. We're here to help!" },
+            ],
+          } : {}),
+          ...(formValues.includeGBPDescription ? {
+            gbpDescription: "Quality services for Ocala, Florida. We're committed to excellence and customer satisfaction. Visit us today to experience the difference!",
+          } : {}),
+          ...(formValues.includeMetaDescription ? {
+            metaDescription: "Quality services in Ocala, Florida. Trusted local business committed to excellence and customer satisfaction.",
+          } : {}),
+        },
+      };
+      return NextResponse.json({ ok: true, data: demoResponse });
+    }
+
     // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP)) {
       return errorResponse(
         "Rate limit exceeded. Please try again in a few minutes.",
         429,
+        { requestId }
+      );
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return errorResponse(
+        "Server is not configured with an OpenAI API key.",
+        500,
         { requestId }
       );
     }

@@ -614,6 +614,11 @@ Your goal: Help Ocala businesses create high-converting promotions that feel aut
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -646,6 +651,58 @@ export async function POST(request: NextRequest) {
         { ok: false, error: "At least one output platform must be selected", code: "VALIDATION_ERROR" },
         { status: 400 }
       );
+    }
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const hashtags = body.includeHashtags ? ["#OcalaBusiness", "#LocalDeal"] : [];
+      const demoResponse: OffersBuilderResponse = {
+        offerSummary: {
+          internalName: body.promoTitle || "Special Offer",
+          headline: "Limited Time Offer - Don't Miss Out!",
+          subheadline: "Exclusive deal for our valued customers",
+          shortPitch: "Get great value on our services today!",
+          fullPitch: "We're excited to offer this special promotion to our Ocala community. This is a great opportunity to experience our quality services at an unbeatable value.",
+        },
+        headlineOptions: [
+          { label: "Punchy", headline: "Limited Time Offer - Act Now!" },
+          { label: "Safe", headline: "Special Promotion Available" },
+        ],
+        bodyOptions: [
+          { label: "Standard", body: "Take advantage of this special offer available for a limited time. Perfect for new and returning customers alike." },
+        ],
+        socialPosts: body.outputPlatforms.map((platform) => ({
+          platform,
+          headline: "Special Offer Available!",
+          mainCopy: "Don't miss out on this great deal! Visit us today to take advantage of this limited-time offer.",
+          callToAction: "Visit us today!",
+          hashtags: body.includeHashtags ? hashtags : undefined,
+        })),
+        gbpPost: {
+          headline: "Special Offer",
+          description: "Limited-time promotion available now. Visit us to learn more!",
+          suggestedCTA: "Call or visit us today",
+        },
+        email: {
+          subject: "Special Offer Just for You!",
+          previewText: "Don't miss this limited-time opportunity",
+          body: "We're excited to share a special offer with you! This promotion is available for a limited time, so don't wait.",
+        },
+        sms: {
+          message: "Special offer available! Visit us today to take advantage. Limited time only.",
+        },
+        websiteBanner: {
+          headline: "Special Offer",
+          subheadline: "Limited time only",
+          buttonText: "Learn More",
+        },
+        meta: {
+          languageUsed: body.language || "English",
+          personalityApplied: body.personalityStyle || "None",
+        },
+      };
+      return apiSuccessResponse(demoResponse);
     }
 
     // Prepare request - convert empty strings to undefined for optional fields

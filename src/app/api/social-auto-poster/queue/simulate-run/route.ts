@@ -15,6 +15,11 @@ import { processScheduledPost } from "@/lib/apps/social-auto-poster/processSched
  * Can be called manually or by the automated runner.
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

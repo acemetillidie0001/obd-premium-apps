@@ -369,6 +369,11 @@ Rules:
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -393,6 +398,28 @@ export async function POST(request: NextRequest) {
     }
 
     const body = parsed.data;
+    const includeQnaBox = body.includeQnaBox ?? true;
+    const includeMetaDescription = body.includeMetaDescription ?? true;
+    const includeStoryVersion = body.includeStoryVersion ?? true;
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const demoResponse: ReviewResponderResponse = {
+        standardReply: "Thank you so much for your feedback! We truly appreciate you taking the time to share your experience with us. Your support means the world to our team.",
+        shortReply: "Thank you for your feedback! We appreciate your support.",
+        socialSnippet: "Grateful for your kind words! 🙏",
+        whyChooseSection: "We're committed to providing exceptional service to every customer. Your satisfaction is our top priority, and we're always working to improve.",
+        qnaBox: includeQnaBox ? [
+          { question: "What services do you offer?", answer: "We provide a comprehensive range of services tailored to meet your needs." },
+          { question: "How can I learn more?", answer: "Visit our website or contact us directly - we're here to help!" },
+        ] : undefined,
+        metaDescription: includeMetaDescription ? "Thank you for your review! We're committed to providing excellent service to the Ocala community." : undefined,
+        storytellingVersion: includeStoryVersion ? "Every review we receive tells a story, and yours is especially meaningful to us. It's moments like these that remind us why we do what we do - to make a positive impact in our community. Thank you for being part of our journey." : undefined,
+      };
+      return apiSuccessResponse(demoResponse);
+    }
+
     const businessName = body.businessName.trim();
     const businessType = body.businessType.trim();
     const services = body.services?.trim() || "";
@@ -407,9 +434,6 @@ export async function POST(request: NextRequest) {
     const personalityStyle = body.personalityStyle || "None";
     const responseLength = body.responseLength || "Medium";
     const language = body.language || "English";
-    const includeQnaBox = body.includeQnaBox ?? true;
-    const includeMetaDescription = body.includeMetaDescription ?? true;
-    const includeStoryVersion = body.includeStoryVersion ?? true;
 
     const aiResponse = await generateReviewResponse({
       businessName,

@@ -464,6 +464,11 @@ function errorResponse(
 // ---- MAIN HANDLER ---- //
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -471,14 +476,6 @@ export async function POST(req: Request) {
   apiLogger.info("event-campaign-builder.request.start");
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      apiLogger.error("event-campaign-builder.openai-key-missing");
-      return errorResponse(
-        "Server is not configured with an OpenAI API key.",
-        500,
-      );
-    }
-
     const json = await req.json().catch(() => null);
     if (!json) {
       return errorResponse("Invalid JSON body.", 400);
@@ -507,10 +504,42 @@ export async function POST(req: Request) {
       );
     }
 
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req as any)) {
+      const demoResponse = {
+        campaignName: formValues.eventName || "Special Event",
+        summary: "Event campaign for Ocala community",
+        channels: {
+          ...(formValues.includeFacebook ? {
+            facebook: {
+              post: "Join us for our special event! We're excited to share this with the Ocala community.",
+              cta: "Learn more and RSVP today!",
+            },
+          } : {}),
+          ...(formValues.includeInstagram ? {
+            instagram: {
+              post: "Exciting event coming up! ✨ Join us for this special occasion.",
+              cta: "Save the date!",
+            },
+          } : {}),
+        },
+      };
+      return apiSuccessResponse(demoResponse);
+    }
+
     // 3) Rate limiting check
     const rateLimitCheck = await checkRateLimit(req);
     if (rateLimitCheck) {
       return rateLimitCheck;
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      apiLogger.error("event-campaign-builder.openai-key-missing");
+      return errorResponse(
+        "Server is not configured with an OpenAI API key.",
+        500,
+      );
     }
 
     // 4) Calculate dynamic token limit based on language and channels

@@ -25,6 +25,11 @@ function extractLocation(_result: GoogleBusinessProResult): { city: string; stat
 }
 
 export async function POST(req: Request) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req as any);
+  if (demoBlock) return demoBlock;
+
   try {
     const body = await req.json();
     const { proResults }: { proResults: GoogleBusinessProResult[] } = body;

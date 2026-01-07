@@ -385,6 +385,11 @@ CTA: ...
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -419,13 +424,36 @@ export async function POST(request: NextRequest) {
     const campaignTypeValue = body.campaignType || "Everyday Post";
     const hashtagStyleValue = body.hashtagStyle || "Normal";
     const emojiStyleValue = body.emojiStyle || "Normal";
+    const outputModeValue: "Standard" | "InstagramCarousel" | "ContentCalendar" =
+      body.outputMode ?? "Standard";
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const emoji = emojiStyleValue !== "None" ? "✨" : "";
+      const hashtags = hashtagStyleValue !== "None" ? "#OcalaBusiness #Local" : "";
+      const demoResponse = `Post 1 — Facebook
+Hook: Discover what makes our business special!
+Body:
+- We're here to serve the Ocala community with quality services.
+- Your success is our priority.
+CTA: Visit us today! ${emoji}
+${hashtags}
+
+Post 1 — Instagram
+Hook: Welcome to our community! ${emoji}
+Body:
+- We love serving Ocala with passion and dedication.
+- Every day is a chance to make a difference.
+CTA: Follow us for more updates! ${emoji}
+${hashtags}`;
+      return apiSuccessResponse({ response: demoResponse });
+    }
+
     const personalityStyleStr = body.personalityStyle as string | null | undefined;
     const personalityStyleValue = (personalityStyleStr && personalityStyleStr !== "") 
       ? (personalityStyleStr as "Soft" | "Bold" | "High-Energy" | "Luxury")
       : null;
-
-    const outputModeValue: "Standard" | "InstagramCarousel" | "ContentCalendar" =
-      body.outputMode ?? "Standard";
 
     let carouselSlidesValue =
       typeof body.carouselSlides === "number" ? body.carouselSlides : 5;

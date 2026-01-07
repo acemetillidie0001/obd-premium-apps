@@ -381,6 +381,11 @@ Rules:
 }
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   // Require premium access
   const guard = await requirePremiumAccess();
   if (guard) return guard;
@@ -405,6 +410,37 @@ export async function POST(request: NextRequest) {
     }
 
     const body = parsed.data;
+    const includeFAQSuggestions = body.includeFAQSuggestions ?? false;
+    const includeMetaDescription = body.includeMetaDescription ?? false;
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(request)) {
+      const demoResponse: BusinessDescriptionResponse = {
+        obdListingDescription: "We're a trusted local business serving the Ocala community with quality services. Our team is dedicated to providing exceptional experiences for every customer.",
+        websiteAboutUs: "Welcome to our business! We've been proudly serving Ocala and the surrounding areas with dedication and excellence. Our mission is to provide outstanding service that makes a real difference in our community. We believe in building lasting relationships with our customers and delivering results that exceed expectations.",
+        googleBusinessDescription: "Quality services for Ocala, Florida. We're committed to excellence and customer satisfaction. Visit us today!",
+        socialBioPack: {
+          facebookBio: "Serving Ocala with quality services and exceptional customer care.",
+          instagramBio: "Ocala's trusted local business ✨ Quality service, every time.",
+          xBio: "Quality services for Ocala, Florida. Committed to excellence.",
+          linkedinTagline: "Dedicated to serving Ocala with excellence and integrity.",
+        },
+        taglineOptions: [
+          "Your trusted partner in Ocala",
+          "Quality service, local expertise",
+          "Serving Ocala with excellence",
+        ],
+        elevatorPitch: "We're a local Ocala business dedicated to providing quality services that help our community thrive. Our commitment to excellence and personalized service sets us apart.",
+        faqSuggestions: includeFAQSuggestions ? [
+          { question: "What services do you offer?", answer: "We provide a comprehensive range of services tailored to meet your specific needs." },
+          { question: "Do you serve the Ocala area?", answer: "Yes, we proudly serve Ocala and the surrounding communities." },
+        ] : [],
+        metaDescription: includeMetaDescription ? "Quality services in Ocala, Florida. Trusted local business committed to excellence and customer satisfaction." : null,
+      };
+      return apiSuccessResponse(demoResponse);
+    }
+
     const businessNameTrimmed = body.businessName.trim();
     const businessTypeTrimmed = body.businessType.trim();
     const servicesTrimmed = body.services.trim();
@@ -428,8 +464,8 @@ export async function POST(request: NextRequest) {
       brandVoice: brandVoiceTrimmed,
       personalityStyle: body.personalityStyle,
       writingStyleTemplate: body.writingStyleTemplate || "Default",
-      includeFAQSuggestions: body.includeFAQSuggestions ?? false,
-      includeMetaDescription: body.includeMetaDescription ?? false,
+      includeFAQSuggestions,
+      includeMetaDescription,
       descriptionLength: body.descriptionLength || "Medium",
       language: languageTrimmed,
     });

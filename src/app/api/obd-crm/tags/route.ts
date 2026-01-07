@@ -93,6 +93,11 @@ export async function GET(request: NextRequest) {
  * Create a new tag
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
@@ -171,6 +176,11 @@ export async function POST(request: NextRequest) {
  * Delete a tag by ID (passed as query param)
  */
 export async function DELETE(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 

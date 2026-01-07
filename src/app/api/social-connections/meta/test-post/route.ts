@@ -14,6 +14,11 @@ import { requireString } from "@/lib/utils/requireString";
  * Feature Flag: Requires META_PUBLISHING_ENABLED=true to actually publish.
  */
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const session = await auth();
     if (!session?.user?.id) {

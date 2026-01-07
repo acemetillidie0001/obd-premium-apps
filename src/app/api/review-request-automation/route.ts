@@ -6,6 +6,11 @@ import {
 import { processReviewRequestAutomation } from "@/lib/apps/review-request-automation/engine";
 
 export async function POST(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
   try {
     const body: ReviewRequestAutomationRequest = await request.json();
 

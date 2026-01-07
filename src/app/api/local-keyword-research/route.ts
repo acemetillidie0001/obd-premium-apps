@@ -296,6 +296,11 @@ function sanitizeAndClampRequest(body: Record<string, unknown>): LocalKeywordReq
 }
 
 export async function POST(req: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(req);
+  if (demoBlock) return demoBlock;
+
   // Prune old entries periodically (more frequent if map is large)
   if (rateLimitMap.size > 1000 || Math.random() < 0.1) {
     pruneRateLimitMap();
@@ -326,6 +331,55 @@ export async function POST(req: NextRequest) {
     }
 
     const requestData = sanitizeAndClampRequest(body as Record<string, unknown>);
+
+    // Check for demo mode - return canned sample instead of calling OpenAI
+    const { isDemoRequest } = await import("@/lib/demo/assert-not-demo");
+    if (isDemoRequest(req)) {
+      const demoResponse = {
+        summary: "Your local keyword strategy for Ocala, Florida has been generated.",
+        overviewNotes: [
+          "Focus on local intent keywords that include 'Ocala' or nearby areas",
+          "Consider service-specific keywords that match your business type",
+          "Target keywords with medium to high search volume for best results",
+        ],
+        keywordClusters: [
+          {
+            name: "Primary Services",
+            description: "Core service keywords for your business",
+            recommendedUse: "Use on homepage and main service pages",
+            keywords: [
+              {
+                keyword: `${requestData.businessType} Ocala`,
+                intent: "Local" as const,
+                suggestedPageType: "Service Page",
+                opportunityScore: 75,
+                difficultyLabel: "Medium" as const,
+                notes: "High local intent",
+                monthlySearchesExact: 100,
+                cpcUsd: 2.5,
+                adsCompetitionIndex: 0.6,
+                dataSource: "ai" as const,
+              },
+            ],
+          },
+        ],
+        topPriorityKeywords: [
+          {
+            keyword: `${requestData.businessType} near me`,
+            intent: "Local" as const,
+            suggestedPageType: "Landing Page",
+            opportunityScore: 80,
+            difficultyLabel: "Easy" as const,
+            notes: "High conversion potential",
+            monthlySearchesExact: 200,
+            cpcUsd: 3.0,
+            adsCompetitionIndex: 0.5,
+            dataSource: "ai" as const,
+          },
+        ],
+      };
+      return apiSuccessResponse(demoResponse);
+    }
 
     // -------- STEP 1: generate raw keyword ideas --------
     const openai = getOpenAIClient();

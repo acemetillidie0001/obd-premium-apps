@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import DemoBanner from "./DemoBanner";
+import DemoBanner from "@/components/layout/DemoBanner";
 
 /**
  * Conditionally renders header/footer based on pathname

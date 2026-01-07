@@ -2,7 +2,7 @@
  * Demo Mode Entry Route
  * 
  * Sets the demo mode cookie if it's missing, then redirects to the apps dashboard.
- * This route enables demo mode for users visiting /demo.
+ * This route enables demo mode for users visiting /apps/demo.
  */
 
 import { cookies } from "next/headers";

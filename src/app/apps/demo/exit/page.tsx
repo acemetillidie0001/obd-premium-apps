@@ -2,7 +2,7 @@
  * Demo Mode Exit Route
  * 
  * Clears the demo mode cookie and redirects to the external dashboard preview page.
- * This route disables demo mode for users visiting /demo/exit.
+ * This route disables demo mode for users visiting /apps/demo/exit.
  */
 
 import { cookies } from "next/headers";

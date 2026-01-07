@@ -5285,7 +5285,7 @@ export default function OBDSchedulerPage() {
       fallbackTitle="Something went wrong"
       fallbackMessage="We encountered an error loading the scheduler dashboard. Please try again."
       showHomeLink={true}
-      homeLinkHref="/apps/obd-scheduler"
+      homeLinkHref="/apps"
       homeLinkText="Back to Dashboard"
     >
       <OBDSchedulerPageContent />

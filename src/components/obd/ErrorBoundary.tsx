@@ -64,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
         fallbackTitle = "Something went wrong",
         fallbackMessage = "We encountered an unexpected error. Please try again.",
         showHomeLink = true,
-        homeLinkHref = "/apps/obd-scheduler",
+        homeLinkHref = "/apps",
         homeLinkText = "Back to Dashboard",
       } = this.props;
 

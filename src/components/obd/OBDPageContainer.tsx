@@ -71,7 +71,7 @@ export default function OBDPageContainer({
             {/* Breadcrumb */}
             <div className="mb-4">
               <Link
-                href="/"
+                href="/apps"
                 className={getBreadcrumbClasses(effectiveIsDark)}
               >
                 ← Dashboard

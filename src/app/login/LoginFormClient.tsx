@@ -123,7 +123,7 @@ function LoginForm() {
         {/* Navigation Links */}
         <div className="mt-6 space-y-3 text-center">
           <Link
-            href="/"
+            href="/apps"
             className="block text-sm text-[#29c4a9] hover:text-[#1EB9A7] font-medium"
           >
             ← Back to Dashboard

@@ -1,20 +1,49 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { cookies } from "next/headers";
-import { hasDemoCookie } from "@/lib/demo/demo-cookie";
+import {
+  User,
+  CreditCard,
+  Users,
+  MessageSquare,
+  FileText,
+  Image as ImageIcon,
+  HelpCircle,
+  Gift,
+  Calendar,
+  Briefcase,
+  Star,
+  BarChart3,
+  Bot,
+  MapPin,
+  Search,
+  Globe,
+  FileCode,
+  Database,
+  TrendingUp,
+  Zap,
+  Clock,
+  Building2,
+  Palette,
+  Sparkles,
+  Settings,
+  Sun,
+  Moon,
+} from "lucide-react";
 
 interface AppTile {
   title: string;
   description: string;
-  href?: string; // Optional - not required for comingSoon tiles
-  icon?: string;
+  href?: string;
+  buttonLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
   comingSoon?: boolean;
 }
 
 interface AppSection {
   title: string;
   description: string;
+  icon: React.ComponentType<{ className?: string }>;
   tiles: AppTile[];
 }
 
@@ -22,11 +51,27 @@ const APP_SECTIONS: AppSection[] = [
   {
     title: "My Account",
     description: "Manage your account settings and preferences",
+    icon: User,
     tiles: [
       {
-        title: "Account Settings",
-        description: "View and update your account information",
-        icon: "⚙️",
+        title: "Brand Profile",
+        description: "View and edit your brand identity and settings",
+        href: "/apps/brand-profile",
+        buttonLabel: "View / Edit Brand Profile",
+        icon: User,
+      },
+      {
+        title: "Billing & Plan",
+        description: "Manage your subscription and billing information",
+        buttonLabel: "Coming Soon",
+        icon: CreditCard,
+        comingSoon: true,
+      },
+      {
+        title: "Team & Users",
+        description: "Manage team members and user access",
+        buttonLabel: "Coming Soon",
+        icon: Users,
         comingSoon: true,
       },
     ],
@@ -34,180 +79,196 @@ const APP_SECTIONS: AppSection[] = [
   {
     title: "Content & Writing Tools",
     description: "Create compelling content for your business",
+    icon: FileText,
     tiles: [
       {
-        title: "Content Writer",
-        description: "Generate blog posts, service pages, and more",
-        href: "/apps/content-writer",
-        icon: "✍️",
+        title: "AI Review Responder",
+        description: "Generate professional responses to customer reviews",
+        href: "/apps/review-responder",
+        buttonLabel: "Write a Reply",
+        icon: MessageSquare,
       },
       {
-        title: "Business Description Writer",
+        title: "AI Business Description Writer",
         description: "Craft professional business descriptions",
         href: "/apps/business-description-writer",
-        icon: "📝",
+        buttonLabel: "Create Description",
+        icon: FileText,
       },
       {
-        title: "FAQ Generator",
+        title: "AI Social Media Post Creator",
+        description: "Create eye-catching social media posts",
+        href: "/apps/social-media-post-creator",
+        buttonLabel: "Create Posts",
+        icon: ImageIcon,
+      },
+      {
+        title: "AI FAQ Generator",
         description: "Create comprehensive FAQ sections",
         href: "/apps/faq-generator",
-        icon: "❓",
+        buttonLabel: "Generate FAQs",
+        icon: HelpCircle,
+      },
+      {
+        title: "AI Content Writer",
+        description: "Generate blog posts, service pages, and more",
+        href: "/apps/content-writer",
+        buttonLabel: "Start Writing",
+        icon: FileText,
+      },
+      {
+        title: "AI Image Caption Generator",
+        description: "Generate engaging captions for images",
+        href: "/apps/image-caption-generator",
+        buttonLabel: "Write Captions",
+        icon: ImageIcon,
+      },
+      {
+        title: "Offers & Promotions Builder",
+        description: "Create compelling promotional offers",
+        href: "/apps/offers-builder",
+        buttonLabel: "Create Promo",
+        icon: Gift,
       },
       {
         title: "Event Campaign Builder",
         description: "Build engaging event marketing campaigns",
         href: "/apps/event-campaign-builder",
-        icon: "📅",
+        buttonLabel: "Create Campaign",
+        icon: Calendar,
       },
       {
-        title: "Offers Builder",
-        description: "Create compelling promotional offers",
-        href: "/apps/offers-builder",
-        icon: "🎁",
+        title: "Local Hiring Assistant",
+        description: "Generate job postings and hiring content",
+        href: "/apps/local-hiring-assistant",
+        buttonLabel: "Open Tool",
+        icon: Briefcase,
       },
     ],
   },
   {
     title: "Reputation & Reviews",
     description: "Manage and improve your online reputation",
+    icon: Star,
     tiles: [
-      {
-        title: "Review Responder",
-        description: "Generate professional review responses",
-        href: "/apps/review-responder",
-        icon: "💬",
-      },
       {
         title: "Reputation Dashboard",
         description: "Monitor and analyze your online reviews",
         href: "/apps/reputation-dashboard",
-        icon: "📊",
+        buttonLabel: "Open Dashboard",
+        icon: BarChart3,
       },
       {
         title: "Review Request Automation",
         description: "Automatically request reviews from customers",
         href: "/apps/review-request-automation",
-        icon: "🤖",
+        buttonLabel: "Open Tool",
+        icon: Bot,
       },
     ],
   },
   {
     title: "Google Business & Local Search",
     description: "Optimize your Google Business Profile and local presence",
+    icon: MapPin,
     tiles: [
       {
-        title: "Google Business Pro",
+        title: "Google Business Profile Pro",
         description: "Advanced Google Business Profile management",
         href: "/apps/google-business-pro",
-        icon: "📍",
+        buttonLabel: "Open Tool",
+        icon: Globe,
       },
       {
-        title: "Local Keyword Research",
+        title: "Local Keyword Research Tool",
         description: "Discover high-value local keywords",
         href: "/apps/local-keyword-research",
-        icon: "🔍",
-      },
-      {
-        title: "Local SEO Page Builder",
-        description: "Create optimized local landing pages",
-        href: "/apps/local-seo-page-builder",
-        icon: "🏠",
-      },
-      {
-        title: "Local Hiring Assistant",
-        description: "Generate job postings and hiring content",
-        href: "/apps/local-hiring-assistant",
-        icon: "👥",
+        buttonLabel: "Open Tool",
+        icon: Search,
       },
     ],
   },
   {
     title: "SEO Tools",
     description: "Improve your search engine visibility",
+    icon: TrendingUp,
     tiles: [
       {
-        title: "SEO Audit Roadmap",
-        description: "Get a comprehensive SEO improvement plan",
-        href: "/apps/seo-audit-roadmap",
-        icon: "🗺️",
+        title: "Local SEO Page Builder",
+        description: "Create optimized local landing pages",
+        href: "/apps/local-seo-page-builder",
+        buttonLabel: "Build SEO Page",
+        icon: FileCode,
       },
       {
         title: "Business Schema Generator",
         description: "Generate structured data for your business",
         href: "/apps/business-schema-generator",
-        icon: "📋",
+        buttonLabel: "Generate Schema",
+        icon: Database,
+      },
+      {
+        title: "SEO Audit & Roadmap",
+        description: "Get a comprehensive SEO improvement plan",
+        href: "/apps/seo-audit-roadmap",
+        buttonLabel: "Run SEO Audit",
+        icon: TrendingUp,
       },
     ],
   },
   {
     title: "Productivity & Automation",
     description: "Streamline your business operations",
+    icon: Zap,
     tiles: [
       {
-        title: "Social Auto Poster",
+        title: "OBD Social Auto-Poster",
         description: "Automate social media posting",
         href: "/apps/social-auto-poster",
-        icon: "📱",
+        buttonLabel: "Open Tool",
+        icon: Zap,
+      },
+      {
+        title: "OBD Scheduler & Booking",
+        description: "Schedule appointments and manage bookings",
+        href: "/apps/obd-scheduler",
+        buttonLabel: "Open Scheduler",
+        icon: Clock,
       },
       {
         title: "OBD CRM",
         description: "Manage customer relationships and contacts",
         href: "/apps/obd-crm",
-        icon: "👤",
-      },
-      {
-        title: "OBD Scheduler",
-        description: "Schedule appointments and manage bookings",
-        href: "/apps/obd-scheduler",
-        icon: "📆",
+        buttonLabel: "Open CRM",
+        icon: Building2,
       },
       {
         title: "AI Help Desk",
         description: "Intelligent customer support automation",
         href: "/apps/ai-help-desk",
-        icon: "🤖",
+        buttonLabel: "Open Help Desk",
+        icon: HelpCircle,
       },
     ],
   },
   {
     title: "Design & Branding",
     description: "Create stunning visuals and build your brand",
+    icon: Palette,
     tiles: [
       {
         title: "AI Logo Generator",
         description: "Generate custom logos with AI",
         href: "/apps/ai-logo-generator",
-        icon: "🎨",
+        buttonLabel: "Generate Logos",
+        icon: Sparkles,
       },
       {
         title: "Brand Kit Builder",
         description: "Create comprehensive brand guidelines",
         href: "/apps/brand-kit-builder",
-        icon: "🎯",
-      },
-      {
-        title: "Brand Profile",
-        description: "Define and manage your brand identity",
-        href: "/apps/brand-profile",
-        icon: "🆔",
-      },
-      {
-        title: "Image Generator",
-        description: "Create custom images with AI",
-        href: "/apps/image-generator",
-        icon: "🖼️",
-      },
-      {
-        title: "Image Caption Generator",
-        description: "Generate engaging captions for images",
-        href: "/apps/image-caption-generator",
-        icon: "📸",
-      },
-      {
-        title: "Social Media Post Creator",
-        description: "Create eye-catching social media posts",
-        href: "/apps/social-media-post-creator",
-        icon: "📲",
+        buttonLabel: "Build Brand Kit",
+        icon: Palette,
       },
     ],
   },
@@ -220,126 +281,148 @@ export default async function AppsPage() {
     redirect("/login?callbackUrl=/apps");
   }
 
-  // Check if demo mode is active (for conditional rendering if needed)
-  const cookieStore = await cookies();
-  const isDemo = hasDemoCookie(cookieStore);
-
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 py-12 px-4 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-white dark:bg-slate-900 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-3">
-            Premium Apps Dashboard
-          </h1>
-          <p className="text-lg text-slate-600 dark:text-slate-300">
-            Access all your Ocala-focused AI tools in one place
+        <div className="mb-12 text-center">
+          {/* Eyebrow */}
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
+            PART OF OBD PREMIUM FEATURES
           </p>
+          
+          {/* H1 */}
+          <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-3">
+            OBD Premium Dashboard
+          </h1>
+          
+          {/* Tagline */}
+          <p className="text-lg text-slate-600 dark:text-slate-300 mb-6">
+            Access all your Ocala-focused AI business tools in one place.
+          </p>
+
+          {/* Light/Dark Toggle Pill (Static UI) */}
+          <div className="flex justify-center">
+            <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-full p-1">
+              <button
+                type="button"
+                className="px-4 py-1.5 text-sm font-medium rounded-full bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                aria-label="Light mode"
+              >
+                <Sun className="w-4 h-4 inline-block mr-1.5" />
+                Light
+              </button>
+              <button
+                type="button"
+                className="px-4 py-1.5 text-sm font-medium rounded-full text-slate-600 dark:text-slate-400"
+                aria-label="Dark mode"
+              >
+                <Moon className="w-4 h-4 inline-block mr-1.5" />
+                Dark
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Sections */}
-        <div className="space-y-12">
-          {APP_SECTIONS.map((section, sectionIndex) => (
-            <section key={sectionIndex} className="space-y-4">
-              {/* Section Header */}
-              <div>
-                <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-2">
-                  {section.title}
-                </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  {section.description}
-                </p>
-              </div>
+        <div className="space-y-16">
+          {APP_SECTIONS.map((section, sectionIndex) => {
+            const SectionIcon = section.icon;
+            return (
+              <section key={sectionIndex} className="space-y-6">
+                {/* Section Header */}
+                <div className="flex items-start gap-3">
+                  <div className="mt-1">
+                    <SectionIcon className="w-6 h-6 text-slate-600 dark:text-slate-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-1">
+                      {section.title}
+                    </h2>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {section.description}
+                    </p>
+                  </div>
+                </div>
 
-              {/* Tiles Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {section.tiles.map((tile, tileIndex) => {
-                  const isComingSoon = tile.comingSoon === true;
+                {/* Tiles Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {section.tiles.map((tile, tileIndex) => {
+                    const TileIcon = tile.icon;
+                    const isComingSoon = tile.comingSoon === true;
 
-                  // Coming Soon Tile
-                  if (isComingSoon) {
+                    // Coming Soon Tile
+                    if (isComingSoon) {
+                      return (
+                        <div
+                          key={tileIndex}
+                          className="relative bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col opacity-60"
+                        >
+                          {/* Icon */}
+                          <div className="mb-3">
+                            <TileIcon className="w-5 h-5 text-slate-400 dark:text-slate-500" />
+                          </div>
+
+                          {/* Title */}
+                          <h3 className="text-base font-semibold text-slate-600 dark:text-slate-400 mb-2">
+                            {tile.title}
+                          </h3>
+
+                          {/* Description */}
+                          <p className="text-sm text-slate-500 dark:text-slate-500 mb-4 flex-grow">
+                            {tile.description}
+                          </p>
+
+                          {/* Coming Soon Button */}
+                          <button
+                            disabled
+                            className="w-full px-4 py-2 text-sm font-medium text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-700/50 rounded-md cursor-not-allowed"
+                          >
+                            Coming Soon
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    // Live Tile (must have href)
+                    if (!tile.href) {
+                      return null;
+                    }
+
                     return (
                       <div
                         key={tileIndex}
-                        className="relative bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 opacity-70 cursor-not-allowed"
+                        className="relative bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col hover:shadow-md transition-shadow"
                       >
                         {/* Icon */}
-                        {tile.icon && (
-                          <div className="text-3xl mb-3 opacity-60">
-                            {tile.icon}
-                          </div>
-                        )}
+                        <div className="mb-3">
+                          <TileIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                        </div>
 
                         {/* Title */}
-                        <h3 className="text-lg font-semibold text-slate-600 dark:text-slate-400 mb-2">
+                        <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">
                           {tile.title}
                         </h3>
 
                         {/* Description */}
-                        <p className="text-sm text-slate-500 dark:text-slate-500 line-clamp-2 mb-4">
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-4 flex-grow">
                           {tile.description}
                         </p>
 
-                        {/* Coming Soon Button */}
-                        <button
-                          disabled
-                          className="w-full mt-auto px-4 py-2 text-sm font-medium text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-700 rounded-lg cursor-not-allowed"
+                        {/* CTA Button */}
+                        <Link
+                          href={tile.href}
+                          className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-[#29c4a9] hover:bg-[#24b09a] rounded-md transition-colors"
                         >
-                          Coming Soon
-                        </button>
+                          {tile.buttonLabel}
+                        </Link>
                       </div>
                     );
-                  }
-
-                  // Live Tile (must have href)
-                  if (!tile.href) {
-                    // Fallback: if somehow a live tile has no href, skip it
-                    return null;
-                  }
-
-                  return (
-                    <Link
-                      key={tileIndex}
-                      href={tile.href}
-                      className="group relative bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-lg border border-slate-200 dark:border-slate-700 p-6 transition-all duration-200 hover:scale-[1.02] hover:border-[#29c4a9]/50"
-                    >
-                      {/* Icon */}
-                      {tile.icon && (
-                        <div className="text-3xl mb-3">{tile.icon}</div>
-                      )}
-
-                      {/* Title */}
-                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2 group-hover:text-[#29c4a9] transition-colors">
-                        {tile.title}
-                      </h3>
-
-                      {/* Description */}
-                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
-                        {tile.description}
-                      </p>
-
-                      {/* Hover Indicator */}
-                      <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <svg
-                          className="w-5 h-5 text-[#29c4a9]"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 5l7 7-7 7"
-                          />
-                        </svg>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                  })}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
     </main>

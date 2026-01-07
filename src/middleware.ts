@@ -26,6 +26,25 @@ export default async function middleware(req: NextRequest) {
     const nextUrl = req.nextUrl;
     const pathname = nextUrl.pathname;
     
+    // DEMO MODE: Allow public demo entry routes (must check BEFORE auth)
+    // These routes set/clear the demo cookie and should never require auth
+    const isDemoEntry = pathname === "/apps/demo" || pathname.startsWith("/apps/demo/");
+    
+    if (isDemoEntry) {
+      // Always allow demo entry/exit routes - they handle their own cookie logic
+      return NextResponse.next();
+    }
+    
+    // DEMO MODE: Allow /apps routes when demo cookie is present
+    // This enables view-only demo access without requiring login
+    const hasDemo = Boolean(req.cookies.get("obd_demo")?.value);
+    const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
+    
+    if (hasDemo && isAppsRoute) {
+      // Demo cookie present + apps route = allow without auth
+      return NextResponse.next();
+    }
+    
     // CRITICAL: Only protect "/" and "/apps" (including "/apps/*") routes
     // Everything else must pass through immediately
     const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");

@@ -23,6 +23,9 @@ export default function DemoBanner({ isDemo }: DemoBannerProps) {
             <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
               Demo Mode: View-only preview. Upgrade to generate, save, or publish.
             </p>
+            <p className="text-xs text-amber-800/70 dark:text-amber-200/70 mt-1">
+              Explore the apps below — actions that save, publish, or generate are disabled in demo mode.
+            </p>
           </div>
 
           {/* Action Buttons */}

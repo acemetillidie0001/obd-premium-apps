@@ -285,11 +285,11 @@ export default function AppsLauncherClient() {
       tagline="Access all your Ocala-focused AI business tools in one place."
     >
       {/* Sections */}
-      <div className="space-y-16 mt-8">
+      <div className="space-y-8">
         {APP_SECTIONS.map((section, sectionIndex) => {
           const SectionIcon = section.icon;
           return (
-            <section key={sectionIndex} className="space-y-6">
+            <section key={sectionIndex} className={`space-y-6 ${sectionIndex === 0 ? "mt-7" : ""}`}>
               {/* Section Header */}
               <div className="flex items-start gap-3">
                 <div className="mt-1">

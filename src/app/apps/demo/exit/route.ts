@@ -1,36 +1,33 @@
 /**
  * Demo Mode Exit Route Handler
  * 
- * Clears the demo mode cookie and redirects to the external dashboard preview page.
+ * Clears the demo mode cookie and redirects to /apps on the canonical host (production)
+ * or current host (development).
  * This route disables demo mode for users visiting /apps/demo/exit.
  * 
  * Note: Cookies can only be modified in Route Handlers, not Server Components.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { clearDemoCookie, getDemoCookieOptions, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
+import { clearDemoCookie } from "@/lib/demo/demo-cookie";
 
 export async function GET(request: NextRequest) {
-  // Get cookies instance
-  const cookieStore = await cookies();
+  // In production, always redirect to canonical apps host to ensure cookie is cleared on same origin
+  // In development, use request.url to stay on current host (works for any subdomain)
+  const PROD_APPS_BASE = "https://apps.ocalabusinessdirectory.com";
   
-  // Clear the demo cookie
-  clearDemoCookie(cookieStore);
+  const redirectUrl =
+    process.env.NODE_ENV === "production"
+      ? new URL("/apps", PROD_APPS_BASE)
+      : new URL("/apps", request.url);
   
-  // Create redirect response and explicitly clear cookie in response headers
-  // This ensures the cookie is cleared even on redirect (belt-and-suspenders approach)
-  const response = NextResponse.redirect("https://ocalabusinessdirectory.com/premium/dashboard-preview/");
+  // Create redirect response and clear cookie on that response
+  // This ensures the cookie is cleared on the canonical host in production
+  const response = NextResponse.redirect(redirectUrl);
   
-  // Use shared cookie options with maxAge 0 to clear the cookie
-  // Must use same domain and path as when setting to ensure proper deletion
-  const cookieOptions = getDemoCookieOptions(0);
-  
-  // Explicitly clear cookie in redirect response by setting empty value with maxAge 0
-  response.cookies.set(DEMO_COOKIE, "", {
-    ...cookieOptions,
-    maxAge: 0, // Immediately expire
-  });
+  // Clear demo cookie on the redirect response using shared helper
+  // This ensures proper domain/path configuration (same as when setting) for proper deletion
+  clearDemoCookie(response.cookies);
   
   return response;
 }

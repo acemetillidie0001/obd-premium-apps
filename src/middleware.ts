@@ -21,29 +21,34 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+/**
+ * Check if demo mode cookie is present in request
+ * Use raw Cookie header for Edge reliability
+ */
+function hasDemoCookie(req: NextRequest): boolean {
+  const cookie = req.headers.get("cookie") || "";
+  const m = cookie.match(/(?:^|;\s*)obd_demo=([^;]+)/);
+  return !!(m && m[1] && m[1].trim() !== "");
+}
+
 export default async function middleware(req: NextRequest) {
   try {
     const nextUrl = req.nextUrl;
     const pathname = nextUrl.pathname;
     
-    // Check if this is an /apps route for debug headers
+    // CANONICAL HOST ENFORCEMENT: Redirect /apps routes to canonical host in production
+    const CANONICAL_APPS_HOST = "apps.ocalabusinessdirectory.com";
     const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
     
-    // Helper function to add debug headers for /apps routes
-    // TEMP DEBUG HEADERS — REMOVE AFTER DEMO VERIFIED
-    const addDebugHeaders = (response: NextResponse): NextResponse => {
-      if (!isAppsRoute) return response;
-      
-      const demoCookie = req.cookies.get("obd_demo");
-      const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
-      const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
-      
-      response.headers.set("x-obd-path", pathname);
-      response.headers.set("x-obd-demo", hasDemo ? "1" : "0");
-      response.headers.set("x-obd-protected", isProtectedRoute ? "1" : "0");
-      
-      return response;
-    };
+    if (process.env.NODE_ENV === "production" && isAppsRoute) {
+      const host = nextUrl.host;
+      if (host !== CANONICAL_APPS_HOST) {
+        const url = nextUrl.clone();
+        url.host = CANONICAL_APPS_HOST;
+        url.protocol = "https:";
+        return NextResponse.redirect(url);
+      }
+    }
     
     // DEMO MODE: Allow public demo entry routes (must check BEFORE auth)
     // These routes set/clear the demo cookie and should never require auth
@@ -51,19 +56,31 @@ export default async function middleware(req: NextRequest) {
     
     if (isDemoEntry) {
       // Always allow demo entry/exit routes - they handle their own cookie logic
-      return addDebugHeaders(NextResponse.next());
+      return NextResponse.next();
     }
     
     // DEMO MODE: Allow /apps and /apps/:path* routes when demo cookie is present
     // This enables view-only demo access without requiring login
     // Check for demo cookie explicitly - must exist and have a non-empty value
     // Pattern matches: /apps, /apps/anything, /apps/nested/anything, etc.
+    // Note: isAppsRoute is already defined above for canonical host check
     
     if (isAppsRoute) {
-      const demo = req.cookies.get("obd_demo")?.value;
-      if (demo && demo !== "") {
+      if (hasDemoCookie(req)) {
         // Demo cookie present + apps route = allow without auth (bypass login redirect)
-        return addDebugHeaders(NextResponse.next());
+        // TEMPORARY DIAGNOSTIC: Log demo bypass (development only)
+        if (process.env.NODE_ENV !== "production") {
+          const demo = hasDemoCookie(req);
+          const host = req.headers.get("host") || "unknown";
+          const cookieHeader = req.headers.get("cookie") || "";
+          console.warn("[Middleware] DEMO BYPASS ALLOW:", {
+            pathname,
+            hasDemoCookie: demo,
+            host,
+            cookieHeaderLength: cookieHeader.length,
+          });
+        }
+        return NextResponse.next();
       }
     }
     
@@ -73,7 +90,7 @@ export default async function middleware(req: NextRequest) {
     
     if (!isProtectedRoute) {
       // Not a protected route, allow through immediately
-      return addDebugHeaders(NextResponse.next());
+      return NextResponse.next();
     }
     
     // Protected route - check authentication using getToken (Edge-safe)
@@ -84,7 +101,7 @@ export default async function middleware(req: NextRequest) {
       if (process.env.NODE_ENV !== "production") {
         console.warn("[Middleware] AUTH_SECRET not configured, allowing access");
       }
-      return addDebugHeaders(NextResponse.next());
+      return NextResponse.next();
     }
     
     // Try to get token with different cookie names for robustness
@@ -116,10 +133,43 @@ export default async function middleware(req: NextRequest) {
     
     // If we have a token, user is authenticated - allow access
     if (token) {
-      return addDebugHeaders(NextResponse.next());
+      return NextResponse.next();
     }
 
-    // Protected route without session - redirect to login
+    // Protected route without session - check demo mode before redirecting
+    // DEMO MODE BYPASS: If demo cookie is present, allow access (read-only mode)
+    // This ensures demo mode users can access protected routes without authentication
+    if (hasDemoCookie(req)) {
+      // Demo cookie present - allow access without auth (bypass login redirect)
+      // This enables view-only demo access to protected routes
+      if (process.env.NODE_ENV !== "production") {
+        const demo = hasDemoCookie(req);
+        const host = req.headers.get("host") || "unknown";
+        const cookieHeader = req.headers.get("cookie") || "";
+        console.warn("[Middleware] DEMO MODE BYPASS (no token):", {
+          pathname,
+          hasDemoCookie: demo,
+          host,
+          cookieHeaderLength: cookieHeader.length,
+        });
+      }
+      return NextResponse.next();
+    }
+
+    // Protected route without session and no demo cookie - redirect to login
+    // TEMPORARY DIAGNOSTIC: Log redirect details (development only)
+    if (process.env.NODE_ENV !== "production") {
+      const demo = hasDemoCookie(req);
+      const host = req.headers.get("host") || "unknown";
+      const cookieHeader = req.headers.get("cookie") || "";
+      console.warn("[Middleware] REDIRECT TO LOGIN:", {
+        pathname,
+        hasDemoCookie: demo,
+        host,
+        cookieHeaderLength: cookieHeader.length,
+      });
+    }
+    
     // Build callbackUrl from pathname and search params
     const callbackUrl = pathname + (nextUrl.search || "");
     
@@ -127,41 +177,22 @@ export default async function middleware(req: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("callbackUrl", callbackUrl);
     
-    return addDebugHeaders(NextResponse.redirect(url));
+    return NextResponse.redirect(url);
   } catch (error) {
     // FAIL OPEN: If anything errors, allow the request through
     // Log error in development only (production logs should be minimal)
     if (process.env.NODE_ENV !== "production") {
       console.error("[Middleware] Error in middleware, failing open:", error);
     }
-    
-    // TEMP DEBUG HEADERS — REMOVE AFTER DEMO VERIFIED
-    const pathname = req.nextUrl.pathname;
-    const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
-    const errorResponse = NextResponse.next();
-    if (isAppsRoute) {
-      const demoCookie = req.cookies.get("obd_demo");
-      const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
-      const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
-      
-      errorResponse.headers.set("x-obd-path", pathname);
-      errorResponse.headers.set("x-obd-demo", hasDemo ? "1" : "0");
-      errorResponse.headers.set("x-obd-protected", isProtectedRoute ? "1" : "0");
-    }
-    
-    return errorResponse;
+    return NextResponse.next();
   }
 }
 
 export const config = {
-  // Robust matcher excludes:
-  // - /login and /login/* (login pages)
-  // - /api/auth/* (NextAuth API routes)
-  // - /_next/* (Next.js internals)
-  // - /favicon.ico (favicon)
-  // - Any static files with extensions (.png, .svg, .jpg, .css, .js, etc.)
-  // This ensures static assets are NEVER intercepted by middleware
-  matcher: [
-    "/((?!login|api/auth|_next|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|txt|xml|json|woff|woff2|ttf|eot)).*)",
-  ],
+  // Explicit matcher: Only protect these routes
+  // - "/" (homepage)
+  // - "/apps" (apps dashboard)
+  // - "/apps/:path*" (all nested app routes)
+  // Middleware will NOT run for unrelated routes (login, API routes, static assets, etc.)
+  matcher: ["/", "/apps", "/apps/:path*"],
 };

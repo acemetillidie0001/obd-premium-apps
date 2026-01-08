@@ -9,8 +9,8 @@
  * 
  * Security:
  * - httpOnly: true (not accessible via JavaScript)
- * - secure: true in production (HTTPS only)
- * - sameSite: "lax" (CSRF protection)
+ * - secure: true (HTTPS only, required for sameSite: "none")
+ * - sameSite: "none" (allows cross-site requests)
  * - path: "/" (available site-wide)
  * - domain: ".ocalabusinessdirectory.com" in production (works across subdomains)
  */
@@ -37,7 +37,7 @@ export const DEMO_COOKIE = "obd_demo";
 export function getDemoCookieOptions(maxAgeSeconds?: number): {
   httpOnly: boolean;
   secure: boolean;
-  sameSite: "lax";
+  sameSite: "none";
   path: "/";
   maxAge: number;
   domain?: string;
@@ -48,14 +48,14 @@ export function getDemoCookieOptions(maxAgeSeconds?: number): {
   const options: {
     httpOnly: boolean;
     secure: boolean;
-    sameSite: "lax";
+    sameSite: "none";
     path: "/";
     maxAge: number;
     domain?: string;
   } = {
     httpOnly: true, // Prevent JavaScript access (XSS protection)
-    secure: isProduction, // HTTPS only in production
-    sameSite: "lax", // CSRF protection while allowing top-level navigation
+    secure: true, // HTTPS only, required for sameSite: "none"
+    sameSite: "none", // Allows cross-site requests
     path: "/", // Available site-wide
     maxAge, // Expiration time
   };
@@ -74,8 +74,8 @@ export function getDemoCookieOptions(maxAgeSeconds?: number): {
  * 
  * Cookie configuration:
  * - httpOnly: true (prevents XSS attacks)
- * - secure: true in production (HTTPS only), false in development
- * - sameSite: "lax" (CSRF protection while allowing top-level navigation)
+ * - secure: true (HTTPS only, required for sameSite: "none")
+ * - sameSite: "none" (allows cross-site requests)
  * - path: "/" (available on all routes)
  * - domain: ".ocalabusinessdirectory.com" in production (works across subdomains)
  * - maxAge: DEMO_TTL_MINUTES converted to seconds

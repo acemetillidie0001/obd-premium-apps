@@ -26,26 +26,44 @@ export default async function middleware(req: NextRequest) {
     const nextUrl = req.nextUrl;
     const pathname = nextUrl.pathname;
     
+    // Check if this is an /apps route for debug headers
+    const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
+    
+    // Helper function to add debug headers for /apps routes
+    // TEMP DEBUG HEADERS — REMOVE AFTER DEMO VERIFIED
+    const addDebugHeaders = (response: NextResponse): NextResponse => {
+      if (!isAppsRoute) return response;
+      
+      const demoCookie = req.cookies.get("obd_demo");
+      const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
+      const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
+      
+      response.headers.set("x-obd-path", pathname);
+      response.headers.set("x-obd-demo", hasDemo ? "1" : "0");
+      response.headers.set("x-obd-protected", isProtectedRoute ? "1" : "0");
+      
+      return response;
+    };
+    
     // DEMO MODE: Allow public demo entry routes (must check BEFORE auth)
     // These routes set/clear the demo cookie and should never require auth
     const isDemoEntry = pathname === "/apps/demo" || pathname.startsWith("/apps/demo/");
     
     if (isDemoEntry) {
       // Always allow demo entry/exit routes - they handle their own cookie logic
-      return NextResponse.next();
+      return addDebugHeaders(NextResponse.next());
     }
     
     // DEMO MODE: Allow /apps and /apps/:path* routes when demo cookie is present
     // This enables view-only demo access without requiring login
     // Check for demo cookie explicitly - must exist and have a non-empty value
     // Pattern matches: /apps, /apps/anything, /apps/nested/anything, etc.
-    const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
     
     if (isAppsRoute) {
       const demo = req.cookies.get("obd_demo")?.value;
       if (demo && demo !== "") {
         // Demo cookie present + apps route = allow without auth (bypass login redirect)
-        return NextResponse.next();
+        return addDebugHeaders(NextResponse.next());
       }
     }
     
@@ -55,7 +73,7 @@ export default async function middleware(req: NextRequest) {
     
     if (!isProtectedRoute) {
       // Not a protected route, allow through immediately
-      return NextResponse.next();
+      return addDebugHeaders(NextResponse.next());
     }
     
     // Protected route - check authentication using getToken (Edge-safe)
@@ -66,7 +84,7 @@ export default async function middleware(req: NextRequest) {
       if (process.env.NODE_ENV !== "production") {
         console.warn("[Middleware] AUTH_SECRET not configured, allowing access");
       }
-      return NextResponse.next();
+      return addDebugHeaders(NextResponse.next());
     }
     
     // Try to get token with different cookie names for robustness
@@ -98,7 +116,7 @@ export default async function middleware(req: NextRequest) {
     
     // If we have a token, user is authenticated - allow access
     if (token) {
-      return NextResponse.next();
+      return addDebugHeaders(NextResponse.next());
     }
 
     // Protected route without session - redirect to login
@@ -109,14 +127,29 @@ export default async function middleware(req: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("callbackUrl", callbackUrl);
     
-    return NextResponse.redirect(url);
+    return addDebugHeaders(NextResponse.redirect(url));
   } catch (error) {
     // FAIL OPEN: If anything errors, allow the request through
     // Log error in development only (production logs should be minimal)
     if (process.env.NODE_ENV !== "production") {
       console.error("[Middleware] Error in middleware, failing open:", error);
     }
-    return NextResponse.next();
+    
+    // TEMP DEBUG HEADERS — REMOVE AFTER DEMO VERIFIED
+    const pathname = req.nextUrl.pathname;
+    const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
+    const errorResponse = NextResponse.next();
+    if (isAppsRoute) {
+      const demoCookie = req.cookies.get("obd_demo");
+      const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
+      const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
+      
+      errorResponse.headers.set("x-obd-path", pathname);
+      errorResponse.headers.set("x-obd-demo", hasDemo ? "1" : "0");
+      errorResponse.headers.set("x-obd-protected", isProtectedRoute ? "1" : "0");
+    }
+    
+    return errorResponse;
   }
 }
 

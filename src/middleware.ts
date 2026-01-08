@@ -26,9 +26,19 @@ import { getToken } from "next-auth/jwt";
  * Use raw Cookie header for Edge reliability
  */
 function hasDemoCookie(req: NextRequest): boolean {
-  const cookie = req.headers.get("cookie") || "";
-  const m = cookie.match(/(?:^|;\s*)obd_demo=([^;]+)/);
-  return !!(m && m[1] && m[1].trim() !== "");
+  const cookieHeader = req.headers.get("cookie") || "";
+  
+  // Match obd_demo cookie value (handles spaces around = and ;)
+  // Pattern matches: obd_demo=1, obd_demo=1;, ; obd_demo=1, etc.
+  const match = cookieHeader.match(/(?:^|;\s*)obd_demo\s*=\s*([^;\s]+)/);
+  
+  if (!match || !match[1]) {
+    return false;
+  }
+  
+  const value = match[1].trim();
+  // Cookie value should be "1" (non-empty truthy value)
+  return value.length > 0 && value !== "0" && value !== "false";
 }
 
 export default async function middleware(req: NextRequest) {
@@ -66,20 +76,9 @@ export default async function middleware(req: NextRequest) {
     // Note: isAppsRoute is already defined above for canonical host check
     
     if (isAppsRoute) {
-      if (hasDemoCookie(req)) {
+      const hasDemo = hasDemoCookie(req);
+      if (hasDemo) {
         // Demo cookie present + apps route = allow without auth (bypass login redirect)
-        // TEMPORARY DIAGNOSTIC: Log demo bypass (development only)
-        if (process.env.NODE_ENV !== "production") {
-          const demo = hasDemoCookie(req);
-          const host = req.headers.get("host") || "unknown";
-          const cookieHeader = req.headers.get("cookie") || "";
-          console.warn("[Middleware] DEMO BYPASS ALLOW:", {
-            pathname,
-            hasDemoCookie: demo,
-            host,
-            cookieHeaderLength: cookieHeader.length,
-          });
-        }
         return NextResponse.next();
       }
     }
@@ -139,37 +138,14 @@ export default async function middleware(req: NextRequest) {
     // Protected route without session - check demo mode before redirecting
     // DEMO MODE BYPASS: If demo cookie is present, allow access (read-only mode)
     // This ensures demo mode users can access protected routes without authentication
-    if (hasDemoCookie(req)) {
+    const hasDemo = hasDemoCookie(req);
+    if (hasDemo) {
       // Demo cookie present - allow access without auth (bypass login redirect)
       // This enables view-only demo access to protected routes
-      if (process.env.NODE_ENV !== "production") {
-        const demo = hasDemoCookie(req);
-        const host = req.headers.get("host") || "unknown";
-        const cookieHeader = req.headers.get("cookie") || "";
-        console.warn("[Middleware] DEMO MODE BYPASS (no token):", {
-          pathname,
-          hasDemoCookie: demo,
-          host,
-          cookieHeaderLength: cookieHeader.length,
-        });
-      }
       return NextResponse.next();
     }
 
     // Protected route without session and no demo cookie - redirect to login
-    // TEMPORARY DIAGNOSTIC: Log redirect details (development only)
-    if (process.env.NODE_ENV !== "production") {
-      const demo = hasDemoCookie(req);
-      const host = req.headers.get("host") || "unknown";
-      const cookieHeader = req.headers.get("cookie") || "";
-      console.warn("[Middleware] REDIRECT TO LOGIN:", {
-        pathname,
-        hasDemoCookie: demo,
-        host,
-        cookieHeaderLength: cookieHeader.length,
-      });
-    }
-    
     // Build callbackUrl from pathname and search params
     const callbackUrl = pathname + (nextUrl.search || "");
     
@@ -177,7 +153,16 @@ export default async function middleware(req: NextRequest) {
     url.pathname = "/login";
     url.searchParams.set("callbackUrl", callbackUrl);
     
-    return NextResponse.redirect(url);
+    // TEMPORARY DEBUG: Add headers to help diagnose cookie detection issues
+    const cookieHeader = req.headers.get("cookie") || "";
+    const hasDemoInHeader = cookieHeader.includes("obd_demo");
+    const redirectResponse = NextResponse.redirect(url);
+    redirectResponse.headers.set("x-debug-cookie-header-length", String(cookieHeader.length));
+    redirectResponse.headers.set("x-debug-has-obd-demo-in-header", hasDemoInHeader ? "1" : "0");
+    redirectResponse.headers.set("x-debug-pathname", pathname);
+    redirectResponse.headers.set("x-debug-host", req.headers.get("host") || "unknown");
+    
+    return redirectResponse;
   } catch (error) {
     // FAIL OPEN: If anything errors, allow the request through
     // Log error in development only (production logs should be minimal)

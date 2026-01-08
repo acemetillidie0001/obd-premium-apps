@@ -35,15 +35,16 @@ export default async function middleware(req: NextRequest) {
       return NextResponse.next();
     }
     
-    // DEMO MODE: Allow /apps routes when demo cookie is present
+    // DEMO MODE: Allow /apps and /apps/:path* routes when demo cookie is present
     // This enables view-only demo access without requiring login
     // Check for demo cookie explicitly - must exist and have a non-empty value
+    // Pattern matches: /apps, /apps/anything, /apps/nested/anything, etc.
     const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
     
     if (isAppsRoute) {
       const demo = req.cookies.get("obd_demo")?.value;
       if (demo && demo !== "") {
-        // Demo cookie present + apps route = allow without auth
+        // Demo cookie present + apps route = allow without auth (bypass login redirect)
         return NextResponse.next();
       }
     }

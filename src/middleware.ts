@@ -38,13 +38,14 @@ export default async function middleware(req: NextRequest) {
     // DEMO MODE: Allow /apps routes when demo cookie is present
     // This enables view-only demo access without requiring login
     // Check for demo cookie explicitly - must exist and have a non-empty value
-    const demoCookie = req.cookies.get("obd_demo");
-    const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
     const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
     
-    if (hasDemo && isAppsRoute) {
-      // Demo cookie present + apps route = allow without auth
-      return NextResponse.next();
+    if (isAppsRoute) {
+      const demo = req.cookies.get("obd_demo")?.value;
+      if (demo && demo !== "") {
+        // Demo cookie present + apps route = allow without auth
+        return NextResponse.next();
+      }
     }
     
     // CRITICAL: Only protect "/" and "/apps" (including "/apps/*") routes
@@ -103,7 +104,8 @@ export default async function middleware(req: NextRequest) {
     // Build callbackUrl from pathname and search params
     const callbackUrl = pathname + (nextUrl.search || "");
     
-    const url = new URL("/login", nextUrl.origin);
+    const url = nextUrl.clone();
+    url.pathname = "/login";
     url.searchParams.set("callbackUrl", callbackUrl);
     
     return NextResponse.redirect(url);

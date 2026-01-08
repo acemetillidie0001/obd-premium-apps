@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { clearDemoCookie, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
+import { clearDemoCookie, getDemoCookieOptions, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
 
 export async function GET(request: NextRequest) {
   // Get cookies instance
@@ -22,13 +22,14 @@ export async function GET(request: NextRequest) {
   // This ensures the cookie is cleared even on redirect (belt-and-suspenders approach)
   const response = NextResponse.redirect("https://ocalabusinessdirectory.com/premium/dashboard-preview/");
   
+  // Use shared cookie options with maxAge 0 to clear the cookie
+  // Must use same domain and path as when setting to ensure proper deletion
+  const cookieOptions = getDemoCookieOptions(0);
+  
   // Explicitly clear cookie in redirect response by setting empty value with maxAge 0
   response.cookies.set(DEMO_COOKIE, "", {
-    path: "/", // Must match the path used when setting the cookie
+    ...cookieOptions,
     maxAge: 0, // Immediately expire
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
   });
   
   return response;

@@ -12,6 +12,7 @@
  * - secure: true in production (HTTPS only)
  * - sameSite: "lax" (CSRF protection)
  * - path: "/" (available site-wide)
+ * - domain: ".ocalabusinessdirectory.com" in production (works across subdomains)
  */
 
 import { cookies } from "next/headers";
@@ -25,6 +26,50 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 export const DEMO_COOKIE = "obd_demo";
 
 /**
+ * Gets the shared cookie options for demo mode.
+ * 
+ * Returns cookie configuration that ensures the cookie works across subdomains
+ * in production (e.g., ocalabusinessdirectory.com and apps.ocalabusinessdirectory.com).
+ * 
+ * @param maxAgeSeconds - Cookie expiration in seconds (optional, defaults to DEMO_TTL_MINUTES)
+ * @returns Cookie options object
+ */
+export function getDemoCookieOptions(maxAgeSeconds?: number): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "lax";
+  path: "/";
+  maxAge: number;
+  domain?: string;
+} {
+  const isProduction = process.env.NODE_ENV === "production";
+  const maxAge = maxAgeSeconds ?? DEMO_TTL_MINUTES * 60;
+  
+  const options: {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: "lax";
+    path: "/";
+    maxAge: number;
+    domain?: string;
+  } = {
+    httpOnly: true, // Prevent JavaScript access (XSS protection)
+    secure: isProduction, // HTTPS only in production
+    sameSite: "lax", // CSRF protection while allowing top-level navigation
+    path: "/", // Available site-wide
+    maxAge, // Expiration time
+  };
+  
+  // Set domain to parent domain in production for subdomain support
+  // e.g., .ocalabusinessdirectory.com works for apps.ocalabusinessdirectory.com
+  if (isProduction) {
+    options.domain = ".ocalabusinessdirectory.com";
+  }
+  
+  return options;
+}
+
+/**
  * Sets the demo mode cookie.
  * 
  * Cookie configuration:
@@ -32,6 +77,7 @@ export const DEMO_COOKIE = "obd_demo";
  * - secure: true in production (HTTPS only), false in development
  * - sameSite: "lax" (CSRF protection while allowing top-level navigation)
  * - path: "/" (available on all routes)
+ * - domain: ".ocalabusinessdirectory.com" in production (works across subdomains)
  * - maxAge: DEMO_TTL_MINUTES converted to seconds
  * 
  * @param cookies - Next.js cookies instance from `await cookies()`
@@ -48,20 +94,8 @@ export const DEMO_COOKIE = "obd_demo";
 export function setDemoCookie(
   cookieStore: CookieStore | { set: (name: string, value: string, options?: any) => void }
 ): void {
-  // Convert minutes to seconds for maxAge
-  const maxAgeSeconds = DEMO_TTL_MINUTES * 60;
-  
-  // Determine if we're in production
-  const isProduction = process.env.NODE_ENV === "production";
-  
-  // Set cookie with appropriate security settings
-  cookieStore.set(DEMO_COOKIE, "1", {
-    httpOnly: true, // Prevent JavaScript access (XSS protection)
-    secure: isProduction, // HTTPS only in production
-    sameSite: "lax", // CSRF protection while allowing top-level navigation
-    path: "/", // Available site-wide
-    maxAge: maxAgeSeconds, // Expires after DEMO_TTL_MINUTES
-  });
+  const options = getDemoCookieOptions();
+  cookieStore.set(DEMO_COOKIE, "1", options);
 }
 
 /**
@@ -94,8 +128,9 @@ export function hasDemoCookie(
  * Clears the demo mode cookie.
  * 
  * Effectively removes demo mode by deleting the cookie.
+ * Uses the same domain and path as when setting to ensure proper deletion.
  * 
- * @param cookies - Next.js cookies instance from `await cookies()`
+ * @param cookies - Next.js cookies instance from `await cookies()` or NextResponse cookies
  * 
  * @example
  * ```typescript
@@ -107,9 +142,25 @@ export function hasDemoCookie(
  * ```
  */
 export function clearDemoCookie(
-  cookieStore: CookieStore | { delete: (name: string) => void }
+  cookieStore: CookieStore | { delete: (name: string) => void; set: (name: string, value: string, options?: any) => void }
 ): void {
-  // Delete the cookie
-  cookieStore.delete(DEMO_COOKIE);
+  // To properly clear a cookie, we need to set it with the same domain and path
+  // but with an empty value and maxAge: 0
+  // Use the same options as when setting (including domain) to ensure it's cleared correctly
+  const options = getDemoCookieOptions(0);
+  
+  // Check if cookieStore has a set method (NextResponse cookies) or delete method (Next.js cookies)
+  const hasSetMethod = "set" in cookieStore && typeof (cookieStore as any).set === "function";
+  
+  if (hasSetMethod) {
+    // Use set with empty value and maxAge 0 to clear the cookie
+    (cookieStore as { set: (name: string, value: string, options?: any) => void }).set(DEMO_COOKIE, "", {
+      ...options,
+      maxAge: 0, // Immediately expire
+    });
+  } else {
+    // Fallback to delete if set is not available (Next.js cookies())
+    (cookieStore as { delete: (name: string) => void }).delete(DEMO_COOKIE);
+  }
 }
 

@@ -9,8 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { hasDemoCookie, setDemoCookie, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
-import { DEMO_TTL_MINUTES } from "@/lib/demo/demo-constants";
+import { hasDemoCookie, setDemoCookie, getDemoCookieOptions, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
 
 export async function GET(request: NextRequest) {
   // Get cookies instance
@@ -27,17 +26,12 @@ export async function GET(request: NextRequest) {
   const redirectUrl = new URL("/apps", request.url);
   const response = NextResponse.redirect(redirectUrl);
   
-  // Explicitly set cookie in redirect response to ensure it's sent
-  const maxAgeSeconds = DEMO_TTL_MINUTES * 60;
-  const isProduction = process.env.NODE_ENV === "production";
+  // Use shared cookie options (includes domain for cross-subdomain support)
+  const cookieOptions = getDemoCookieOptions();
   
-  response.cookies.set(DEMO_COOKIE, "1", {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/", // Critical: must be "/" for site-wide availability
-    maxAge: maxAgeSeconds,
-  });
+  // Explicitly set cookie in redirect response to ensure it's sent
+  // Uses same domain and path as setDemoCookie for consistency
+  response.cookies.set(DEMO_COOKIE, "1", cookieOptions);
   
   return response;
 }

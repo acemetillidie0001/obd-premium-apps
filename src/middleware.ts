@@ -37,7 +37,9 @@ export default async function middleware(req: NextRequest) {
     
     // DEMO MODE: Allow /apps routes when demo cookie is present
     // This enables view-only demo access without requiring login
-    const hasDemo = Boolean(req.cookies.get("obd_demo")?.value);
+    // Check for demo cookie explicitly - must exist and have a non-empty value
+    const demoCookie = req.cookies.get("obd_demo");
+    const hasDemo = demoCookie !== undefined && demoCookie.value !== undefined && demoCookie.value !== "" && demoCookie.value.trim() !== "";
     const isAppsRoute = pathname === "/apps" || pathname.startsWith("/apps/");
     
     if (hasDemo && isAppsRoute) {

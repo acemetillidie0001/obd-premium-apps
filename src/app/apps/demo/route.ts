@@ -9,7 +9,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { hasDemoCookie, setDemoCookie } from "@/lib/demo/demo-cookie";
+import { hasDemoCookie, setDemoCookie, DEMO_COOKIE } from "@/lib/demo/demo-cookie";
+import { DEMO_TTL_MINUTES } from "@/lib/demo/demo-constants";
 
 export async function GET(request: NextRequest) {
   // Get cookies instance
@@ -21,7 +22,23 @@ export async function GET(request: NextRequest) {
     setDemoCookie(cookieStore);
   }
   
-  // Redirect to apps dashboard
-  return NextResponse.redirect(new URL("/apps", request.url));
+  // Create redirect response and explicitly set cookie in response headers
+  // This ensures the cookie is set even on redirect (belt-and-suspenders approach)
+  const redirectUrl = new URL("/apps", request.url);
+  const response = NextResponse.redirect(redirectUrl);
+  
+  // Explicitly set cookie in redirect response to ensure it's sent
+  const maxAgeSeconds = DEMO_TTL_MINUTES * 60;
+  const isProduction = process.env.NODE_ENV === "production";
+  
+  response.cookies.set(DEMO_COOKIE, "1", {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: "lax",
+    path: "/", // Critical: must be "/" for site-wide availability
+    maxAge: maxAgeSeconds,
+  });
+  
+  return response;
 }
 

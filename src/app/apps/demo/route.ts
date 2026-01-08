@@ -23,13 +23,18 @@ export async function GET(request: NextRequest) {
   
   // Create redirect response and explicitly set cookie in response headers
   // This ensures the cookie is set even on redirect (belt-and-suspenders approach)
+  // Use request.url to stay on current host (works for any subdomain)
+  // new URL("/apps", request.url) ensures redirect stays on same host as request
   const redirectUrl = new URL("/apps", request.url);
   const response = NextResponse.redirect(redirectUrl);
   
-  // Use shared cookie options (includes domain for cross-subdomain support)
+  // Use shared cookie options (includes domain for cross-subdomain support in production)
+  // Options: path: "/", httpOnly: true, sameSite: "lax", secure: true (production),
+  // domain: ".ocalabusinessdirectory.com" (production only)
   const cookieOptions = getDemoCookieOptions();
   
-  // Explicitly set cookie in redirect response to ensure it's sent
+  // Explicitly set cookie on the same NextResponse that performs the redirect
+  // This ensures the cookie is sent with the redirect response
   // Uses same domain and path as setDemoCookie for consistency
   response.cookies.set(DEMO_COOKIE, "1", cookieOptions);
   

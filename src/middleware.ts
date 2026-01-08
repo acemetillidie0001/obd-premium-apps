@@ -28,17 +28,19 @@ import { getToken } from "next-auth/jwt";
 function hasDemoCookie(req: NextRequest): boolean {
   const cookieHeader = req.headers.get("cookie") || "";
   
-  // Match obd_demo cookie value (handles spaces around = and ;)
-  // Pattern matches: obd_demo=1, obd_demo=1;, ; obd_demo=1, etc.
-  const match = cookieHeader.match(/(?:^|;\s*)obd_demo\s*=\s*([^;\s]+)/);
+  // Simple check: does the cookie header contain "obd_demo=" followed by a non-empty value
+  // This handles all cookie formats: obd_demo=1, obd_demo=1;, ; obd_demo=1, etc.
+  const demoCookiePattern = /(?:^|;\s*)obd_demo\s*=\s*([^;]+)/;
+  const match = cookieHeader.match(demoCookiePattern);
   
   if (!match || !match[1]) {
     return false;
   }
   
   const value = match[1].trim();
-  // Cookie value should be "1" (non-empty truthy value)
-  return value.length > 0 && value !== "0" && value !== "false";
+  // Cookie value should be "1" or any non-empty truthy value
+  // Accept "1", "true", or any non-empty string (but reject "0", "false", empty)
+  return value.length > 0 && value !== "0" && value !== "false" && value !== "";
 }
 
 export default async function middleware(req: NextRequest) {
@@ -77,9 +79,18 @@ export default async function middleware(req: NextRequest) {
     
     if (isAppsRoute) {
       const hasDemo = hasDemoCookie(req);
+      const cookieHeader = req.headers.get("cookie") || "";
+      
+      // Add debug header to see what middleware sees (temporary)
       if (hasDemo) {
         // Demo cookie present + apps route = allow without auth (bypass login redirect)
-        return NextResponse.next();
+        const response = NextResponse.next();
+        response.headers.set("x-debug-demo-detected", "1");
+        response.headers.set("x-debug-cookie-length", String(cookieHeader.length));
+        return response;
+      } else {
+        // Debug: log when demo cookie is NOT detected for apps routes
+        // This will help diagnose why redirects happen
       }
     }
     

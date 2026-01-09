@@ -9,9 +9,12 @@
  * 
  * Route: GET /apps/demo/proof
  * Access: Public (no auth required)
+ * Runtime: Edge (for consistency with middleware)
  */
 
 import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "edge";
 
 /**
  * Check if demo mode cookie is present in request
@@ -55,8 +58,20 @@ export async function GET(request: NextRequest) {
     hasObdDemoInCookieHeader,
     parsedHasDemoCookie,
     timestamp: new Date().toISOString(),
+    // Vercel deployment identity fields
+    vercelEnv: process.env.VERCEL_ENV || null,
+    vercelUrl: process.env.VERCEL_URL || null,
+    vercelRegion: process.env.VERCEL_REGION || null,
+    gitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    buildId: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || null,
   };
   
-  return NextResponse.json(response);
+  const jsonResponse = NextResponse.json(response);
+  
+  // Prevent CDN caching - this is a diagnostic endpoint
+  jsonResponse.headers.set("Cache-Control", "no-store, max-age=0");
+  jsonResponse.headers.set("Pragma", "no-cache");
+  
+  return jsonResponse;
 }
 

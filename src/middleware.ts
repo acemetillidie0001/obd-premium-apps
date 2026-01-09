@@ -24,23 +24,29 @@ import { getToken } from "next-auth/jwt";
 /**
  * Check if demo mode cookie is present in request
  * Use raw Cookie header for Edge reliability
+ * Presence-based detection: checks for "obd_demo" or "obd_demo=" in cookie string
  */
 function hasDemoCookie(req: NextRequest): boolean {
-  const cookieHeader = req.headers.get("cookie") || "";
-  
-  // Simple check: does the cookie header contain "obd_demo=" followed by a non-empty value
-  // This handles all cookie formats: obd_demo=1, obd_demo=1;, ; obd_demo=1, etc.
-  const demoCookiePattern = /(?:^|;\s*)obd_demo\s*=\s*([^;]+)/;
-  const match = cookieHeader.match(demoCookiePattern);
-  
-  if (!match || !match[1]) {
-    return false;
+  const cookieHeader = req.headers.get("cookie");
+  if (!cookieHeader) return false;
+
+  return cookieHeader
+    .split(";")
+    .some(c => {
+      const v = c.trim();
+      return v === "obd_demo" || v.startsWith("obd_demo=");
+    });
+}
+
+/**
+ * Add deployment SHA header to /apps responses
+ * Temporary diagnostic header to verify which deployment is serving requests
+ */
+function addDeployShaHeader(response: NextResponse, pathname: string): void {
+  if (pathname.startsWith("/apps")) {
+    const deploySha = process.env.VERCEL_GIT_COMMIT_SHA || "unknown";
+    response.headers.set("x-obd-deploy-sha", deploySha);
   }
-  
-  const value = match[1].trim();
-  // Cookie value should be "1" or any non-empty truthy value
-  // Accept "1", "true", or any non-empty string (but reject "0", "false", empty)
-  return value.length > 0 && value !== "0" && value !== "false" && value !== "";
 }
 
 export default async function middleware(req: NextRequest) {
@@ -55,10 +61,34 @@ export default async function middleware(req: NextRequest) {
     if (process.env.NODE_ENV === "production" && isAppsRoute) {
       const host = nextUrl.host;
       if (host !== CANONICAL_APPS_HOST) {
+        // Cookie detection using raw header parsing
+        const cookieHeader = req.headers.get("cookie") ?? "";
+        const hasObdDemoInHeader = cookieHeader.includes("obd_demo=");
+        
+        // Presence-based detection (matches hasDemoCookie logic)
+        const parsedHasDemoCookie = cookieHeader
+          .split(";")
+          .some(c => {
+            const v = c.trim();
+            return v === "obd_demo" || v.startsWith("obd_demo=");
+          });
+        
         const url = nextUrl.clone();
         url.host = CANONICAL_APPS_HOST;
         url.protocol = "https:";
-        return NextResponse.redirect(url);
+        const redirectResponse = NextResponse.redirect(url);
+        const requestHost = req.headers.get("host") || "unknown";
+        
+        // Set diagnostic headers ONLY on canonical-host redirect response
+        redirectResponse.headers.set("x-obd-mw", "redirect");
+        redirectResponse.headers.set("x-obd-mw-reason", "canonical_host");
+        redirectResponse.headers.set("x-obd-mw-host", requestHost);
+        redirectResponse.headers.set("x-obd-mw-path", pathname);
+        redirectResponse.headers.set("x-obd-mw-cookie-len", String(cookieHeader.length));
+        redirectResponse.headers.set("x-obd-mw-cookie-has-obd-demo", hasObdDemoInHeader ? "1" : "0");
+        redirectResponse.headers.set("x-obd-mw-parsed-has-demo", parsedHasDemoCookie ? "1" : "0");
+        
+        return redirectResponse;
       }
     }
     
@@ -68,7 +98,9 @@ export default async function middleware(req: NextRequest) {
     
     if (isDemoEntry) {
       // Always allow demo entry/exit routes - they handle their own cookie logic
-      return NextResponse.next();
+      const response = NextResponse.next();
+      addDeployShaHeader(response, pathname);
+      return response;
     }
     
     // DEMO MODE: Allow /apps and /apps/:path* routes when demo cookie is present
@@ -79,18 +111,12 @@ export default async function middleware(req: NextRequest) {
     
     if (isAppsRoute) {
       const hasDemo = hasDemoCookie(req);
-      const cookieHeader = req.headers.get("cookie") || "";
       
-      // Add debug header to see what middleware sees (temporary)
       if (hasDemo) {
         // Demo cookie present + apps route = allow without auth (bypass login redirect)
         const response = NextResponse.next();
-        response.headers.set("x-debug-demo-detected", "1");
-        response.headers.set("x-debug-cookie-length", String(cookieHeader.length));
+        addDeployShaHeader(response, pathname);
         return response;
-      } else {
-        // Debug: log when demo cookie is NOT detected for apps routes
-        // This will help diagnose why redirects happen
       }
     }
     
@@ -100,7 +126,9 @@ export default async function middleware(req: NextRequest) {
     
     if (!isProtectedRoute) {
       // Not a protected route, allow through immediately
-      return NextResponse.next();
+      const response = NextResponse.next();
+      addDeployShaHeader(response, pathname);
+      return response;
     }
     
     // Protected route - check authentication using getToken (Edge-safe)
@@ -111,7 +139,9 @@ export default async function middleware(req: NextRequest) {
       if (process.env.NODE_ENV !== "production") {
         console.warn("[Middleware] AUTH_SECRET not configured, allowing access");
       }
-      return NextResponse.next();
+      const response = NextResponse.next();
+      addDeployShaHeader(response, pathname);
+      return response;
     }
     
     // Try to get token with different cookie names for robustness
@@ -143,7 +173,9 @@ export default async function middleware(req: NextRequest) {
     
     // If we have a token, user is authenticated - allow access
     if (token) {
-      return NextResponse.next();
+      const response = NextResponse.next();
+      addDeployShaHeader(response, pathname);
+      return response;
     }
 
     // Protected route without session - check demo mode before redirecting
@@ -153,25 +185,42 @@ export default async function middleware(req: NextRequest) {
     if (hasDemo) {
       // Demo cookie present - allow access without auth (bypass login redirect)
       // This enables view-only demo access to protected routes
-      return NextResponse.next();
+      const response = NextResponse.next();
+      addDeployShaHeader(response, pathname);
+      return response;
     }
 
     // Protected route without session and no demo cookie - redirect to login
     // Build callbackUrl from pathname and search params
     const callbackUrl = pathname + (nextUrl.search || "");
     
+    // Cookie detection using raw header parsing
+    const cookieHeader = req.headers.get("cookie") ?? "";
+    const hasObdDemoInHeader = cookieHeader.includes("obd_demo=");
+    
+    // Presence-based detection (matches hasDemoCookie logic)
+    const parsedHasDemoCookie = cookieHeader
+      .split(";")
+      .some(c => {
+        const v = c.trim();
+        return v === "obd_demo" || v.startsWith("obd_demo=");
+      });
+    
     const url = nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("callbackUrl", callbackUrl);
     
-    // TEMPORARY DEBUG: Add headers to help diagnose cookie detection issues
-    const cookieHeader = req.headers.get("cookie") || "";
-    const hasDemoInHeader = cookieHeader.includes("obd_demo");
     const redirectResponse = NextResponse.redirect(url);
-    redirectResponse.headers.set("x-debug-cookie-header-length", String(cookieHeader.length));
-    redirectResponse.headers.set("x-debug-has-obd-demo-in-header", hasDemoInHeader ? "1" : "0");
-    redirectResponse.headers.set("x-debug-pathname", pathname);
-    redirectResponse.headers.set("x-debug-host", req.headers.get("host") || "unknown");
+    const host = req.headers.get("host") || "unknown";
+    
+    // Set diagnostic headers ONLY on redirect-to-login response
+    redirectResponse.headers.set("x-obd-mw", "redirect");
+    redirectResponse.headers.set("x-obd-mw-reason", "no_token_no_demo");
+    redirectResponse.headers.set("x-obd-mw-host", host);
+    redirectResponse.headers.set("x-obd-mw-path", pathname);
+    redirectResponse.headers.set("x-obd-mw-cookie-len", String(cookieHeader.length));
+    redirectResponse.headers.set("x-obd-mw-cookie-has-obd-demo", hasObdDemoInHeader ? "1" : "0");
+    redirectResponse.headers.set("x-obd-mw-parsed-has-demo", parsedHasDemoCookie ? "1" : "0");
     
     return redirectResponse;
   } catch (error) {
@@ -180,7 +229,11 @@ export default async function middleware(req: NextRequest) {
     if (process.env.NODE_ENV !== "production") {
       console.error("[Middleware] Error in middleware, failing open:", error);
     }
-    return NextResponse.next();
+    const response = NextResponse.next();
+    // Get pathname from request URL in case it wasn't set earlier
+    const errorPathname = req.nextUrl.pathname;
+    addDeployShaHeader(response, errorPathname);
+    return response;
   }
 }
 

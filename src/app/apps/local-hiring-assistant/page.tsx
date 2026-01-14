@@ -281,7 +281,14 @@ export default function LocalHiringAssistantPage() {
   };
 
   const deleteJobPostVersion = (id: string) => {
-    const ok = confirm('Delete this version? This cannot be undone.');
+    const item = (jobPosts ?? []).find((p) => p.id === id);
+    const parts = item ? getJobPostLabelParts(item) : null;
+    const label = parts
+      ? `${parts.jobTitle} • ${parts.location}${parts.time ? ` • ${parts.time}` : ''}`
+      : '';
+    const ok = confirm(
+      `Delete this version${label ? ` (${label})` : ''}? This cannot be undone.`,
+    );
     if (!ok) return;
 
     const isDeletingActive = id === (activeJobPostId ?? activeJobPost?.id ?? null);
@@ -982,6 +989,19 @@ export default function LocalHiringAssistantPage() {
 
   // Feature 4: Generate again with same inputs
   const handleGenerateAgain = () => {
+    if (editingKey !== null) {
+      const ok = confirm(
+        'You have an edit in progress. Generate Again will discard the in-progress edit and create a new version. Continue?',
+      );
+      if (!ok) return;
+      cancelEdit();
+    }
+    if (status === 'Edited') {
+      const ok = confirm(
+        'This version has edits. Generate Again will create a new version (your edited version will still be available in Versions). Continue?',
+      );
+      if (!ok) return;
+    }
     handleSubmit();
   };
 
@@ -2662,9 +2682,16 @@ export default function LocalHiringAssistantPage() {
                       : 'bg-slate-50 border-slate-200'
                   }`}
                 >
-                  <p className={`text-sm ${isDark ? 'text-slate-100' : 'text-slate-700'}`}>
-                    This job draft can be referenced in AI Help Desk when customers ask about hiring.
-                  </p>
+                  <div className="min-w-0">
+                    <p
+                      className={`text-sm ${isDark ? 'text-slate-100' : 'text-slate-700'}`}
+                    >
+                      This job draft can be referenced in AI Help Desk when customers ask about hiring.
+                    </p>
+                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                      Tip: Use “Generate Again” to create a new version without losing prior drafts.
+                    </p>
+                  </div>
                   <a
                     href="/apps/ai-help-desk"
                     className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
@@ -2694,18 +2721,23 @@ export default function LocalHiringAssistantPage() {
                       >
                         Versions
                       </h4>
-                      {activeJobPostId && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveJobPostId(null)}
-                          className={`text-xs underline ${
-                            isDark ? 'text-slate-200' : 'text-slate-700'
-                          }`}
-                          title="Clear manual selection (auto-pick most recent)"
-                        >
-                          Auto
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xs ${themeClasses.mutedText}`}>
+                          {activeJobPostId ? 'Manual selection' : 'Auto-selected'}
+                        </span>
+                        {activeJobPostId && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveJobPostId(null)}
+                            className={`text-xs underline ${
+                              isDark ? 'text-slate-200' : 'text-slate-700'
+                            }`}
+                            title="Clear manual selection (auto-pick most recent)"
+                          >
+                            Switch to Auto
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <div className="mt-2 space-y-1">
@@ -2749,6 +2781,22 @@ export default function LocalHiringAssistantPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
+                                {isActive && (
+                                  <span
+                                    className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                      isDark
+                                        ? 'border-slate-600 text-slate-200 bg-slate-800/40'
+                                        : 'border-slate-200 text-slate-700 bg-white'
+                                    }`}
+                                    title={
+                                      activeJobPostId
+                                        ? 'Manually selected version'
+                                        : 'Auto-selected (most recent)'
+                                    }
+                                  >
+                                    Active
+                                  </span>
+                                )}
                                 <span className={getStatusChipClasses(st)}>{st}</span>
                                 <button
                                   type="button"

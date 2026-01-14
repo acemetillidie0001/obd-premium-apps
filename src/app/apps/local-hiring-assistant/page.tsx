@@ -207,12 +207,8 @@ export default function LocalHiringAssistantPage() {
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<LocalHiringAssistantResponse | null>(
-    null,
-  );
-  void result;
 
-  // Canonical job posts state (new; UI continues to render from legacy `result`)
+  // Canonical job posts state (authoritative for current UI)
   const [jobPosts, setJobPosts] = useState<JobPostItem[]>([]);
   const [activeJobPostId, setActiveJobPostId] = useState<string | null>(null);
 
@@ -621,7 +617,6 @@ export default function LocalHiringAssistantPage() {
     setNiceToHaveSkillsText('');
     setCertificationsText('');
     setBenefitsText('');
-    setResult(null);
     setJobPosts([]);
     setActiveJobPostId(null);
     setError(null);
@@ -666,7 +661,6 @@ export default function LocalHiringAssistantPage() {
     setNiceToHaveSkillsText(config.textFields.niceToHaveSkillsText || '');
     setCertificationsText(config.textFields.certificationsText || '');
     setBenefitsText(config.textFields.benefitsText || '');
-    setResult(null);
     setError(null);
   };
 
@@ -851,7 +845,6 @@ export default function LocalHiringAssistantPage() {
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError(null);
-    setResult(null);
     setFieldErrors({});
 
     // Improved validation with friendly messages
@@ -875,8 +868,16 @@ export default function LocalHiringAssistantPage() {
     }
 
     // Build final payload with synced array values from text fields
-    const payload: LocalHiringAssistantRequest = {
+    if (!businessId) {
+      setError(
+        'Business ID not found. Add ?businessId=... to the URL to enable handoff.',
+      );
+      return;
+    }
+
+    const payload: LocalHiringAssistantRequest & { businessId: string } = {
       ...formValues,
+      businessId,
       services: stringToArray(servicesText),
       responsibilities: stringToArray(responsibilitiesText),
       mustHaveSkills: stringToArray(mustHaveSkillsText),
@@ -910,10 +911,8 @@ export default function LocalHiringAssistantPage() {
       setLoadingStep('Finalizing questions...');
       // Small delay to show progress
       await new Promise((resolve) => setTimeout(resolve, 300));
-      
-      setResult(data);
 
-      // Canonical wiring: store a JobPostItem alongside legacy `result` (UI still renders from `result`)
+      // Canonical wiring: store a JobPostItem for UI/export workflows
       const nowIso = new Date().toISOString();
       const fullText =
         (data.jobDescriptionSections ?? [])

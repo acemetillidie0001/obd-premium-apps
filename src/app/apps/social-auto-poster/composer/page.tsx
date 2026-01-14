@@ -16,7 +16,7 @@ import { getMetaPublishingBannerMessage, isMetaPublishingEnabled } from "@/lib/a
 import { getConnectionUIModel } from "@/lib/apps/social-auto-poster/connection/connectionState";
 import { parseSocialAutoPosterHandoff, normalizePlatform, type SocialAutoPosterHandoffPayload } from "@/lib/apps/social-auto-poster/handoff-parser";
 import { parseSocialHandoff } from "@/lib/apps/social-auto-poster/handoff/parseSocialHandoff";
-import { clearHandoff } from "@/lib/obd-framework/social-handoff-transport";
+import { clearHandoff, readHandoff } from "@/lib/obd-framework/social-handoff-transport";
 import { getSourceDisplayName, type SocialComposerHandoffPayload } from "@/lib/apps/social-auto-poster/handoff/socialHandoffTypes";
 import PopularCustomerQuestionsPanel from "./components/PopularCustomerQuestionsPanel";
 import { flags } from "@/lib/flags";
@@ -132,6 +132,31 @@ function SocialAutoPosterComposerPageContent() {
   const handoffProcessed = useRef(false);
   const setupLoaded = useRef(false);
   
+  // Local Hiring Assistant handoff (draft-only, apply-on-click; additive-only)
+  type LocalHiringAssistantDraftHandoff = {
+    type: "social_auto_poster_import";
+    sourceApp: "offers-builder";
+    campaignType: "offer";
+    headline?: string;
+    description?: string;
+    draftId?: string;
+    businessId?: string;
+  };
+
+  const [lhaDraftHandoff, setLhaDraftHandoff] = useState<LocalHiringAssistantDraftHandoff | null>(null);
+
+  const isLocalHiringAssistantHandoff = (payload: unknown): payload is LocalHiringAssistantDraftHandoff => {
+    if (!payload || typeof payload !== "object") return false;
+    const p = payload as Record<string, unknown>;
+    if (p.type !== "social_auto_poster_import") return false;
+    if (p.sourceApp !== "offers-builder") return false;
+    if (p.campaignType !== "offer") return false;
+    // Marker fields added by Local Hiring Assistant
+    if (typeof p.draftId !== "string" || (p.draftId as string).trim().length === 0) return false;
+    if (typeof p.businessId !== "string" || (p.businessId as string).trim().length === 0) return false;
+    return true;
+  };
+
   // Event countdown variant state
   const [selectedCountdownIndex, setSelectedCountdownIndex] = useState(0);
 
@@ -151,6 +176,20 @@ function SocialAutoPosterComposerPageContent() {
 
     if (searchParams) {
       try {
+        // Special-case: Local Hiring Assistant draft handoff
+        // Must NOT auto-apply; show an Apply/Dismiss banner instead.
+        const handoffResult = readHandoff();
+        if (handoffResult.envelope?.source === "local-hiring-assistant") {
+          const payload = handoffResult.envelope.payload;
+          if (isLocalHiringAssistantHandoff(payload)) {
+            setLhaDraftHandoff(payload);
+            handoffProcessed.current = true;
+            // Allow setup to load (no import run yet)
+            setHandoffImportCompleted(true);
+            return;
+          }
+        }
+
         // Track handoffId if present (for localStorage fallback cleanup)
         const handoffIdParam = searchParams.get("handoffId");
         if (handoffIdParam) {
@@ -193,6 +232,11 @@ function SocialAutoPosterComposerPageContent() {
 
   // Canonical handoff handler - runs after settings are loaded
   useEffect(() => {
+    // If Local Hiring Assistant handoff is present, do not run canonical parser (it would clear unknown payloads).
+    if (lhaDraftHandoff) {
+      return;
+    }
+
     if (typeof window === "undefined" || canonicalHandoffProcessed.current || !settings) {
       return;
     }
@@ -1249,6 +1293,118 @@ function SocialAutoPosterComposerPageContent() {
             >
               Dismiss
             </button>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* Draft Import Banner (Local Hiring Assistant) */}
+      {lhaDraftHandoff && (
+        <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-emerald-500/30 bg-emerald-500/5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-emerald-500">📝</span>
+                <span className={`text-sm font-semibold ${
+                  isDark ? "text-emerald-300" : "text-emerald-800"
+                }`}>
+                  Imported draft from Local Hiring Assistant
+                </span>
+              </div>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Apply is additive-only: it will append the imported draft (and fill empty fields). It will not delete your current text.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  // Additive-only: never overwrite existing text; may append imported content.
+                  setFormData((prev) => {
+                    const next = { ...prev };
+                    const currentTopic = (prev.topic || "").trim();
+                    const currentDetails = (prev.details || "").trim();
+                    const incomingTopic = (lhaDraftHandoff.headline || "").trim();
+                    const incomingDetails = (lhaDraftHandoff.description || "").trim();
+
+                    // Topic: fill if empty (never overwrite)
+                    if (!currentTopic && incomingTopic) next.topic = incomingTopic;
+
+                    // Details: append if present; otherwise fill
+                    if (incomingDetails) {
+                      if (!currentDetails) {
+                        next.details = incomingDetails;
+                      } else if (!currentDetails.includes(incomingDetails)) {
+                        next.details = `${currentDetails}\n\n${incomingDetails}`.trim();
+                      }
+                    }
+
+                    // If user already has a topic but no details, still preserve the imported headline by
+                    // placing it at the top of details (unless already included).
+                    if (currentTopic && !currentDetails && incomingTopic) {
+                      const existing = (next.details || "").trim();
+                      if (!existing.includes(incomingTopic)) {
+                        next.details = existing
+                          ? `${incomingTopic}\n\n${existing}`.trim()
+                          : incomingTopic;
+                      }
+                    }
+                    return next;
+                  });
+
+                  // Clear handoff storage + banner
+                  clearHandoff();
+                  setLhaDraftHandoff(null);
+
+                  // Clean URL (?handoff=1 and businessId)
+                  if (typeof window !== "undefined") {
+                    let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                    try {
+                      const urlObj = new URL(cleanUrl, window.location.origin);
+                      urlObj.searchParams.delete("businessId");
+                      cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+                    } catch {
+                      cleanUrl = cleanUrl
+                        .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
+                        .replace(/\?&/g, "?")
+                        .replace(/[?&]$/, "");
+                    }
+                    replaceUrlWithoutReload(cleanUrl);
+                  }
+
+                  showToast("Draft added to composer (additive-only).");
+                }}
+                className={SUBMIT_BUTTON_CLASSES}
+              >
+                Add to Composer
+              </button>
+              <button
+                onClick={() => {
+                  clearHandoff();
+                  setLhaDraftHandoff(null);
+                  if (typeof window !== "undefined") {
+                    let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                    try {
+                      const urlObj = new URL(cleanUrl, window.location.origin);
+                      urlObj.searchParams.delete("businessId");
+                      cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+                    } catch {
+                      cleanUrl = cleanUrl
+                        .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
+                        .replace(/\?&/g, "?")
+                        .replace(/[?&]$/, "");
+                    }
+                    replaceUrlWithoutReload(cleanUrl);
+                  }
+                  showToast("Draft dismissed.");
+                }}
+                className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                  isDark
+                    ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                }`}
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </OBDPanel>
       )}

@@ -328,6 +328,25 @@ function ContentWriterPageContent() {
   const [eventHandoffPayload, setEventHandoffPayload] = useState<any | null>(null);
   const [showEventImportBanner, setShowEventImportBanner] = useState(false);
 
+  // Local Hiring Assistant -> Content Writer (Careers page draft)
+  type LocalHiringAssistantToContentWriterPayload = {
+    sourceApp: "local-hiring-assistant";
+    contentType: "careersPage";
+    createdAt: number;
+    draftId: string;
+    businessId: string;
+    titleSuggestion?: string;
+    text: string;
+    meta?: {
+      jobTitle?: string;
+      location?: string;
+    };
+  };
+  const [lhaCareersHandoffPayload, setLhaCareersHandoffPayload] =
+    useState<LocalHiringAssistantToContentWriterPayload | null>(null);
+  const [showLhaCareersImportBanner, setShowLhaCareersImportBanner] = useState(false);
+  const [lhaCareersBusinessMismatch, setLhaCareersBusinessMismatch] = useState(false);
+
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
     businessBasics: true,
@@ -515,6 +534,7 @@ function ContentWriterPageContent() {
 
       if (handoffResult.envelope) {
         const { source, payload: envelopePayload } = handoffResult.envelope;
+        const urlBusinessId = searchParams?.get("businessId") || "";
         
         // Check if this is an offers-builder handoff
         if (source === "offers-builder-to-content-writer" && envelopePayload) {
@@ -555,11 +575,110 @@ function ContentWriterPageContent() {
             setShowEventImportBanner(true);
           }
         }
+
+        // Check if this is a local-hiring-assistant careers page draft handoff
+        if (source === "local-hiring-assistant-to-content-writer" && envelopePayload) {
+          const isValid =
+            envelopePayload.sourceApp === "local-hiring-assistant" &&
+            envelopePayload.contentType === "careersPage" &&
+            typeof envelopePayload.text === "string" &&
+            envelopePayload.text.trim().length > 0 &&
+            typeof envelopePayload.businessId === "string" &&
+            envelopePayload.businessId.trim().length > 0;
+
+          if (isValid) {
+            const payload = envelopePayload as LocalHiringAssistantToContentWriterPayload;
+            // Tenant safety: only allow Apply if the payload businessId matches URL businessId.
+            // If URL businessId is missing, treat as mismatch (can't validate).
+            const mismatch = !!payload.businessId && payload.businessId !== urlBusinessId;
+
+            setLhaCareersHandoffPayload(payload);
+            setLhaCareersBusinessMismatch(mismatch);
+            setShowLhaCareersImportBanner(true);
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to read offers handoff from sessionStorage:", error);
     }
   }, [searchParams]);
+
+  const clearReceiverImportParamsFromUrl = () => {
+    if (typeof window === "undefined") return;
+
+    // Start with existing shared cleaner (handoff/handoffId/mode/source)
+    let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+
+    // Receiver-specific: also remove businessId to avoid sticky tenant context in the URL
+    try {
+      const urlObj = new URL(cleanUrl, window.location.origin);
+      urlObj.searchParams.delete("businessId");
+      cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+    } catch {
+      // Fallback: best-effort removal of businessId
+      cleanUrl = cleanUrl
+        .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
+        .replace(/\?&/g, "?")
+        .replace(/[?&]$/, "");
+    }
+
+    replaceUrlWithoutReload(cleanUrl);
+  };
+
+  const handleDismissLhaCareersImport = () => {
+    clearHandoff();
+    setLhaCareersHandoffPayload(null);
+    setShowLhaCareersImportBanner(false);
+    setLhaCareersBusinessMismatch(false);
+    clearReceiverImportParamsFromUrl();
+  };
+
+  const handleApplyLhaCareersToInputs = () => {
+    if (!lhaCareersHandoffPayload) return;
+
+    if (lhaCareersBusinessMismatch) {
+      // Safety: never apply if the business context doesn't match.
+      return;
+    }
+
+    const draftText = lhaCareersHandoffPayload.text || "";
+    const titleSuggestion = lhaCareersHandoffPayload.titleSuggestion || "";
+
+    // Apply additively only:
+    // - Never overwrite existing user text
+    // - Only fill empty input fields
+    // - Use the closest "content/body" input available in ACW (customOutline)
+    setFormValues((prev) => {
+      const next = { ...prev };
+
+      if (!next.topic.trim() && titleSuggestion.trim()) {
+        next.topic = titleSuggestion.trim();
+      }
+
+      // Closest “content/body” input in this form is Custom Outline (multi-line textarea).
+      // Only fill if empty; do not append (apply-only rule).
+      if (!next.customOutline.trim() && draftText.trim()) {
+        next.customOutline = draftText.trim();
+      }
+
+      return next;
+    });
+
+    clearHandoff();
+    setLhaCareersHandoffPayload(null);
+    setShowLhaCareersImportBanner(false);
+    setLhaCareersBusinessMismatch(false);
+    clearReceiverImportParamsFromUrl();
+
+    showToast("Careers page draft applied to empty inputs.");
+
+    setTimeout(() => {
+      const formElement = document.querySelector("form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
+  };
 
   // Parse markdown into ContentSection array
   // Handles FAQ markdown format: ## Heading, ### Question, Answer
@@ -667,11 +786,8 @@ function ContentWriterPageContent() {
       }
     }
 
-    // Clear handoff params from URL
-    if (typeof window !== "undefined") {
-      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-      replaceUrlWithoutReload(cleanUrl);
-    }
+    // Clear import params from URL (handoff + businessId) without reload
+    clearReceiverImportParamsFromUrl();
 
     // Show success toast
     showToast("FAQ section added as new draft");
@@ -754,11 +870,8 @@ function ContentWriterPageContent() {
     setHandoffHash(null);
     setShowImportBanner(false);
 
-    // Clear handoff params from URL
-    if (typeof window !== "undefined") {
-      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-      replaceUrlWithoutReload(cleanUrl);
-    }
+    // Clear import params from URL (handoff + businessId) without reload
+    clearReceiverImportParamsFromUrl();
 
     // Show success toast
     showToast("FAQ section appended to current draft");
@@ -779,16 +892,28 @@ function ContentWriterPageContent() {
     setIsHandoffAlreadyImported(false);
     setShowImportBanner(false);
 
-    // Clear handoff params from URL
-    if (typeof window !== "undefined") {
-      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-      replaceUrlWithoutReload(cleanUrl);
-    }
+    // Clear import params from URL (handoff + businessId) without reload
+    clearReceiverImportParamsFromUrl();
   };
 
   // Handle "Apply to inputs" for Offers Builder handoff
   const handleApplyOffersToInputs = () => {
     if (!offersHandoffPayload) return;
+
+    // Tenant safety: if the payload includes a businessId, require it to match the URL businessId.
+    // If URL businessId is missing, treat as mismatch (can't validate).
+    const urlBusinessId = searchParams?.get("businessId") || "";
+    const offersBusinessId =
+      typeof (offersHandoffPayload as any).businessId === "string"
+        ? ((offersHandoffPayload as any).businessId as string).trim()
+        : "";
+    if (offersBusinessId) {
+      const mismatch = offersBusinessId !== urlBusinessId;
+      if (mismatch) {
+        showToast("Offer handoff did not match this business. Not applied.");
+        return;
+      }
+    }
 
     const { offerFacts, copy, pageDraft } = offersHandoffPayload;
 
@@ -856,6 +981,9 @@ function ContentWriterPageContent() {
     setOffersHandoffPayload(null);
     setShowOffersImportBanner(false);
 
+    // Clean receiver URL (handoff/businessId) without reload
+    clearReceiverImportParamsFromUrl();
+
     // Show success toast
     showToast("Offer imported into AI Content Writer");
 
@@ -874,11 +1002,29 @@ function ContentWriterPageContent() {
     clearHandoff();
     setOffersHandoffPayload(null);
     setShowOffersImportBanner(false);
+
+    // Clean receiver URL (handoff/businessId) without reload
+    clearReceiverImportParamsFromUrl();
   };
 
   // Handle "Apply to Inputs" for Event Campaign Builder handoff
   const handleApplyEventToInputs = () => {
     if (!eventHandoffPayload) return;
+
+    // Tenant safety: if the payload includes a businessId, require it to match the URL businessId.
+    // If URL businessId is missing, treat as mismatch (can't validate).
+    const urlBusinessId = searchParams?.get("businessId") || "";
+    const eventBusinessId =
+      typeof (eventHandoffPayload as any).businessId === "string"
+        ? ((eventHandoffPayload as any).businessId as string).trim()
+        : "";
+    if (eventBusinessId) {
+      const mismatch = eventBusinessId !== urlBusinessId;
+      if (mismatch) {
+        showToast("Event handoff did not match this business. Not applied.");
+        return;
+      }
+    }
 
     const { eventFacts, description, agendaBullets, cta, faqSeeds } = eventHandoffPayload;
 
@@ -963,6 +1109,9 @@ function ContentWriterPageContent() {
     setEventHandoffPayload(null);
     setShowEventImportBanner(false);
 
+    // Clean receiver URL (handoff/businessId) without reload
+    clearReceiverImportParamsFromUrl();
+
     // Show success toast
     showToast("Event imported into AI Content Writer");
 
@@ -981,6 +1130,9 @@ function ContentWriterPageContent() {
     clearHandoff();
     setEventHandoffPayload(null);
     setShowEventImportBanner(false);
+
+    // Clean receiver URL (handoff/businessId) without reload
+    clearReceiverImportParamsFromUrl();
   };
 
   // Collapsible sections state for Generated Content
@@ -1594,6 +1746,50 @@ function ContentWriterPageContent() {
       />
 
       {/* Import Banner */}
+      {showLhaCareersImportBanner && lhaCareersHandoffPayload && (
+        <div
+          className={`mb-6 rounded-xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+            isDark ? "bg-teal-900/20 border-teal-700" : "bg-teal-50 border-teal-200"
+          }`}
+        >
+          <div className="flex-1">
+            <p
+              className={`text-sm font-medium ${
+                isDark ? "text-teal-300" : "text-teal-800"
+              }`}
+            >
+              <strong>Imported draft from Local Hiring Assistant</strong>
+            </p>
+            <p
+              className={`text-xs mt-1 ${
+                isDark ? "text-teal-400" : "text-teal-700"
+              }`}
+            >
+              Careers page draft (apply-only)
+              {lhaCareersBusinessMismatch && (
+                <span className="ml-2">• Draft did not match this business.</span>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            {!lhaCareersBusinessMismatch && (
+              <button
+                onClick={handleApplyLhaCareersToInputs}
+                className={SUBMIT_BUTTON_CLASSES}
+              >
+                Apply to Inputs
+              </button>
+            )}
+            <button
+              onClick={handleDismissLhaCareersImport}
+              className={getSecondaryButtonClasses(isDark)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {showImportBanner && handoffPayload && (
         <FAQImportBanner
           isDark={isDark}

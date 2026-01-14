@@ -1378,12 +1378,20 @@ export default function LocalHiringAssistantPage() {
     };
 
     // TTL: 15 minutes
-    writeHandoff('local-hiring-assistant', payload, 15 * 60 * 1000);
+    try {
+      writeHandoff('local-hiring-assistant', payload, 15 * 60 * 1000);
+    } catch {
+      setError('Failed to prepare the handoff. Please try again.');
+      return;
+    }
 
     const dest = `/apps/social-auto-poster/composer?handoff=1&businessId=${encodeURIComponent(
       businessId,
     )}`;
-    window.open(dest, '_blank', 'noopener,noreferrer');
+    const w = window.open(dest, '_blank', 'noopener,noreferrer');
+    if (!w) {
+      setError('Popup blocked. Please allow popups for this site to open Social Auto-Poster.');
+    }
   };
 
   const handleTurnIntoCareersPageDraft = () => {
@@ -1420,12 +1428,20 @@ export default function LocalHiringAssistantPage() {
     };
 
     // TTL: 15 minutes
-    writeHandoff('local-hiring-assistant-to-content-writer', payload, 15 * 60 * 1000);
+    try {
+      writeHandoff('local-hiring-assistant-to-content-writer', payload, 15 * 60 * 1000);
+    } catch {
+      setError('Failed to prepare the handoff. Please try again.');
+      return;
+    }
 
     const dest = `/apps/content-writer?handoff=1&businessId=${encodeURIComponent(
       businessId,
     )}`;
-    window.open(dest, '_blank', 'noopener,noreferrer');
+    const w = window.open(dest, '_blank', 'noopener,noreferrer');
+    if (!w) {
+      setError('Popup blocked. Please allow popups for this site to open AI Content Writer.');
+    }
   };
 
   return (

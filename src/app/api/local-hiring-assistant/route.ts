@@ -1,6 +1,8 @@
 // src/app/api/local-hiring-assistant/route.ts
 import { NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai-client';
+import { requireUserSession } from "@/lib/auth/requireUserSession";
+import { apiErrorResponse } from "@/lib/api/errorHandler";
 import type {
   LocalHiringAssistantRequest,
   LocalHiringAssistantResponse,
@@ -133,8 +135,29 @@ export async function POST(req: Request) {
   const demoBlock = assertNotDemoRequest(req as any);
   if (demoBlock) return demoBlock;
 
+  // Auth gate (repo pattern: NextAuth v5 via requireUserSession/auth())
+  const session = await requireUserSession();
+  if (!session) {
+    return apiErrorResponse("Authentication required", "UNAUTHORIZED", 401);
+  }
+
   try {
-    const body = (await req.json()) as LocalHiringAssistantRequest;
+    const body = (await req.json()) as LocalHiringAssistantRequest & {
+      businessId?: string;
+    };
+
+    // Tenant gate: require businessId (prefer body; allow query fallback)
+    const url = new URL(req.url);
+    const businessIdRaw = (body.businessId ?? url.searchParams.get("businessId") ?? "").trim();
+    if (!businessIdRaw) {
+      return apiErrorResponse("Business ID is required", "BUSINESS_REQUIRED", 400);
+    }
+
+    // Tenant safety: verify businessId is accessible to current session user/context
+    // Suite pattern observed elsewhere: businessId == userId (V3: userId = businessId)
+    if (businessIdRaw !== session.userId) {
+      return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
+    }
 
     if (!body.businessName || !body.businessName.trim()) {
       return NextResponse.json(

@@ -510,6 +510,8 @@ export default function LocalHiringAssistantPage() {
       'screeningQuestions',
       'interviewQuestions',
       'careersPageRaw',
+      'benefitsHighlight',
+      'applicationInstructions',
     ]),
   );
 
@@ -1089,6 +1091,48 @@ export default function LocalHiringAssistantPage() {
     setFormAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  // Tier 5A parity: quick controls for accordion + outputs
+  const expandAllFormAccordion = () => {
+    setFormAccordionState({
+      jobBasics: true,
+      roleDetails: true,
+      paySchedule: true,
+      requirements: true,
+      companyVoice: true,
+      postingGoals: true,
+    });
+  };
+
+  const collapseAllFormAccordion = () => {
+    // Keep Job Basics open so the form is never "empty" by default.
+    setFormAccordionState({
+      jobBasics: true,
+      roleDetails: false,
+      paySchedule: false,
+      requirements: false,
+      companyVoice: false,
+      postingGoals: false,
+    });
+  };
+
+  const expandAllOutputs = () => {
+    setCollapsedSections(new Set());
+  };
+
+  const collapseAllOutputs = () => {
+    setCollapsedSections(
+      new Set([
+        'jobDescription',
+        'shortJobPostPack',
+        'screeningQuestions',
+        'interviewQuestions',
+        'careersPageRaw',
+        'benefitsHighlight',
+        'applicationInstructions',
+      ]),
+    );
+  };
+
   // 1-line summaries for accordion headers (UI-only; simple concatenation)
   const getJobBasicsSummary = (): string => {
     const parts: string[] = [];
@@ -1505,13 +1549,39 @@ export default function LocalHiringAssistantPage() {
                 )}
               </div>
               <span className={`text-xs ${themeClasses.mutedText} block`}>
-                Form auto-saves • Press Esc to clear • Ctrl/Cmd+K to focus first field
+                Auto-saves locally • Draft-only exports • Press Esc to clear • Ctrl/Cmd+K to focus first field
               </span>
             </div>
 
             <form ref={formRef} onSubmit={handleSubmit}>
               <div className="space-y-6">
                 {/* Input Accordion (UI-only) */}
+                <div className="flex items-center justify-end gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={expandAllFormAccordion}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                      isDark
+                        ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Expand all input sections"
+                  >
+                    Expand all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAllFormAccordion}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                      isDark
+                        ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Collapse input sections (keeps Job Basics open)"
+                  >
+                    Collapse
+                  </button>
+                </div>
 
                 {/* Job Basics (default open) */}
                 <div
@@ -2541,6 +2611,32 @@ export default function LocalHiringAssistantPage() {
                 <p className={`text-xs ${themeClasses.mutedText}`}>
                   Edits are saved locally for this draft. Reset removes your override.
                 </p>
+                <div className="flex items-center justify-end gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={expandAllOutputs}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                      isDark
+                        ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Expand all output sections"
+                  >
+                    Expand all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAllOutputs}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                      isDark
+                        ? 'border-slate-600 text-slate-300 hover:bg-slate-700'
+                        : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Collapse all output sections"
+                  >
+                    Collapse all
+                  </button>
+                </div>
 
                 {/* AI Help Desk awareness banner (read-only) */}
                 <div

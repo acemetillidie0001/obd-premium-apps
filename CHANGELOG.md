@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Draft-only handoff to Social Auto-Poster with TTL, additive receiver import banner, and URL cleanup
     - Apply-only handoff to AI Content Writer with tenant check + hardened URL cleanup across imports
     - AI Help Desk awareness banner (link-only guidance; no syncing/mutation)
+    - Tenant guardrails:
+      - `/api/local-hiring-assistant` now requires authenticated session + `businessId` in request body (with tenant match)
+      - Social Auto-Poster receiver blocks “Apply” on missing/mismatched `businessId` and allows safe Dismiss cleanup
   - **Tier 5B+ — Polish**
     - Versions panel with active selection + delete
     - Compare Generated vs Edited views + keyboard shortcuts / quick actions

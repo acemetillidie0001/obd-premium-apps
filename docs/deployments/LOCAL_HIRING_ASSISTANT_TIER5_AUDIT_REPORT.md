@@ -5,6 +5,14 @@
 - Risk: Low
 - Automation: None (PASS)
 
+## Addendum (2026-01-14) — Tenant/Auth Guardrails (PASS)
+- API is now explicitly scoped to an authenticated user/business context:
+  - `/api/local-hiring-assistant` rejects unauthenticated requests (401)
+  - Requires `businessId` in the request payload and enforces tenant match (403 on mismatch)
+- Cross-app handoff receiver guardrails were hardened:
+  - Social Auto-Poster “Imported draft from Local Hiring Assistant” banner disables Apply when business context is missing
+  - Blocks Apply when payload `businessId` mismatches the URL `businessId`, while still allowing Dismiss cleanup
+
 ## A) App Overview
 - Purpose and non-goals
   - Purpose: Help a business generate a complete local hiring “job post pack” (job description + optional supporting sections) and refine it with safe, deterministic editing and export.

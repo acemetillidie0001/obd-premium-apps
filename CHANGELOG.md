@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Local Hiring Assistant — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-14)**
+  - **Tier 5B — Canonical + Determinism**
+    - Canonical `JobPostItem` model + selectors (single source of truth for outputs)
+    - Canonical rendering only (no direct rendering from raw `result` / ad-hoc response objects)
+    - Deterministic export validation via `canExportJobPost` (prevents empty/invalid exports)
+    - Inline editing per section with reset-to-generated, plus global “Reset all edits”
+  - **Tier 5A — UX Parity**
+    - Accordion inputs with summaries (collapsed sections show key values)
+    - Sticky action bar with status chip (Draft / Generated / Edited) and consistent primary actions
+    - Collapsible output sections with trust microcopy + disabled-not-hidden messaging
+  - **Tier 5C — Ecosystem**
+    - Draft-only handoff to Social Auto-Poster with TTL, additive receiver import banner, and URL cleanup
+    - Apply-only handoff to AI Content Writer with tenant check + hardened URL cleanup across imports
+    - AI Help Desk awareness banner (link-only guidance; no syncing/mutation)
+  - **Tier 5B+ — Polish**
+    - Versions panel with active selection + delete
+    - Compare Generated vs Edited views + keyboard shortcuts / quick actions
+    - Regenerate warning with “no overwrite” guardrails (protects edited content)
+
 - **Demo Mode — Complete Implementation (2026-01-06)**
   - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit
   - Demo banner displayed only within `/apps` routes with mobile-responsive design

@@ -153,7 +153,8 @@ function SocialAutoPosterComposerPageContent() {
     if (p.campaignType !== "offer") return false;
     // Marker fields added by Local Hiring Assistant
     if (typeof p.draftId !== "string" || (p.draftId as string).trim().length === 0) return false;
-    if (typeof p.businessId !== "string" || (p.businessId as string).trim().length === 0) return false;
+    // businessId may be missing; keep banner safe (Apply disabled) when context is incomplete.
+    if (p.businessId !== undefined && typeof p.businessId !== "string") return false;
     return true;
   };
 
@@ -1302,6 +1303,17 @@ function SocialAutoPosterComposerPageContent() {
         <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-emerald-500/30 bg-emerald-500/5">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
+              {(() => {
+                const urlBusinessId = (searchParams?.get("businessId") ?? "").trim();
+                const payloadBusinessId = (lhaDraftHandoff.businessId ?? "").trim();
+                const businessIdMissing = !urlBusinessId || !payloadBusinessId;
+                const businessIdMismatch =
+                  !!payloadBusinessId &&
+                  !!urlBusinessId &&
+                  payloadBusinessId !== urlBusinessId;
+
+                return (
+                  <>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-emerald-500">📝</span>
                 <span className={`text-sm font-semibold ${
@@ -1313,97 +1325,116 @@ function SocialAutoPosterComposerPageContent() {
               <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>
                 Apply is additive-only: it will append the imported draft (and fill empty fields). It will not delete your current text.
               </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  // Additive-only: never overwrite existing text; may append imported content.
-                  setFormData((prev) => {
-                    const next = { ...prev };
-                    const currentTopic = (prev.topic || "").trim();
-                    const currentDetails = (prev.details || "").trim();
-                    const incomingTopic = (lhaDraftHandoff.headline || "").trim();
-                    const incomingDetails = (lhaDraftHandoff.description || "").trim();
+              {businessIdMismatch ? (
+                <p className={`text-sm mt-2 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  Draft did not match this business.
+                </p>
+              ) : businessIdMissing ? (
+                <p className={`text-sm mt-2 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  Business context required to apply this draft.
+                </p>
+              ) : null}
 
-                    // Topic: fill if empty (never overwrite)
-                    if (!currentTopic && incomingTopic) next.topic = incomingTopic;
+              {/* Actions */}
+              <div className="flex items-center gap-2 mt-3">
+                {!businessIdMismatch && (
+                  <button
+                    disabled={businessIdMissing}
+                    onClick={() => {
+                      if (businessIdMissing) return;
 
-                    // Details: append if present; otherwise fill
-                    if (incomingDetails) {
-                      if (!currentDetails) {
-                        next.details = incomingDetails;
-                      } else if (!currentDetails.includes(incomingDetails)) {
-                        next.details = `${currentDetails}\n\n${incomingDetails}`.trim();
+                      // Additive-only: never overwrite existing text; may append imported content.
+                      setFormData((prev) => {
+                        const next = { ...prev };
+                        const currentTopic = (prev.topic || "").trim();
+                        const currentDetails = (prev.details || "").trim();
+                        const incomingTopic = (lhaDraftHandoff.headline || "").trim();
+                        const incomingDetails = (lhaDraftHandoff.description || "").trim();
+
+                        // Topic: fill if empty (never overwrite)
+                        if (!currentTopic && incomingTopic) next.topic = incomingTopic;
+
+                        // Details: append if present; otherwise fill
+                        if (incomingDetails) {
+                          if (!currentDetails) {
+                            next.details = incomingDetails;
+                          } else if (!currentDetails.includes(incomingDetails)) {
+                            next.details = `${currentDetails}\n\n${incomingDetails}`.trim();
+                          }
+                        }
+
+                        // If user already has a topic but no details, still preserve the imported headline by
+                        // placing it at the top of details (unless already included).
+                        if (currentTopic && !currentDetails && incomingTopic) {
+                          const existing = (next.details || "").trim();
+                          if (!existing.includes(incomingTopic)) {
+                            next.details = existing
+                              ? `${incomingTopic}\n\n${existing}`.trim()
+                              : incomingTopic;
+                          }
+                        }
+                        return next;
+                      });
+
+                      // Clear handoff storage + banner
+                      clearHandoff();
+                      setLhaDraftHandoff(null);
+
+                      // Clean URL (?handoff=1 and businessId)
+                      if (typeof window !== "undefined") {
+                        let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                        try {
+                          const urlObj = new URL(cleanUrl, window.location.origin);
+                          urlObj.searchParams.delete("businessId");
+                          cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+                        } catch {
+                          cleanUrl = cleanUrl
+                            .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
+                            .replace(/\?&/g, "?")
+                            .replace(/[?&]$/, "");
+                        }
+                        replaceUrlWithoutReload(cleanUrl);
                       }
-                    }
 
-                    // If user already has a topic but no details, still preserve the imported headline by
-                    // placing it at the top of details (unless already included).
-                    if (currentTopic && !currentDetails && incomingTopic) {
-                      const existing = (next.details || "").trim();
-                      if (!existing.includes(incomingTopic)) {
-                        next.details = existing
-                          ? `${incomingTopic}\n\n${existing}`.trim()
-                          : incomingTopic;
+                      showToast("Draft added to composer (additive-only).");
+                    }}
+                    className={`${SUBMIT_BUTTON_CLASSES}${businessIdMissing ? " opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    Add to Composer
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    clearHandoff();
+                    setLhaDraftHandoff(null);
+                    if (typeof window !== "undefined") {
+                      let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+                      try {
+                        const urlObj = new URL(cleanUrl, window.location.origin);
+                        urlObj.searchParams.delete("businessId");
+                        cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+                      } catch {
+                        cleanUrl = cleanUrl
+                          .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
+                          .replace(/\?&/g, "?")
+                          .replace(/[?&]$/, "");
                       }
+                      replaceUrlWithoutReload(cleanUrl);
                     }
-                    return next;
-                  });
-
-                  // Clear handoff storage + banner
-                  clearHandoff();
-                  setLhaDraftHandoff(null);
-
-                  // Clean URL (?handoff=1 and businessId)
-                  if (typeof window !== "undefined") {
-                    let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-                    try {
-                      const urlObj = new URL(cleanUrl, window.location.origin);
-                      urlObj.searchParams.delete("businessId");
-                      cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
-                    } catch {
-                      cleanUrl = cleanUrl
-                        .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
-                        .replace(/\?&/g, "?")
-                        .replace(/[?&]$/, "");
-                    }
-                    replaceUrlWithoutReload(cleanUrl);
-                  }
-
-                  showToast("Draft added to composer (additive-only).");
-                }}
-                className={SUBMIT_BUTTON_CLASSES}
-              >
-                Add to Composer
-              </button>
-              <button
-                onClick={() => {
-                  clearHandoff();
-                  setLhaDraftHandoff(null);
-                  if (typeof window !== "undefined") {
-                    let cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-                    try {
-                      const urlObj = new URL(cleanUrl, window.location.origin);
-                      urlObj.searchParams.delete("businessId");
-                      cleanUrl = urlObj.pathname + urlObj.search + urlObj.hash;
-                    } catch {
-                      cleanUrl = cleanUrl
-                        .replace(/[?&]businessId=[^&]*/g, (match) => (match.startsWith("?") ? "?" : ""))
-                        .replace(/\?&/g, "?")
-                        .replace(/[?&]$/, "");
-                    }
-                    replaceUrlWithoutReload(cleanUrl);
-                  }
-                  showToast("Draft dismissed.");
-                }}
-                className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
-                  isDark
-                    ? "text-slate-300 hover:text-white hover:bg-slate-700"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                }`}
-              >
-                Dismiss
-              </button>
+                    showToast("Draft dismissed.");
+                  }}
+                  className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                    isDark
+                      ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                  }`}
+                >
+                  Dismiss
+                </button>
+              </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </OBDPanel>

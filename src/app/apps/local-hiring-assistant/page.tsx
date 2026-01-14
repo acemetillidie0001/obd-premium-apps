@@ -339,6 +339,14 @@ export default function LocalHiringAssistantPage() {
     return edited !== (section?.generated ?? '');
   };
 
+  const getIsDraftDirtyForKey = (key: JobPostSectionKey): boolean => {
+    if (!activeJobPost) return false;
+    if (editingKey !== key) return false;
+    const section = activeJobPost.sections.find((s) => s.key === key);
+    if (!section) return false;
+    return draftText !== getSectionContent(section);
+  };
+
   const beginEdit = (key: JobPostSectionKey) => {
     if (!activeJobPost) return;
     if (editingKey !== null && editingKey !== key) return;
@@ -1252,11 +1260,12 @@ export default function LocalHiringAssistantPage() {
       .filter((p) => p.platform && p.headline);
   })();
 
-  const canResetEdits =
+  const hasEditedOverrides =
     !!activeJobPost &&
-    activeJobPost.sections.some(
-      (s) => s.edited !== undefined && s.edited !== null,
-    );
+    activeJobPost.sections.some((s) => isEditedBadgeVisible(s));
+  // Allow global reset to also clear an in-progress edit session, even if it hasn't been saved yet.
+  const hasDirtyDraft = editingKey !== null;
+  const canResetEdits = !!activeJobPost && (hasEditedOverrides || hasDirtyDraft);
 
   const socialHandoffText = (() => {
     const section = activeJobPost?.sections.find((s) => s.key === 'social');
@@ -3982,16 +3991,17 @@ export default function LocalHiringAssistantPage() {
             <OBDStickyActionBar
               isDark={isDark}
               left={
-                <span
-                  className={`px-3 py-2 rounded text-sm border ${
+                <div
+                  className={`px-3 py-2 rounded text-sm border flex items-center gap-2 ${
                     isDark
                       ? 'border-slate-700 text-slate-200'
                       : 'border-slate-200 text-slate-700'
                   }`}
                   title="Overall job post status"
                 >
-                  Status: {status}
-                </span>
+                  <span className="text-xs">Status</span>
+                  <span className={getStatusChipClasses(status)}>{status}</span>
+                </div>
               }
             >
               <button
@@ -4107,14 +4117,29 @@ export default function LocalHiringAssistantPage() {
 
               <button
                 type="button"
-                onClick={resetAllEdits}
+                onClick={() => {
+                  if (!activeJobPost) return;
+                  const ok = confirm(
+                    hasEditedOverrides
+                      ? 'Reset all edited sections back to generated? This will remove your overrides for this version.'
+                      : 'Discard the current in-progress edit?',
+                  );
+                  if (!ok) return;
+                  resetAllEdits();
+                }}
                 disabled={loading || !canResetEdits}
                 className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
                   isDark
                     ? 'bg-slate-700 text-white hover:bg-slate-600'
                     : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                 } disabled:opacity-50`}
-                title="Reset all edited sections back to generated"
+                title={
+                  !activeJobPost
+                    ? 'Generate a job post first'
+                    : hasEditedOverrides
+                      ? 'Reset all edited sections back to generated'
+                      : 'Clear current edit state'
+                }
               >
                 Reset edits
               </button>

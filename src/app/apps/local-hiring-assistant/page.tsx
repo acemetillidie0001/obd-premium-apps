@@ -290,7 +290,7 @@ export default function LocalHiringAssistantPage() {
     setJobPosts((prev) => (prev ?? []).filter((p) => p.id !== id));
   };
 
-  // Tier 5B inline edit (proof-of-pattern) — ONE section only ("full")
+  // Tier 5B inline edit (canonical pattern) — shared across canonical sections
   const [editingKey, setEditingKey] = useState<JobPostSectionKey | null>(null);
   const [draftText, setDraftText] = useState<string>('');
   const [compareKeys, setCompareKeys] = useState<Set<JobPostSectionKey>>(
@@ -358,6 +358,18 @@ export default function LocalHiringAssistantPage() {
     if (editingKey !== key) return;
     const nowIso = new Date().toISOString();
     const activeId = activeJobPost.id;
+    const currentSection = activeJobPost.sections.find((s) => s.key === key);
+    if (!currentSection) return;
+
+    // Normalize edits:
+    // - Empty edits are treated as "no override" (reset to generated)
+    // - Edits equal to generated are treated as "no override"
+    const nextEditedRaw = draftText;
+    const nextEdited =
+      nextEditedRaw.trim().length === 0 ||
+      nextEditedRaw === (currentSection.generated ?? "")
+        ? null
+        : nextEditedRaw;
 
     setJobPosts((prev) =>
       (prev ?? []).map((post) => {
@@ -369,7 +381,7 @@ export default function LocalHiringAssistantPage() {
             if (section.key !== key) return section;
             return {
               ...section,
-              edited: draftText,
+              edited: nextEdited,
               updatedAt: nowIso,
             };
           }),
@@ -379,6 +391,7 @@ export default function LocalHiringAssistantPage() {
 
     setEditingKey(null);
     setDraftText('');
+    if (nextEdited === null) closeCompare(key);
   };
 
   const resetSectionToGenerated = (key: JobPostSectionKey) => {
@@ -404,6 +417,7 @@ export default function LocalHiringAssistantPage() {
         };
       }),
     );
+    closeCompare(key);
   };
 
   const resetAllEdits = () => {
@@ -426,6 +440,7 @@ export default function LocalHiringAssistantPage() {
         };
       }),
     );
+    setCompareKeys(new Set<JobPostSectionKey>());
   };
 
   const getCopyTextForKey = (

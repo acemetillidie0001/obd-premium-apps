@@ -78,6 +78,13 @@ export default function LogoGeneratorClient({
     current: number;
     total: number;
   } | null>(null);
+  const [bulkExportSummary, setBulkExportSummary] = useState<{
+    exportedAt: string;
+    total: number;
+    successCount: number;
+    failureCount: number;
+    manifestFileName: string;
+  } | null>(null);
 
   // Tier 5B+ (UI-only): active-output scoped, stable-id driven card meta.
   type LogoCardMeta = {
@@ -406,6 +413,7 @@ export default function LogoGeneratorClient({
     setExportToastMessage(null);
     setBulkExporting(false);
     setBulkExportProgress(null);
+    setBulkExportSummary(null);
     setLogoMetaById({});
     setRenamingLogoId(null);
     setRenameDraft("");
@@ -636,10 +644,12 @@ export default function LogoGeneratorClient({
     // Tier 6 (fallback): selection fallback (Option A). No selection UI => export all active logos.
     setBulkExporting(true);
     setBulkExportProgress(null);
+    setBulkExportSummary(null);
 
     try {
       const dateStr = formatYyyyMmDd(new Date());
       const manifestFileName = `OBD_AI_Logo_Generator_Manifest_${dateStr}.json`;
+      const exportedAtIso = new Date().toISOString();
 
       const failures: Array<{
         id: string;
@@ -776,7 +786,7 @@ export default function LogoGeneratorClient({
 
       // Manifest download (summarizes batch + failures)
       downloadJsonFile(manifestFileName, {
-        exportedAt: new Date().toISOString(),
+        exportedAt: exportedAtIso,
         count: items.length,
         businessId: businessId || null,
         logos: items.map((i) => ({
@@ -788,6 +798,17 @@ export default function LogoGeneratorClient({
           imageUrl: i.imageUrl,
         })),
         failures,
+      });
+
+      const failureIds = new Set(failures.map((f) => f.id));
+      const failureCount = failureIds.size;
+      const successCountForSummary = Math.max(0, items.length - failureCount);
+      setBulkExportSummary({
+        exportedAt: exportedAtIso,
+        total: items.length,
+        successCount: successCountForSummary,
+        failureCount,
+        manifestFileName,
       });
 
       if (failures.length > 0) {
@@ -1559,6 +1580,56 @@ export default function LogoGeneratorClient({
           </OBDStickyActionBar>
         </form>
       </OBDPanel>
+
+      {bulkExportSummary && !bulkExporting && (
+        <OBDPanel isDark={isDark} className="mt-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                Export complete
+              </p>
+              <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                Success:{" "}
+                <span
+                  className={`font-medium ${
+                    isDark ? "text-emerald-300" : "text-emerald-800"
+                  }`}
+                >
+                  {bulkExportSummary.successCount}
+                </span>
+                {" · "}
+                Failed:{" "}
+                <span
+                  className={`font-medium ${
+                    bulkExportSummary.failureCount > 0
+                      ? isDark
+                        ? "text-amber-300"
+                        : "text-amber-800"
+                      : themeClasses.mutedText
+                  }`}
+                >
+                  {bulkExportSummary.failureCount}
+                </span>
+              </p>
+              <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                A manifest was downloaded ({bulkExportSummary.manifestFileName}) and contains details.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBulkExportSummary(null)}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              aria-label="Dismiss export completion summary"
+            >
+              Dismiss
+            </button>
+          </div>
+        </OBDPanel>
+      )}
 
       <OBDResultsPanel
         title="Generated Logos"

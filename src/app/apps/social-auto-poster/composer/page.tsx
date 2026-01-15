@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useMemo, useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
@@ -49,6 +49,97 @@ const PLATFORMS: Array<{ value: SocialPlatform; label: string; maxChars: number 
   { value: "x", label: "X (Twitter)", maxChars: 280 },
   { value: "googleBusiness", label: "Google Business", maxChars: 1500 },
 ];
+
+type AILogoGeneratorDraftHandoffV1 = {
+  v: 1;
+  type: "ai_logo_generator_to_social_auto_poster_draft";
+  sourceApp: "ai-logo-generator";
+  createdAt: string;
+  businessId?: string;
+  userId?: string;
+  logos?: Array<{
+    id?: string;
+    name?: string;
+    imageUrl?: string | null;
+    prompt?: string;
+    tags?: string[];
+    colorPalette?: string[];
+    description?: string;
+    styleNotes?: string;
+  }>;
+  // Accept single-logo payloads too (future-proof)
+  logo?: {
+    id?: string;
+    name?: string;
+    imageUrl?: string | null;
+    prompt?: string;
+    tags?: string[];
+    colorPalette?: string[];
+    description?: string;
+    styleNotes?: string;
+  };
+};
+
+type DraftMediaItem = {
+  id: string;
+  url: string;
+  label?: string;
+  notes?: string;
+  source: "ai-logo-generator";
+};
+
+function isAILogoGeneratorDraftHandoffV1(payload: unknown): payload is AILogoGeneratorDraftHandoffV1 {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  if (p.v !== 1) return false;
+  if (p.type !== "ai_logo_generator_to_social_auto_poster_draft") return false;
+  if (p.sourceApp !== "ai-logo-generator") return false;
+  if (typeof p.createdAt !== "string" || p.createdAt.trim().length === 0) return false;
+  // businessId/userId are optional but must be strings if present
+  if (p.businessId !== undefined && typeof p.businessId !== "string") return false;
+  if (p.userId !== undefined && typeof p.userId !== "string") return false;
+  // logos may be missing; banner stays safe if no usable items
+  if (p.logos !== undefined && !Array.isArray(p.logos)) return false;
+  if (p.logo !== undefined && (typeof p.logo !== "object" || !p.logo)) return false;
+  return true;
+}
+
+function normalizeAiLogoHandoffItems(payload: AILogoGeneratorDraftHandoffV1): Array<{
+  name: string;
+  imageUrl: string | null;
+  prompt: string;
+  tags: string[];
+  colorPalette: string[];
+  description: string;
+  styleNotes: string;
+}> {
+  const items: Array<any> = [];
+  if (payload.logo) items.push(payload.logo);
+  if (Array.isArray(payload.logos)) items.push(...payload.logos);
+
+  return items
+    .filter((x) => x && typeof x === "object")
+    .map((x) => {
+      const name = typeof x.name === "string" ? x.name.trim() : "";
+      const imageUrl = typeof x.imageUrl === "string" ? x.imageUrl : null;
+      const prompt = typeof x.prompt === "string" ? x.prompt.trim() : "";
+      const tags = Array.isArray(x.tags) ? x.tags.filter((t: unknown) => typeof t === "string") : [];
+      const colorPalette = Array.isArray(x.colorPalette)
+        ? x.colorPalette.filter((c: unknown) => typeof c === "string")
+        : [];
+      const description = typeof x.description === "string" ? x.description.trim() : "";
+      const styleNotes = typeof x.styleNotes === "string" ? x.styleNotes.trim() : "";
+      return {
+        name,
+        imageUrl,
+        prompt,
+        tags,
+        colorPalette,
+        description,
+        styleNotes,
+      };
+    });
+}
 
 function SocialAutoPosterComposerPageContent() {
   const { theme, isDark, setTheme } = useOBDTheme();
@@ -144,6 +235,8 @@ function SocialAutoPosterComposerPageContent() {
   };
 
   const [lhaDraftHandoff, setLhaDraftHandoff] = useState<LocalHiringAssistantDraftHandoff | null>(null);
+  const [aiLogoHandoff, setAiLogoHandoff] = useState<AILogoGeneratorDraftHandoffV1 | null>(null);
+  const [draftMedia, setDraftMedia] = useState<DraftMediaItem[]>([]);
 
   const isLocalHiringAssistantHandoff = (payload: unknown): payload is LocalHiringAssistantDraftHandoff => {
     if (!payload || typeof payload !== "object") return false;
@@ -184,6 +277,18 @@ function SocialAutoPosterComposerPageContent() {
           const payload = handoffResult.envelope.payload;
           if (isLocalHiringAssistantHandoff(payload)) {
             setLhaDraftHandoff(payload);
+            handoffProcessed.current = true;
+            // Allow setup to load (no import run yet)
+            setHandoffImportCompleted(true);
+            return;
+          }
+        }
+
+        // Special-case: AI Logo Generator handoff (apply-only; never auto-queue/post)
+        if (handoffResult.envelope?.source === "ai-logo-generator") {
+          const payload = handoffResult.envelope.payload;
+          if (isAILogoGeneratorDraftHandoffV1(payload)) {
+            setAiLogoHandoff(payload);
             handoffProcessed.current = true;
             // Allow setup to load (no import run yet)
             setHandoffImportCompleted(true);
@@ -235,6 +340,10 @@ function SocialAutoPosterComposerPageContent() {
   useEffect(() => {
     // If Local Hiring Assistant handoff is present, do not run canonical parser (it would clear unknown payloads).
     if (lhaDraftHandoff) {
+      return;
+    }
+    // If AI Logo Generator handoff is present, do not run canonical parser (apply-only banner).
+    if (aiLogoHandoff) {
       return;
     }
 
@@ -363,6 +472,149 @@ function SocialAutoPosterComposerPageContent() {
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // AI Logo Generator handoff helpers (Tier 5C receiver: apply-only / conservative)
+  const aiLogoItems = useMemo(() => {
+    if (!aiLogoHandoff) return [];
+    return normalizeAiLogoHandoffItems(aiLogoHandoff);
+  }, [aiLogoHandoff]);
+
+  const aiLogoMediaUrls = useMemo(() => {
+    return aiLogoItems
+      .map((x) => ({ url: x.imageUrl, name: x.name }))
+      .filter((x) => typeof x.url === "string" && x.url.trim().length > 0) as Array<{
+      url: string;
+      name: string;
+    }>;
+  }, [aiLogoItems]);
+
+  const aiLogoTenantGuard = useMemo(() => {
+    const urlBusinessId = (searchParams?.get("businessId") ?? "").trim();
+    const payloadBusinessId = (aiLogoHandoff?.businessId ?? "").trim();
+    const businessIdMissing = !urlBusinessId || !payloadBusinessId;
+    const businessIdMismatch =
+      !!payloadBusinessId && !!urlBusinessId && payloadBusinessId !== urlBusinessId;
+    return { urlBusinessId, payloadBusinessId, businessIdMissing, businessIdMismatch };
+  }, [aiLogoHandoff?.businessId, searchParams]);
+
+  const hasDraftInProgress = useMemo(() => {
+    return (formData.topic || "").trim().length > 0 || (formData.details || "").trim().length > 0;
+  }, [formData.topic, formData.details]);
+
+  const buildAiLogoNotes = (): string => {
+    if (!aiLogoItems.length) return "";
+    const lines: string[] = [];
+    lines.push("Imported logo concepts (AI Logo Generator):");
+    aiLogoItems.slice(0, 8).forEach((l, idx) => {
+      const parts: string[] = [];
+      if (l.name) parts.push(l.name);
+      if (l.prompt) parts.push(`Prompt: ${l.prompt}`);
+      if (l.tags.length) parts.push(`Tags: ${l.tags.join(", ")}`);
+      if (l.colorPalette.length) parts.push(`Palette: ${l.colorPalette.join(", ")}`);
+      const body = parts.filter(Boolean).join(" • ");
+      lines.push(`- ${idx + 1}. ${body || "Logo concept"}`.trim());
+      if (l.imageUrl) lines.push(`  Image: ${l.imageUrl}`);
+    });
+    if (aiLogoItems.length > 8) lines.push(`(and ${aiLogoItems.length - 8} more)`);
+    return lines.join("\n").trim();
+  };
+
+  const applyAiLogoMediaToDraft = () => {
+    const { businessIdMissing, businessIdMismatch } = aiLogoTenantGuard;
+    if (businessIdMismatch || businessIdMissing) return;
+    if (!hasDraftInProgress) return;
+    if (!aiLogoItems.length) return;
+
+    // Add media URLs (dedupe by url)
+    setDraftMedia((prev) => {
+      const seen = new Set(prev.map((m) => m.url));
+      const next = prev.slice();
+      for (const item of aiLogoItems) {
+        const url = (item.imageUrl || "").trim();
+        if (!url) continue;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        next.push({
+          id: `ai_logo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          url,
+          label: item.name || "Logo concept",
+          notes: item.prompt || "",
+          source: "ai-logo-generator",
+        });
+      }
+      return next;
+    });
+
+    // Add notes (append only; never generate content)
+    const note = buildAiLogoNotes();
+    if (note) {
+      setFormData((prev) => {
+        const cur = (prev.details || "").trim();
+        if (cur.includes("Imported logo concepts (AI Logo Generator):")) return prev;
+        return { ...prev, details: cur ? `${cur}\n\n${note}`.trim() : note };
+      });
+    }
+
+    // Consume handoff + URL cleanup
+    clearHandoff();
+    setAiLogoHandoff(null);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+    showToast("Logo media added to draft (apply-only).");
+  };
+
+  const createNewDraftWithAiLogoMedia = () => {
+    const { businessIdMissing, businessIdMismatch } = aiLogoTenantGuard;
+    if (businessIdMismatch || businessIdMissing) return;
+
+    // Reset previews/variants (stay draft-only, never queue)
+    setPreviews([]);
+    setVariants({} as Record<SocialPlatform, SocialPostDraft[]>);
+    setSelectedVariants({} as Record<SocialPlatform, number>);
+
+    // Clear draft text and set notes only (no generation)
+    const note = buildAiLogoNotes();
+    setFormData((prev) => ({
+      ...prev,
+      topic: "",
+      details: note || "",
+    }));
+
+    // Replace draft media with incoming items
+    const nextMedia: DraftMediaItem[] = [];
+    for (const item of aiLogoItems) {
+      const url = (item.imageUrl || "").trim();
+      if (!url) continue;
+      nextMedia.push({
+        id: `ai_logo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        url,
+        label: item.name || "Logo concept",
+        notes: item.prompt || "",
+        source: "ai-logo-generator",
+      });
+    }
+    setDraftMedia(nextMedia);
+
+    clearHandoff();
+    setAiLogoHandoff(null);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+    showToast("New draft created with logo media (draft-only).");
+  };
+
+  const dismissAiLogoHandoff = () => {
+    clearHandoff();
+    setAiLogoHandoff(null);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+    showToast("Import dismissed.");
   };
 
   // Helper to rebuild event text with a different countdown variant
@@ -1440,6 +1692,91 @@ function SocialAutoPosterComposerPageContent() {
         </OBDPanel>
       )}
 
+      {/* AI Logo Generator Import Banner (apply-only; never auto-queue/post) */}
+      {aiLogoHandoff && (
+        <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-sky-500/30 bg-sky-500/5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sky-500">🖼️</span>
+                <span className={`text-sm font-semibold ${isDark ? "text-sky-300" : "text-sky-800"}`}>
+                  Imported logo draft from AI Logo Generator
+                </span>
+              </div>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>
+                Apply-only import. Never auto-generates captions. Never auto-queues. Never auto-posts.
+              </p>
+
+              {aiLogoTenantGuard.businessIdMismatch ? (
+                <p className={`text-sm mt-2 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  Tenant mismatch — this logo draft does not match the current business.
+                </p>
+              ) : aiLogoTenantGuard.businessIdMissing ? (
+                <p className={`text-sm mt-2 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  Business context required to apply this logo draft.
+                </p>
+              ) : aiLogoItems.length === 0 ? (
+                <p className={`text-sm mt-2 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  No logo items were found in this handoff.
+                </p>
+              ) : (
+                <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                  {aiLogoItems.length} logo item{aiLogoItems.length === 1 ? "" : "s"} detected • {aiLogoMediaUrls.length} image URL{aiLogoMediaUrls.length === 1 ? "" : "s"}
+                </p>
+              )}
+
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <button
+                  type="button"
+                  disabled={
+                    aiLogoTenantGuard.businessIdMismatch ||
+                    aiLogoTenantGuard.businessIdMissing ||
+                    !hasDraftInProgress
+                  }
+                  onClick={applyAiLogoMediaToDraft}
+                  className={`${SUBMIT_BUTTON_CLASSES}${
+                    aiLogoTenantGuard.businessIdMismatch ||
+                    aiLogoTenantGuard.businessIdMissing ||
+                    !hasDraftInProgress
+                      ? " opacity-50 cursor-not-allowed"
+                      : ""
+                  }`}
+                  title={!hasDraftInProgress ? "Requires an existing draft (topic/details)" : "Add logo media to current draft"}
+                >
+                  Add as media to draft
+                </button>
+
+                <button
+                  type="button"
+                  disabled={aiLogoTenantGuard.businessIdMismatch || aiLogoTenantGuard.businessIdMissing}
+                  onClick={createNewDraftWithAiLogoMedia}
+                  className={`${SUBMIT_BUTTON_CLASSES}${
+                    aiLogoTenantGuard.businessIdMismatch || aiLogoTenantGuard.businessIdMissing
+                      ? " opacity-50 cursor-not-allowed"
+                      : ""
+                  }`}
+                  title="Creates a new draft (clears current topic/details) with logo media + notes"
+                >
+                  Create new draft with media
+                </button>
+
+                <button
+                  type="button"
+                  onClick={dismissAiLogoHandoff}
+                  className={`text-sm font-medium px-3 py-1.5 rounded transition-colors ${
+                    isDark
+                      ? "text-slate-300 hover:text-white hover:bg-slate-700"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                  }`}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Event Import Banner (Event Campaign Builder) */}
       {handoffPayload?.sourceApp === "event-campaign-builder" && handoffPayload.suggestedCountdownCopy && (
         <OBDPanel isDark={isDark} className="mt-4 mb-4 border-2 border-blue-500/30 bg-blue-500/5">
@@ -1615,6 +1952,102 @@ function SocialAutoPosterComposerPageContent() {
                 placeholder="Any specific details, promotions, or information to include..."
               />
             </div>
+
+            {/* Draft media (apply-only imports). Not queued or posted automatically. */}
+            {draftMedia.length > 0 && (
+              <div
+                className={`rounded-xl border p-4 ${
+                  isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className={`text-sm font-semibold ${themeClasses.headingText}`}>Draft media</p>
+                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                      Imported media references are draft-only until you explicitly add a post to the Queue.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftMedia([]);
+                      showToast("Draft media cleared.");
+                    }}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                      isDark
+                        ? "border-slate-600 text-slate-300 hover:bg-slate-700"
+                        : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    Clear media
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                  {draftMedia.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`rounded-lg border p-3 ${
+                        isDark ? "bg-slate-900/30 border-slate-700" : "bg-white border-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className={`text-sm font-medium truncate ${themeClasses.headingText}`}>
+                            {m.label || "Media"}
+                          </p>
+                          <p className={`text-xs mt-1 truncate ${themeClasses.mutedText}`}>{m.url}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDraftMedia((prev) => prev.filter((x) => x.id !== m.id))}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            isDark
+                              ? "border-slate-600 text-slate-300 hover:bg-slate-700"
+                              : "border-slate-300 text-slate-600 hover:bg-slate-100"
+                          }`}
+                          title="Remove"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        <a
+                          href={m.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            isDark
+                              ? "border-slate-600 text-slate-200 hover:bg-slate-800"
+                              : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          Open
+                        </a>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(m.url);
+                              showToast("Copied media URL.");
+                            } catch {
+                              showToast("Copy failed.");
+                            }
+                          }}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            isDark
+                              ? "border-slate-600 text-slate-200 hover:bg-slate-800"
+                              : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          Copy URL
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>

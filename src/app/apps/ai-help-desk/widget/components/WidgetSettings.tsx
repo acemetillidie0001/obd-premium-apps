@@ -147,6 +147,8 @@ export default function WidgetSettings({
   const [aiLogoHandoff, setAiLogoHandoff] = useState<AiLogoToHelpDeskHandoffPayload | null>(null);
   const [aiLogoHandoffExpired, setAiLogoHandoffExpired] = useState(false);
   const [aiLogoHandoffApplied, setAiLogoHandoffApplied] = useState(false);
+  const [suggestedAssistantAvatarUrl, setSuggestedAssistantAvatarUrl] = useState<string | null>(null);
+  const [assistantAvatarUrlBeforeSuggestion, setAssistantAvatarUrlBeforeSuggestion] = useState<string | null>(null);
   
   // New state for enhancements
   const [showPreview, setShowPreview] = useState(false);
@@ -261,12 +263,22 @@ export default function WidgetSettings({
     if (!preferredIconLogo?.imageUrl) return;
 
     // Apply-only: prefill draft input field. User must click Save Settings to persist.
+    setAssistantAvatarUrlBeforeSuggestion(assistantAvatarUrl);
+    setSuggestedAssistantAvatarUrl(preferredIconLogo.imageUrl);
     setAssistantAvatarUrl(preferredIconLogo.imageUrl);
     setAvatarPreviewError(false);
     setAiLogoHandoffApplied(true);
 
     // One-time apply: clear storage + clean URL (no auto-save).
     dismissAiLogoHandoff();
+  };
+
+  const clearSuggestedAssistantAvatar = () => {
+    const revertTo = assistantAvatarUrlBeforeSuggestion ?? settings?.assistantAvatarUrl ?? "";
+    setAssistantAvatarUrl(revertTo);
+    setAvatarPreviewError(false);
+    setSuggestedAssistantAvatarUrl(null);
+    setAssistantAvatarUrlBeforeSuggestion(null);
   };
   
   // Auto-sync brand color when toggle is ON and OBD color exists
@@ -386,6 +398,8 @@ export default function WidgetSettings({
       }
 
       setSettings(json.data);
+      setSuggestedAssistantAvatarUrl(null);
+      setAssistantAvatarUrlBeforeSuggestion(null);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -969,6 +983,21 @@ export default function WidgetSettings({
                   aria-invalid={avatarPreviewError ? "true" : "false"}
                 />
                 <div className="flex flex-wrap gap-2 mt-2">
+                  {suggestedAssistantAvatarUrl &&
+                    assistantAvatarUrl === suggestedAssistantAvatarUrl && (
+                      <button
+                        type="button"
+                        onClick={clearSuggestedAssistantAvatar}
+                        className={`text-xs px-2 py-1 rounded transition-colors ${
+                          isDark
+                            ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Clear suggested avatar"
+                      >
+                        Clear suggested avatar
+                      </button>
+                    )}
                   {assistantAvatarUrl && (
                     <button
                       type="button"

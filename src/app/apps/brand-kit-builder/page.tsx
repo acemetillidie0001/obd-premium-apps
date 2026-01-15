@@ -994,8 +994,9 @@ export default function BrandKitBuilderPage() {
                   ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
+              aria-label="Clear suggested brand mark"
             >
-              Clear
+              Clear suggested brand mark
             </button>
           </div>
 

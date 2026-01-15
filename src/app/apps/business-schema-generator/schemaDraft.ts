@@ -85,7 +85,9 @@ export function applyGeneratedSchema(draft: SchemaDraft, nextGenerated: string |
 
 /**
  * Apply inbound schema nodes additively into the draft's active schema,
- * committing the result as a generated update (never overwriting edits).
+ * committing the result into the current active layer:
+ * - If the draft is edited, update `editedJsonld` (Edited > Generated stays true).
+ * - Otherwise, update `generatedJsonld`.
  */
 export function applyAdditiveNodes(
   draft: SchemaDraft,
@@ -95,6 +97,11 @@ export function applyAdditiveNodes(
 
   try {
     const merged = mergeNodesAdditive(activeJson, incomingNodes);
+    // Critical correctness: if edits exist, the active schema is the edited layer.
+    // Persist additive merges into that layer so render/export matches what the user applied.
+    if (draft.editedJsonld) {
+      return applyEditedSchema(draft, merged);
+    }
     return applyGeneratedSchema(draft, merged);
   } catch {
     // Fail-safe: do not mutate draft if JSON parsing/merging fails.

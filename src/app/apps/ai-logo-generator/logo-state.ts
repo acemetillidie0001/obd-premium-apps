@@ -21,6 +21,12 @@ export type LogoBriefSnapshot = {
   colorPreferences?: string;
   includeBusinessName: boolean;
   variationCount: number;
+  /**
+   * Compatibility fields (current UI/API request shape uses includeText/variationsCount).
+   * These are optional and can be populated by adapters later without breaking the canonical snapshot.
+   */
+  includeText?: boolean;
+  variationsCount?: number;
   outputFormat?: "PNG" | "PNG_Transparent" | "JPG" | "" | string;
   generateImages: boolean;
 };
@@ -77,8 +83,20 @@ function createUuid(): string {
   return `logo_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * Public UUID helper for future UI wiring (Tier 5B).
+ * NOTE: Pure helper; not wired to UI/API yet.
+ */
+export function createLogoUuid(): string {
+  return createUuid();
+}
+
 function coerceString(v: unknown): string {
   return typeof v === "string" ? v : "";
+}
+
+function coerceStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 }
 
 function findImageForConcept(images: LogoImage[], conceptId: number): LogoImage | undefined {
@@ -125,7 +143,7 @@ export function createVersionSetFromApiResponse(opts: {
       name: `Logo Concept ${concept.id}`,
       description: concept.description,
       styleNotes: concept.styleNotes,
-      colorPalette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
+      colorPalette: coerceStringArray(concept.colorPalette),
       prompt,
       imageUrl,
       imageError,
@@ -250,6 +268,30 @@ export function applyBulkSelection(
       return base;
     }
   }
+}
+
+/**
+ * Convenience helper: return a stable array copy of selected IDs (Tier 5B).
+ * Pure helper; no UI wiring.
+ */
+export function getSelectedIdsArray(selectedIds: Set<string> | string[]): string[] {
+  return selectedIds instanceof Set ? Array.from(selectedIds) : selectedIds.slice();
+}
+
+/**
+ * Convenience helper: whether all provided IDs are selected (Tier 5B).
+ * Pure helper; no UI wiring.
+ */
+export function areAllIdsSelected(
+  selectedIds: Set<string> | string[],
+  allIds: string[]
+): boolean {
+  if (!allIds.length) return false;
+  const set = selectedIds instanceof Set ? selectedIds : new Set(selectedIds);
+  for (const id of allIds) {
+    if (!set.has(id)) return false;
+  }
+  return true;
 }
 
 

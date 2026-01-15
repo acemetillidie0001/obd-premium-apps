@@ -522,13 +522,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate and clamp variationsCount (1-6)
+    // Validate and clamp variationsCount (3-8)
     let variationsCount = body.variationsCount ?? 3;
     if (typeof variationsCount !== "number" || !Number.isFinite(variationsCount)) {
       variationsCount = 3;
     }
     // Clamp to valid range
-    variationsCount = Math.min(6, Math.max(1, Math.round(variationsCount)));
+    variationsCount = Math.min(8, Math.max(3, Math.round(variationsCount)));
 
     const cityTrimmed = body.city?.trim() || "Ocala";
     const stateTrimmed = body.state?.trim() || "Florida";
@@ -544,7 +544,7 @@ export async function POST(request: NextRequest) {
         styleNotes: "Modern and professional design",
         colorPalette: ["#1E88E5", "#43A047", "#FFB300"],
       }));
-      const demoResponse: LogoGeneratorResponse = {
+      const demoResponse: LogoGeneratorResponse & { countUsed: number } = {
         concepts: demoConcepts,
         images: body.generateImages ? demoConcepts.map((c) => ({
           id: c.id,
@@ -559,6 +559,7 @@ export async function POST(request: NextRequest) {
           logoStyle,
           personalityStyle: personalityStyle || "",
         },
+        countUsed: demoConcepts.length,
       };
       return NextResponse.json(demoResponse);
     }
@@ -633,6 +634,7 @@ export async function POST(request: NextRequest) {
 
     // Limit to requested number of variations
     const selectedConcepts = safeConcepts.slice(0, variationsCount);
+    const countUsed = selectedConcepts.length;
 
     // Generate images only if requested
     let images: LogoImage[] = [];
@@ -692,6 +694,7 @@ export async function POST(request: NextRequest) {
     const currentUsage = await checkUsage(userId);
 
     const response: LogoGeneratorResponse & {
+      countUsed: number;
       usage?: {
         conceptsUsed: number;
         imagesUsed: number;
@@ -709,6 +712,7 @@ export async function POST(request: NextRequest) {
         logoStyle: logoStyle,
         personalityStyle: personalityStyle || "None",
       },
+      countUsed,
       usage: {
         conceptsUsed: currentUsage.conceptsUsed,
         imagesUsed: currentUsage.imagesUsed,

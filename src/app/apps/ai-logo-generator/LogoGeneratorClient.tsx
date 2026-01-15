@@ -27,6 +27,9 @@ type LogoGeneratorClientProps = {
 export default function LogoGeneratorClient({
   initialDefaults,
 }: LogoGeneratorClientProps) {
+  const VARIATIONS_MIN = 3;
+  const VARIATIONS_MAX = 8;
+
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -50,6 +53,17 @@ export default function LogoGeneratorClient({
     resetsAt: string;
   } | null>(null);
   const [showQuotaToast, setShowQuotaToast] = useState(false);
+  const [clampToastMessage, setClampToastMessage] = useState<string | null>(null);
+  const [countUsed, setCountUsed] = useState<number | null>(null);
+
+  const showClampToast = (message: string) => {
+    setClampToastMessage(message);
+    setTimeout(() => setClampToastMessage(null), 3500);
+  };
+
+  const clampVariations = (value: number): number => {
+    return Math.min(VARIATIONS_MAX, Math.max(VARIATIONS_MIN, Math.round(value)));
+  };
 
   // Tier 5A: accordion state for input sections
   const [accordionState, setAccordionState] = useState({
@@ -101,7 +115,7 @@ export default function LogoGeneratorClient({
   const getLogoOptionsSummary = (): string => {
     const parts: string[] = [];
     parts.push(
-      `${Math.min(6, Math.max(1, form.variationsCount || 3))} variations`
+      `${clampVariations(form.variationsCount || VARIATIONS_MIN)} variations`
     );
     parts.push(form.includeText ? "Includes name" : "Icon-only");
     return parts.join(" · ");
@@ -173,11 +187,18 @@ export default function LogoGeneratorClient({
     setLoading(true);
 
     try {
-      // Clamp variationsCount client-side
-      const clampedVariations = Math.min(
-        6,
-        Math.max(1, form.variationsCount || 3)
-      );
+      // Clamp variationsCount client-side (3–8)
+      const requestedVariationsRaw = form.variationsCount ?? VARIATIONS_MIN;
+      const clampedVariations = clampVariations(requestedVariationsRaw);
+      if (
+        typeof requestedVariationsRaw === "number" &&
+        Number.isFinite(requestedVariationsRaw) &&
+        requestedVariationsRaw !== clampedVariations
+      ) {
+        showClampToast(
+          `Variations adjusted to ${clampedVariations} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
+        );
+      }
 
       const payload: LogoGeneratorRequest = {
         businessName: form.businessName.trim(),
@@ -195,6 +216,7 @@ export default function LogoGeneratorClient({
       };
 
       setLastPayload(payload);
+      setCountUsed(null);
 
       const res = await fetch("/api/ai-logo-generator", {
         method: "POST",
@@ -233,6 +255,7 @@ export default function LogoGeneratorClient({
       }
 
       const data: LogoGeneratorResponse & {
+        countUsed?: number;
         usage?: {
           conceptsUsed: number;
           imagesUsed: number;
@@ -242,6 +265,16 @@ export default function LogoGeneratorClient({
         };
       } = await res.json();
       setResult(data);
+
+      // Reflect server-side clamped count (additive)
+      if (typeof data.countUsed === "number" && Number.isFinite(data.countUsed)) {
+        setCountUsed(data.countUsed);
+        setLastPayload((prev) =>
+          prev ? { ...prev, variationsCount: data.countUsed } : prev
+        );
+      } else {
+        setCountUsed(null);
+      }
 
       // Update usage info from response if available
       if (data.usage) {
@@ -276,6 +309,8 @@ export default function LogoGeneratorClient({
     setLastPayload(null);
     setCopiedId(null);
     setUsageInfo(null);
+    setClampToastMessage(null);
+    setCountUsed(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -733,19 +768,25 @@ export default function LogoGeneratorClient({
                         htmlFor="variationsCount"
                         className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
                       >
-                        Number of Variations (1–6)
+                        Number of Variations (3–8)
                       </label>
                       <input
                         type="number"
                         id="variationsCount"
                         value={form.variationsCount}
                         onChange={(e) => {
-                          const value = parseInt(e.target.value) || 3;
-                          const clamped = Math.min(6, Math.max(1, value));
+                          const raw = parseInt(e.target.value, 10);
+                          const requested = Number.isFinite(raw) ? raw : VARIATIONS_MIN;
+                          const clamped = clampVariations(requested);
                           updateFormValue("variationsCount", clamped);
+                          if (Number.isFinite(raw) && raw !== clamped) {
+                            showClampToast(
+                              `Variations adjusted to ${clamped} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
+                            );
+                          }
                         }}
-                        min={1}
-                        max={6}
+                        min={VARIATIONS_MIN}
+                        max={VARIATIONS_MAX}
                         className={getInputClasses(isDark)}
                       />
                     </div>
@@ -929,166 +970,173 @@ export default function LogoGeneratorClient({
             )}
           </div>
         ) : result?.concepts?.length ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {result.concepts.map((concept) => {
-              const image = result.images.find((img) => img.conceptId === concept.id);
-              const hasImage = !!image?.imageUrl;
-              const hasImageError = !!image?.imageError;
-              const prompt = image?.prompt || "";
+          <>
+            {typeof countUsed === "number" && (
+              <p className={`text-xs mb-3 ${themeClasses.mutedText}`}>
+                Used {countUsed} variations.
+              </p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {result.concepts.map((concept) => {
+                const image = result.images.find((img) => img.conceptId === concept.id);
+                const hasImage = !!image?.imageUrl;
+                const hasImageError = !!image?.imageError;
+                const prompt = image?.prompt || "";
 
-              return (
-                <div
-                  key={concept.id}
-                  className={`rounded-2xl border p-4 transition-colors ${
-                    isDark
-                      ? "bg-slate-800/50 border-slate-700 hover:border-slate-600"
-                      : "bg-white border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  <div className="mb-3">
-                    <h4 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
-                      Logo Concept {concept.id}
-                    </h4>
-                    <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>{concept.styleNotes}</p>
-                  </div>
-
-                  {/* Preview */}
-                  {hasImage ? (
+                return (
+                  <div
+                    key={concept.id}
+                    className={`rounded-2xl border p-4 transition-colors ${
+                      isDark
+                        ? "bg-slate-800/50 border-slate-700 hover:border-slate-600"
+                        : "bg-white border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
                     <div className="mb-3">
-                      <img
-                        src={image!.imageUrl!}
-                        alt={`Logo concept ${concept.id}`}
-                        className="w-full h-auto rounded-lg border border-slate-300 shadow-sm"
-                      />
+                      <h4 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                        Logo Concept {concept.id}
+                      </h4>
+                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>{concept.styleNotes}</p>
                     </div>
-                  ) : (
-                    <div
-                      className={`rounded-lg border p-3 mb-3 ${
-                        isDark
-                          ? "bg-slate-900/40 border-slate-700"
-                          : "bg-slate-50 border-slate-200"
-                      }`}
-                    >
-                      <p className={`text-xs ${themeClasses.mutedText}`}>
-                        {lastPayload?.generateImages
-                          ? hasImageError
-                            ? `Image failed: ${image?.imageError}`
-                            : "Image not available."
-                          : "Prompts only (enable image generation to render here)."}
-                      </p>
-                    </div>
-                  )}
 
-                  {/* Palette */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`text-xs font-medium ${themeClasses.labelText}`}>Palette:</span>
-                    <div className="flex gap-1">
-                      {concept.colorPalette.slice(0, 6).map((color, idx) => (
-                        <div
-                          key={`${concept.id}-c-${idx}`}
-                          className="w-5 h-5 rounded border border-slate-300"
-                          style={{ backgroundColor: color }}
-                          title={color}
+                    {/* Preview */}
+                    {hasImage ? (
+                      <div className="mb-3">
+                        <img
+                          src={image!.imageUrl!}
+                          alt={`Logo concept ${concept.id}`}
+                          className="w-full h-auto rounded-lg border border-slate-300 shadow-sm"
                         />
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleCopy(
-                          concept.colorPalette.join(", "),
-                          `palette-${concept.id}`
-                        )
-                      }
-                      className={`ml-auto text-xs px-2 py-1 rounded transition-colors ${
-                        copiedId === `palette-${concept.id}`
-                          ? "bg-[#29c4a9] text-white"
-                          : isDark
-                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                      }`}
-                    >
-                      {copiedId === `palette-${concept.id}` ? "Copied!" : "Copy"}
-                    </button>
-                  </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`rounded-lg border p-3 mb-3 ${
+                          isDark
+                            ? "bg-slate-900/40 border-slate-700"
+                            : "bg-slate-50 border-slate-200"
+                        }`}
+                      >
+                        <p className={`text-xs ${themeClasses.mutedText}`}>
+                          {lastPayload?.generateImages
+                            ? hasImageError
+                              ? `Image failed: ${image?.imageError}`
+                              : "Image not available."
+                            : "Prompts only (enable image generation to render here)."}
+                        </p>
+                      </div>
+                    )}
 
-                  {/* Description */}
-                  <div className={`text-xs ${themeClasses.mutedText}`}>
-                    <span className="font-medium">Description:</span>{" "}
-                    {concept.description.length > 140
-                      ? `${concept.description.slice(0, 140)}…`
-                      : concept.description}
-                  </div>
-
-                  {/* Prompt */}
-                  {prompt ? (
-                    <div className="flex items-start gap-2 mt-2">
-                      <div className={`text-xs flex-1 ${themeClasses.mutedText}`}>
-                        <span className="font-medium">Prompt:</span>{" "}
-                        {prompt.length > 160 ? `${prompt.slice(0, 160)}…` : prompt}
+                    {/* Palette */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-xs font-medium ${themeClasses.labelText}`}>Palette:</span>
+                      <div className="flex gap-1">
+                        {concept.colorPalette.slice(0, 6).map((color, idx) => (
+                          <div
+                            key={`${concept.id}-c-${idx}`}
+                            className="w-5 h-5 rounded border border-slate-300"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleCopy(prompt, `prompt-${concept.id}`)}
-                        className={`text-xs px-2 py-1 rounded transition-colors flex-shrink-0 ${
-                          copiedId === `prompt-${concept.id}`
+                        onClick={() =>
+                          handleCopy(
+                            concept.colorPalette.join(", "),
+                            `palette-${concept.id}`
+                          )
+                        }
+                        className={`ml-auto text-xs px-2 py-1 rounded transition-colors ${
+                          copiedId === `palette-${concept.id}`
                             ? "bg-[#29c4a9] text-white"
                             : isDark
                               ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                               : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                         }`}
                       >
-                        {copiedId === `prompt-${concept.id}` ? "Copied!" : "Copy"}
+                        {copiedId === `palette-${concept.id}` ? "Copied!" : "Copy"}
                       </button>
                     </div>
-                  ) : null}
 
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const conceptJson = JSON.stringify(
-                          {
-                            concept,
-                            image: image?.imageUrl
-                              ? { url: image.imageUrl, prompt: image.prompt }
-                              : null,
-                            imageError: image?.imageError,
-                          },
-                          null,
-                          2
-                        );
-                        handleCopy(conceptJson, `json-${concept.id}`);
-                      }}
-                      className={`text-xs px-2 py-1 rounded border transition-colors ${
-                        copiedId === `json-${concept.id}`
-                          ? "bg-[#29c4a9] text-white border-transparent"
-                          : isDark
-                            ? "border-slate-600 text-slate-200 hover:bg-slate-700"
-                            : "border-slate-300 text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      {copiedId === `json-${concept.id}` ? "Copied!" : "Copy JSON"}
-                    </button>
+                    {/* Description */}
+                    <div className={`text-xs ${themeClasses.mutedText}`}>
+                      <span className="font-medium">Description:</span>{" "}
+                      {concept.description.length > 140
+                        ? `${concept.description.slice(0, 140)}…`
+                        : concept.description}
+                    </div>
 
-                    {hasImage ? (
-                      <a
-                        href={image!.imageUrl!}
-                        download={`logo-concept-${concept.id}.png`}
+                    {/* Prompt */}
+                    {prompt ? (
+                      <div className="flex items-start gap-2 mt-2">
+                        <div className={`text-xs flex-1 ${themeClasses.mutedText}`}>
+                          <span className="font-medium">Prompt:</span>{" "}
+                          {prompt.length > 160 ? `${prompt.slice(0, 160)}…` : prompt}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(prompt, `prompt-${concept.id}`)}
+                          className={`text-xs px-2 py-1 rounded transition-colors flex-shrink-0 ${
+                            copiedId === `prompt-${concept.id}`
+                              ? "bg-[#29c4a9] text-white"
+                              : isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                          }`}
+                        >
+                          {copiedId === `prompt-${concept.id}` ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const conceptJson = JSON.stringify(
+                            {
+                              concept,
+                              image: image?.imageUrl
+                                ? { url: image.imageUrl, prompt: image.prompt }
+                                : null,
+                              imageError: image?.imageError,
+                            },
+                            null,
+                            2
+                          );
+                          handleCopy(conceptJson, `json-${concept.id}`);
+                        }}
                         className={`text-xs px-2 py-1 rounded border transition-colors ${
-                          isDark
-                            ? "border-slate-600 text-slate-200 hover:bg-slate-700"
-                            : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                          copiedId === `json-${concept.id}`
+                            ? "bg-[#29c4a9] text-white border-transparent"
+                            : isDark
+                              ? "border-slate-600 text-slate-200 hover:bg-slate-700"
+                              : "border-slate-300 text-slate-700 hover:bg-slate-100"
                         }`}
                       >
-                        Download image
-                      </a>
-                    ) : null}
+                        {copiedId === `json-${concept.id}` ? "Copied!" : "Copy JSON"}
+                      </button>
+
+                      {hasImage ? (
+                        <a
+                          href={image!.imageUrl!}
+                          download={`logo-concept-${concept.id}.png`}
+                          className={`text-xs px-2 py-1 rounded border transition-colors ${
+                            isDark
+                              ? "border-slate-600 text-slate-200 hover:bg-slate-700"
+                              : "border-slate-300 text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          Download image
+                        </a>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          </>
         ) : null}
       </OBDResultsPanel>
 
@@ -1128,6 +1176,57 @@ export default function LogoGeneratorClient({
                 isDark
                   ? "text-yellow-200 hover:text-yellow-100"
                   : "text-yellow-600 hover:text-yellow-800"
+              }`}
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Clamp Toast */}
+      {clampToastMessage && (
+        <div
+          className={`fixed ${showQuotaToast ? "top-20" : "top-4"} left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
+            isDark
+              ? "bg-slate-800/95 border-slate-600 text-slate-100"
+              : "bg-white border-slate-200 text-slate-800"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <svg
+              className="h-5 w-5 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div className="flex-1">
+              <p className="font-semibold text-sm mb-1">Adjusted</p>
+              <p className="text-sm opacity-90">{clampToastMessage}</p>
+            </div>
+            <button
+              onClick={() => setClampToastMessage(null)}
+              className={`ml-2 flex-shrink-0 ${
+                isDark ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-800"
               }`}
             >
               <svg

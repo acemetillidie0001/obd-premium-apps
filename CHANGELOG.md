@@ -31,6 +31,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Compare Generated vs Edited views + keyboard shortcuts / quick actions
     - Regenerate warning with “no overwrite” guardrails (protects edited content)
 
+- **AI Logo Generator — Tier 5A + Tier 5B+ + Tier 5C+ + Tier 6 (2026-01-15)**
+  - **UX polish**
+    - Favorites + “Edited” badge for draft-only per-logo metadata, with stable ordering
+    - Rename UX hardening (Enter commits, Esc cancels, blur commits; empty names blocked)
+    - Click-to-zoom preview modal with keyboard Escape close + focus return
+    - Regenerate reliability: always regenerates from the last generated settings
+  - **Tier 5C+ integrations**
+    - Social Auto-Poster handoff: draft-only sender + apply-only receiver import banner (never auto-queue/post), with tenant mismatch guards + URL cleanup
+    - Brand Kit: apply-only “suggested brand mark” draft suggestion (no overwrite; save still required)
+    - AI Help Desk: apply-only suggested avatar/icon draft prefill (save required), plus “Clear suggested …” actions on receivers
+  - **Export improvements**
+    - Bulk export: serialized downloads + delay to avoid browser throttling
+    - Manifest download with per-item failure details, plus a calm completion summary panel with success/failure counts
+  - **Safety/guards**
+    - Variations clamped to 3–8 across UI + API, with `countUsed` reflected in the UI
+    - Apply-only enforcement + tenant mismatch guards for handoff receivers (draft-only; no auto-save)
+  - **Refs**: `0bd6267`, `e618336`, `4e51194`, `6ca316e`, `c76303e`, `93fe560`, `9c7f49a`, `ae5ca58`, `e0211d4`, `8053cb5`, `ab97e5b`, `b74de83`, `9281360`
+
 - **Demo Mode — Complete Implementation (2026-01-06)**
   - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit
   - Demo banner displayed only within `/apps` routes with mobile-responsive design

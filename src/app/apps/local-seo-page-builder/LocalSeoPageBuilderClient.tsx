@@ -161,6 +161,33 @@ export default function LocalSeoPageBuilderClient({
       ? "Edited"
       : "Generated";
 
+  const titleStatusChip = (
+    <span
+      className={`text-xs uppercase font-semibold px-2.5 py-1.5 rounded-lg border ${
+        statusLabel === "Draft"
+          ? isDark
+            ? "bg-slate-800 text-slate-300 border-slate-700"
+            : "bg-slate-50 text-slate-700 border-slate-200"
+          : statusLabel === "Edited"
+            ? isDark
+              ? "bg-amber-900/30 text-amber-200 border-amber-800/50"
+              : "bg-amber-50 text-amber-800 border-amber-200"
+            : isDark
+              ? "bg-blue-900/30 text-blue-200 border-blue-800/50"
+              : "bg-blue-50 text-blue-800 border-blue-200"
+      }`}
+      title={
+        statusLabel === "Draft"
+          ? "Draft — nothing generated yet"
+          : statusLabel === "Edited"
+            ? "Edited — inline changes are overriding generated output"
+            : "Generated — showing server output"
+      }
+    >
+      {statusLabel}
+    </span>
+  );
+
   const statusChip = (
     <div className="flex items-center gap-2 min-w-0">
       <span
@@ -607,6 +634,12 @@ export default function LocalSeoPageBuilderClient({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const handleResetAllEdits = () => {
+    if (loading) return;
+    dispatch({ type: "RESET_ALL_EDITS" });
+    setUndoStack([]);
+  };
+
   const getPageBasicsSummary = () => {
     const parts: string[] = [];
     if (form.primaryService.trim()) parts.push(form.primaryService.trim());
@@ -670,6 +703,7 @@ export default function LocalSeoPageBuilderClient({
       onThemeToggle={() => setTheme(isDark ? "light" : "dark")}
       title="Local SEO Page Builder"
       tagline="Generate a complete local landing page pack for a service + city."
+      titleRight={titleStatusChip}
     >
       {/* Toast Feedback */}
       {actionToast && (
@@ -1164,6 +1198,15 @@ export default function LocalSeoPageBuilderClient({
                         Generates optional JSON-LD you can paste into your site.
                       </p>
                     )}
+                    {form.includeSchema && (!form.pageUrl || !form.pageUrl.trim()) ? (
+                      <p
+                        className={`text-xs mt-2 ml-6 ${
+                          isDark ? "text-amber-300" : "text-amber-700"
+                        }`}
+                      >
+                        Schema is enabled, but Page URL is missing. Add a Page URL so the schema can reference the real page.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </LocalSeoAccordionSection>
@@ -1268,6 +1311,19 @@ export default function LocalSeoPageBuilderClient({
               }`}
             >
               Reset
+            </button>
+            <button
+              type="button"
+              onClick={handleResetAllEdits}
+              disabled={loading || !hasEdits(draft.edits)}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={!hasEdits(draft.edits) ? "No edits to reset" : "Clear all inline edits (generated output remains)"}
+            >
+              Reset edits
             </button>
             <button
               type="button"

@@ -12,6 +12,8 @@ interface OBDPageContainerProps {
   onThemeToggle: () => void;
   title: string;
   tagline: string;
+  // Optional element rendered to the right of the title (e.g., status chip)
+  titleRight?: React.ReactNode;
   // Optional controlled theme props (for persisted theme)
   theme?: "light" | "dark";
   onThemeChange?: (next: "light" | "dark") => void;
@@ -27,6 +29,7 @@ export default function OBDPageContainer({
   onThemeToggle,
   title,
   tagline,
+  titleRight,
   theme: controlledTheme,
   onThemeChange,
   fullWidth = false,
@@ -79,9 +82,12 @@ export default function OBDPageContainer({
             </div>
 
             {/* Heading + tagline */}
-            <h1 className={`text-2xl md:text-3xl font-bold obd-heading ${theme.headingText}`}>
-              {title}
-            </h1>
+            <div className="flex items-start justify-between gap-4 min-w-0">
+              <h1 className={`text-2xl md:text-3xl font-bold obd-heading ${theme.headingText}`}>
+                {title}
+              </h1>
+              {titleRight ? <div className="mt-1 flex-shrink-0">{titleRight}</div> : null}
+            </div>
             <p className={`mt-2 text-sm md:text-base obd-soft-text ${theme.mutedText}`}>
               {tagline}
             </p>

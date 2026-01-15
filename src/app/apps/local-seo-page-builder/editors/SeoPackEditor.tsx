@@ -40,6 +40,12 @@ export default function SeoPackEditor({
   const canReset = useMemo(() => !!generatedSeoPack && isEdited, [generatedSeoPack, isEdited]);
   const canEdit = !!activeSeoPack;
 
+  const lenClass = (len: number, max: number) => {
+    if (len > max) return isDark ? "text-amber-300" : "text-amber-700";
+    if (len > max * 0.9) return isDark ? "text-slate-300" : "text-slate-600";
+    return isDark ? "text-slate-400" : "text-slate-500";
+  };
+
   if (!activeSeoPack) {
     return (
       <div className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
@@ -50,6 +56,8 @@ export default function SeoPackEditor({
 
   const view = activeSeoPack;
   const edit = draft ?? activeSeoPack;
+  const metaTitleLen = (isEditing ? edit.metaTitle : view.metaTitle).length;
+  const metaDescLen = (isEditing ? edit.metaDescription : view.metaDescription).length;
 
   return (
     <div className="space-y-3">
@@ -151,6 +159,9 @@ export default function SeoPackEditor({
                   : "bg-white border-slate-200 text-slate-900"
               }`}
             />
+            <p className={`mt-1 text-[11px] ${lenClass(metaTitleLen, 60)}`}>
+              {metaTitleLen}/60 (soft limit)
+            </p>
           </div>
           <div>
             <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
@@ -180,6 +191,9 @@ export default function SeoPackEditor({
                   : "bg-white border-slate-200 text-slate-900"
               }`}
             />
+            <p className={`mt-1 text-[11px] ${lenClass(metaDescLen, 160)}`}>
+              {metaDescLen}/160 (soft limit)
+            </p>
           </div>
           <div className="md:col-span-2">
             <label className={`block text-xs font-semibold mb-1 ${isDark ? "text-slate-300" : "text-slate-600"}`}>

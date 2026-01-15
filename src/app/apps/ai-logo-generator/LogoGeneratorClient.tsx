@@ -680,8 +680,9 @@ export default function LogoGeneratorClient({
 
       setBulkExportProgress({ current: 0, total: items.length });
 
-      // Concurrency <= 2 to reduce browser throttling / download blocking.
-      const concurrency = Math.min(2, Math.max(1, items.length));
+      // Prompt 11 hardening: serialize downloads to avoid browser throttling / download blocking.
+      const concurrency = 1;
+      const interDownloadDelayMs = 200; // 150–250ms recommended
       let nextIndex = 0;
       let successCount = 0;
 
@@ -696,7 +697,7 @@ export default function LogoGeneratorClient({
           try {
             // Prompt + palette files (always export)
             downloadTextFile(`${item.base}.prompt.txt`, item.prompt || "");
-            await new Promise((r) => setTimeout(r, 120));
+            await new Promise((r) => setTimeout(r, interDownloadDelayMs));
 
             downloadJsonFile(`${item.base}.palette.json`, {
               id: item.conceptId,
@@ -706,7 +707,7 @@ export default function LogoGeneratorClient({
               prompt: item.prompt,
               imageUrl: item.imageUrl,
             });
-            await new Promise((r) => setTimeout(r, 120));
+            await new Promise((r) => setTimeout(r, interDownloadDelayMs));
 
             // Image download (best-effort; may be blocked by CORS or missing)
             if (item.imageUrl) {
@@ -766,7 +767,7 @@ export default function LogoGeneratorClient({
               if (!prev) return { current: 1, total: items.length };
               return { current: Math.min(prev.current + 1, prev.total), total: prev.total };
             });
-            await new Promise((r) => setTimeout(r, 150));
+            await new Promise((r) => setTimeout(r, interDownloadDelayMs));
           }
         }
       };

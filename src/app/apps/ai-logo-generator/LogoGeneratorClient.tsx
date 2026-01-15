@@ -365,37 +365,33 @@ export default function LogoGeneratorClient({
       return;
     }
 
-    setLoading(true);
-
-    try {
-      // Clamp variationsCount client-side (3–8)
-      const requestedVariationsRaw = form.variationsCount ?? VARIATIONS_MIN;
-      const clampedVariations = clampVariations(requestedVariationsRaw);
-      if (
-        typeof requestedVariationsRaw === "number" &&
-        Number.isFinite(requestedVariationsRaw) &&
-        requestedVariationsRaw !== clampedVariations
-      ) {
-        showClampToast(
-          `Variations adjusted to ${clampedVariations} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
-        );
-      }
-
-      const payload: LogoGeneratorRequest = {
-        businessName: form.businessName.trim(),
-        businessType: form.businessType.trim(),
-        services: form.services?.trim() || undefined,
-        city: form.city?.trim() || "Ocala",
-        state: form.state?.trim() || "Florida",
-        brandVoice: form.brandVoice?.trim() || undefined,
-        personalityStyle: form.personalityStyle || undefined,
-        logoStyle: form.logoStyle || "Modern",
-        colorPreferences: form.colorPreferences?.trim() || undefined,
-        includeText: form.includeText ?? true,
-        variationsCount: clampedVariations,
-        generateImages: form.generateImages ?? false,
-      };
+    // Clamp variationsCount client-side (3–8)
+    const requestedVariationsRaw = form.variationsCount ?? VARIATIONS_MIN;
+    const clampedVariations = clampVariations(requestedVariationsRaw);
+    if (
+      typeof requestedVariationsRaw === "number" &&
+      Number.isFinite(requestedVariationsRaw) &&
+      requestedVariationsRaw !== clampedVariations
+    ) {
+      showClampToast(
+        `Variations adjusted to ${clampedVariations} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
+      );
     }
+
+    const payload: LogoGeneratorRequest = {
+      businessName: form.businessName.trim(),
+      businessType: form.businessType.trim(),
+      services: form.services?.trim() || undefined,
+      city: form.city?.trim() || "Ocala",
+      state: form.state?.trim() || "Florida",
+      brandVoice: form.brandVoice?.trim() || undefined,
+      personalityStyle: form.personalityStyle || undefined,
+      logoStyle: form.logoStyle || "Modern",
+      colorPreferences: form.colorPreferences?.trim() || undefined,
+      includeText: form.includeText ?? true,
+      variationsCount: clampedVariations,
+      generateImages: form.generateImages ?? false,
+    };
 
     await submitWithPayload(payload);
   };

@@ -1,10 +1,44 @@
 /**
  * Handoff Parser for Business Schema Generator
- * 
- * Parses handoff payloads from query params or localStorage
+ *
+ * Tenant-safety hardening:
+ * - This app does NOT accept localStorage-backed `handoffId` payloads because localStorage
+ *   persists across tenants/sessions and can leak cross-tenant data.
+ * - Only `?handoff=<base64url-json>` query payloads are supported here.
  */
 
-import { parseHandoffFromUrl } from "@/lib/utils/parse-handoff";
+import { decodeBase64UrlToString, tryParseJson } from "@/lib/utils/parse-handoff";
+
+type QueryOnlyParseResult<T> =
+  | { payload: T; source: "query"; raw?: string }
+  | { payload: null; error?: string };
+
+function parseHandoffFromQueryOnly<T>(
+  searchParams: URLSearchParams,
+  validate: (p: unknown) => p is T
+): QueryOnlyParseResult<T> {
+  const handoff = searchParams.get("handoff");
+  if (!handoff) {
+    return { payload: null, error: "No handoff parameter found in URL" };
+  }
+
+  try {
+    const decoded = decodeBase64UrlToString(handoff);
+    const parsed = tryParseJson(decoded);
+    if (parsed === null) {
+      return { payload: null, error: "Failed to parse JSON from handoff query parameter" };
+    }
+    if (validate(parsed)) {
+      return { payload: parsed, source: "query", raw: decoded };
+    }
+    return { payload: null, error: "Handoff payload failed validation" };
+  } catch (error) {
+    return {
+      payload: null,
+      error: error instanceof Error ? error.message : "Failed to decode handoff query parameter",
+    };
+  }
+}
 
 export interface SchemaGeneratorHandoffPayload {
   sourceApp: "ai-faq-generator";
@@ -192,7 +226,7 @@ function isValidContentWriterSchemaHandoff(
 export function parseSchemaGeneratorHandoff(
   searchParams: URLSearchParams
 ): SchemaGeneratorHandoffPayload | null {
-  const result = parseHandoffFromUrl(searchParams, isValidSchemaGeneratorHandoff);
+  const result = parseHandoffFromQueryOnly(searchParams, isValidSchemaGeneratorHandoff);
 
   if (result.payload !== null) {
     return result.payload;
@@ -216,7 +250,7 @@ export function parseSchemaGeneratorHandoff(
 export function parseContentWriterSchemaHandoff(
   searchParams: URLSearchParams
 ): ContentWriterSchemaHandoff | null {
-  const result = parseHandoffFromUrl(searchParams, isValidContentWriterSchemaHandoff);
+  const result = parseHandoffFromQueryOnly(searchParams, isValidContentWriterSchemaHandoff);
 
   if (result.payload !== null) {
     return result.payload;

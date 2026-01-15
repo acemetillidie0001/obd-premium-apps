@@ -56,6 +56,8 @@ import {
   replaceUrlWithoutReload,
 } from "@/lib/utils/clear-handoff-params";
 
+// Tenant-safety: avoid localStorage in this app (localStorage persists across tenants/sessions).
+// Session-only preference is sufficient here.
 const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
 
 const BUSINESS_TYPES = [
@@ -222,11 +224,11 @@ function BusinessSchemaGeneratorPageContent() {
     setAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Load "use brand profile" preference from localStorage
+  // Load "use brand profile" preference from sessionStorage (avoid localStorage)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const stored = localStorage.getItem(USE_BRAND_PROFILE_KEY);
+      const stored = sessionStorage.getItem(USE_BRAND_PROFILE_KEY);
       if (stored !== null) {
         setUseBrandProfile(JSON.parse(stored));
       }
@@ -235,11 +237,11 @@ function BusinessSchemaGeneratorPageContent() {
     }
   }, []);
 
-  // Save "use brand profile" preference to localStorage
+  // Save "use brand profile" preference to sessionStorage (avoid localStorage)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(USE_BRAND_PROFILE_KEY, JSON.stringify(useBrandProfile));
+      sessionStorage.setItem(USE_BRAND_PROFILE_KEY, JSON.stringify(useBrandProfile));
     } catch (err) {
       console.error("Failed to save useBrandProfile preference:", err);
     }
@@ -933,15 +935,7 @@ function BusinessSchemaGeneratorPageContent() {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
       replaceUrlWithoutReload(cleanUrl);
 
-      // Clear localStorage handoff if using handoffId (parseHandoffFromUrl should already clear, but ensure)
-      const handoffId = searchParams?.get("handoffId");
-      if (handoffId) {
-        try {
-          localStorage.removeItem(`obd_handoff:${handoffId}`);
-      } catch {
-          // Ignore errors
-        }
-      }
+      // Note: Business Schema Generator does not support localStorage-backed `handoffId` payloads.
     }
 
     // Build toast message with import feedback

@@ -1,11 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { HelpCircle, Eye, X } from "lucide-react";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
+import {
+  clearAiLogoToHelpDeskHandoff,
+  readAiLogoToHelpDeskHandoff,
+  type AiLogoToHelpDeskHandoffPayload,
+} from "@/app/apps/ai-logo-generator/logo-handoff";
 
 /**
  * Verification checklist:
@@ -113,6 +123,7 @@ export default function WidgetSettings({
   businessId,
   businessName = "",
 }: WidgetSettingsProps) {
+  const searchParams = useSearchParams();
   const themeClasses = getThemeClasses(isDark);
 
   const [settings, setSettings] = useState<WidgetSettingsData | null>(null);
@@ -131,6 +142,11 @@ export default function WidgetSettings({
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const tooltipButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Tier 5C+ handoff (apply-only): AI Logo Generator -> AI Help Desk icon suggestion
+  const [aiLogoHandoff, setAiLogoHandoff] = useState<AiLogoToHelpDeskHandoffPayload | null>(null);
+  const [aiLogoHandoffExpired, setAiLogoHandoffExpired] = useState(false);
+  const [aiLogoHandoffApplied, setAiLogoHandoffApplied] = useState(false);
   
   // New state for enhancements
   const [showPreview, setShowPreview] = useState(false);
@@ -198,6 +214,60 @@ export default function WidgetSettings({
       setObdBrandColor(storedObdColor);
     }
   }, [businessId]);
+
+  const preferredIconLogo = (() => {
+    const logos = aiLogoHandoff?.logos || [];
+    const firstWithImage = logos.find((l) => typeof l.imageUrl === "string" && l.imageUrl);
+    return firstWithImage ?? null;
+  })();
+
+  const handoffBusinessMismatch =
+    !!aiLogoHandoff?.businessId &&
+    !!businessId?.trim() &&
+    aiLogoHandoff.businessId.trim() !== businessId.trim();
+
+  // Read handoff from sessionStorage only when explicitly requested via ?handoff=1
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (searchParams?.get("handoff") !== "1") return;
+    if (!businessId.trim()) return;
+
+    const { payload, expired } = readAiLogoToHelpDeskHandoff();
+    if (payload) {
+      setAiLogoHandoff(payload);
+      setAiLogoHandoffExpired(false);
+      setAiLogoHandoffApplied(false);
+    } else if (expired) {
+      setAiLogoHandoff(null);
+      setAiLogoHandoffExpired(true);
+    }
+  }, [searchParams, businessId]);
+
+  const dismissAiLogoHandoff = () => {
+    clearAiLogoToHelpDeskHandoff();
+    setAiLogoHandoff(null);
+    setAiLogoHandoffExpired(false);
+    setAiLogoHandoffApplied(false);
+
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  const applyAiLogoHandoff = () => {
+    if (!aiLogoHandoff) return;
+    if (!businessId.trim() || aiLogoHandoff.businessId.trim() !== businessId.trim()) return;
+    if (!preferredIconLogo?.imageUrl) return;
+
+    // Apply-only: prefill draft input field. User must click Save Settings to persist.
+    setAssistantAvatarUrl(preferredIconLogo.imageUrl);
+    setAvatarPreviewError(false);
+    setAiLogoHandoffApplied(true);
+
+    // One-time apply: clear storage + clean URL (no auto-save).
+    dismissAiLogoHandoff();
+  };
   
   // Auto-sync brand color when toggle is ON and OBD color exists
   useEffect(() => {
@@ -444,6 +514,97 @@ export default function WidgetSettings({
 
   return (
     <div className="space-y-6">
+      {/* Tier 5C+ Import Banner (apply-only; no auto-save) */}
+      {(aiLogoHandoff || aiLogoHandoffExpired) && (
+        <OBDPanel isDark={isDark}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                Suggested assistant icon from AI Logo Generator
+              </p>
+              {aiLogoHandoffExpired ? (
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  This handoff expired (10 min TTL). Go back and send again.
+                </p>
+              ) : (
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Apply will prefill the avatar URL field only. You still must click “Save Settings” to publish changes.
+                </p>
+              )}
+
+              {!aiLogoHandoffExpired && aiLogoHandoff && (
+                <div className="mt-3 flex items-center gap-3 flex-wrap">
+                  {preferredIconLogo?.imageUrl ? (
+                    <img
+                      src={preferredIconLogo.imageUrl}
+                      alt="Suggested icon preview"
+                      className="w-10 h-10 rounded-full border object-cover"
+                    />
+                  ) : (
+                    <div
+                      className={`w-10 h-10 rounded-full border flex items-center justify-center text-xs ${
+                        isDark
+                          ? "border-slate-700 bg-slate-900/40 text-slate-400"
+                          : "border-slate-200 bg-slate-50 text-slate-500"
+                      }`}
+                    >
+                      No image
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>
+                      {preferredIconLogo?.name || "Suggested icon"}
+                    </p>
+                    <p className={`text-xs ${themeClasses.mutedText}`}>
+                      Business: {aiLogoHandoff.businessId}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!aiLogoHandoffExpired && aiLogoHandoff && handoffBusinessMismatch && (
+                <p className={`text-xs mt-3 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  Tenant mismatch guard: payload businessId does not match current businessId. Apply is blocked.
+                </p>
+              )}
+              {aiLogoHandoffApplied && (
+                <p className={`text-xs mt-3 ${isDark ? "text-emerald-300" : "text-emerald-800"}`}>
+                  Applied to draft field (not saved).
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {!aiLogoHandoffExpired && (
+                <button
+                  type="button"
+                  onClick={applyAiLogoHandoff}
+                  disabled={!aiLogoHandoff || handoffBusinessMismatch || !preferredIconLogo?.imageUrl}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                      : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                  }`}
+                >
+                  Apply
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={dismissAiLogoHandoff}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Header */}
       <div>
         <OBDHeading level={2} isDark={isDark}>

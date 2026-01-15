@@ -44,7 +44,13 @@ export type AILogoGeneratorDraftHandoffV1 = {
 export const AI_LOGO_TO_SOCIAL_HANDOFF_STORAGE_KEY_V1 =
   "obd:handoff:ai-logo-generator:social-auto-poster:v1";
 
-export const AI_LOGO_TO_SOCIAL_HANDOFF_TTL_MS = 10 * 60 * 1000; // 10 minutes
+export const AI_LOGO_HANDOFF_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+export const AI_LOGO_TO_BRAND_KIT_HANDOFF_STORAGE_KEY_V1 =
+  "obd:handoff:ai-logo-generator:brand-kit:v1";
+
+export const AI_LOGO_TO_AI_HELP_DESK_HANDOFF_STORAGE_KEY_V1 =
+  "obd:handoff:ai-logo-generator:ai-help-desk:v1";
 
 export type AiLogoToSocialHandoffLogo = {
   id: string;
@@ -58,6 +64,26 @@ export type AiLogoToSocialHandoffLogo = {
 export type AiLogoToSocialHandoffPayload = {
   v: 1;
   type: "ai_logo_generator_to_social_auto_poster_draft";
+  sourceApp: "ai-logo-generator";
+  createdAt: string; // ISO
+  expiresAt: string; // ISO
+  businessId: string;
+  logos: AiLogoToSocialHandoffLogo[];
+};
+
+export type AiLogoToBrandKitHandoffPayload = {
+  v: 1;
+  type: "ai_logo_generator_to_brand_kit_draft_suggestion";
+  sourceApp: "ai-logo-generator";
+  createdAt: string; // ISO
+  expiresAt: string; // ISO
+  businessId: string;
+  logos: AiLogoToSocialHandoffLogo[];
+};
+
+export type AiLogoToHelpDeskHandoffPayload = {
+  v: 1;
+  type: "ai_logo_generator_to_ai_help_desk_icon_draft_suggestion";
   sourceApp: "ai-logo-generator";
   createdAt: string; // ISO
   expiresAt: string; // ISO
@@ -89,7 +115,49 @@ export function buildAiLogoToSocialHandoffPayload(args: {
     type: "ai_logo_generator_to_social_auto_poster_draft",
     sourceApp: "ai-logo-generator",
     createdAt,
-    expiresAt: computeExpiresAt(createdAt, AI_LOGO_TO_SOCIAL_HANDOFF_TTL_MS),
+    expiresAt: computeExpiresAt(createdAt, AI_LOGO_HANDOFF_TTL_MS),
+    businessId,
+    logos: Array.isArray(args.logos) ? args.logos : [],
+  };
+}
+
+export function buildAiLogoToBrandKitPayload(args: {
+  businessId: string;
+  logos: AiLogoToSocialHandoffLogo[];
+  createdAt?: string;
+}): AiLogoToBrandKitHandoffPayload {
+  const businessId = (args.businessId || "").trim();
+  if (!businessId) {
+    throw new Error("businessId is required for AI Logo -> Brand Kit handoff.");
+  }
+  const createdAt = args.createdAt ?? nowIso();
+  return {
+    v: 1,
+    type: "ai_logo_generator_to_brand_kit_draft_suggestion",
+    sourceApp: "ai-logo-generator",
+    createdAt,
+    expiresAt: computeExpiresAt(createdAt, AI_LOGO_HANDOFF_TTL_MS),
+    businessId,
+    logos: Array.isArray(args.logos) ? args.logos : [],
+  };
+}
+
+export function buildAiLogoToHelpDeskPayload(args: {
+  businessId: string;
+  logos: AiLogoToSocialHandoffLogo[];
+  createdAt?: string;
+}): AiLogoToHelpDeskHandoffPayload {
+  const businessId = (args.businessId || "").trim();
+  if (!businessId) {
+    throw new Error("businessId is required for AI Logo -> AI Help Desk handoff.");
+  }
+  const createdAt = args.createdAt ?? nowIso();
+  return {
+    v: 1,
+    type: "ai_logo_generator_to_ai_help_desk_icon_draft_suggestion",
+    sourceApp: "ai-logo-generator",
+    createdAt,
+    expiresAt: computeExpiresAt(createdAt, AI_LOGO_HANDOFF_TTL_MS),
     businessId,
     logos: Array.isArray(args.logos) ? args.logos : [],
   };
@@ -114,7 +182,38 @@ export function writeAiLogoToSocialAutoPosterHandoff(
   }
 
   // Standardized transport for Social Auto-Poster composer (sessionStorage + TTL envelope)
-  writeHandoff("ai-logo-generator", payload, AI_LOGO_TO_SOCIAL_HANDOFF_TTL_MS);
+  writeHandoff("ai-logo-generator", payload, AI_LOGO_HANDOFF_TTL_MS);
+}
+
+/**
+ * Store payloads for apply-only receivers (Brand Kit Builder, AI Help Desk Widget).
+ * Sender writes ONLY to the dedicated key (receiver reads + validates TTL).
+ */
+export function storeAiLogoToBrandKitHandoff(payload: AiLogoToBrandKitHandoffPayload): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      AI_LOGO_TO_BRAND_KIT_HANDOFF_STORAGE_KEY_V1,
+      JSON.stringify(payload)
+    );
+  } catch (error) {
+    console.warn("Failed to write AI Logo -> Brand Kit handoff payload to sessionStorage:", error);
+  }
+}
+
+export function storeAiLogoToHelpDeskHandoff(payload: AiLogoToHelpDeskHandoffPayload): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      AI_LOGO_TO_AI_HELP_DESK_HANDOFF_STORAGE_KEY_V1,
+      JSON.stringify(payload)
+    );
+  } catch (error) {
+    console.warn(
+      "Failed to write AI Logo -> AI Help Desk handoff payload to sessionStorage:",
+      error
+    );
+  }
 }
 
 /**
@@ -147,6 +246,68 @@ export function readAiLogoToSocialAutoPosterHandoff():
   } catch (error) {
     console.warn("Failed to read AI Logo handoff payload from sessionStorage:", error);
     return { payload: null, expired: false };
+  }
+}
+
+function readHandoffPayloadFromKey<T extends { expiresAt: string }>(key: string):
+  | { payload: T; expired: false }
+  | { payload: null; expired: true }
+  | { payload: null; expired: false } {
+  if (typeof window === "undefined") return { payload: null, expired: false };
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return { payload: null, expired: false };
+    const parsed = JSON.parse(raw) as Partial<T>;
+    const expiresAt = typeof parsed.expiresAt === "string" ? parsed.expiresAt : "";
+    const expires = expiresAt ? new Date(expiresAt).getTime() : 0;
+    if (!expires || Number.isNaN(expires) || Date.now() > expires) {
+      try {
+        sessionStorage.removeItem(key);
+      } catch {
+        // ignore
+      }
+      return { payload: null, expired: true };
+    }
+    return { payload: parsed as T, expired: false };
+  } catch (error) {
+    console.warn("Failed to read handoff payload from sessionStorage:", error);
+    return { payload: null, expired: false };
+  }
+}
+
+export function readAiLogoToBrandKitHandoff():
+  | { payload: AiLogoToBrandKitHandoffPayload; expired: false }
+  | { payload: null; expired: true }
+  | { payload: null; expired: false } {
+  return readHandoffPayloadFromKey<AiLogoToBrandKitHandoffPayload>(
+    AI_LOGO_TO_BRAND_KIT_HANDOFF_STORAGE_KEY_V1
+  );
+}
+
+export function readAiLogoToHelpDeskHandoff():
+  | { payload: AiLogoToHelpDeskHandoffPayload; expired: false }
+  | { payload: null; expired: true }
+  | { payload: null; expired: false } {
+  return readHandoffPayloadFromKey<AiLogoToHelpDeskHandoffPayload>(
+    AI_LOGO_TO_AI_HELP_DESK_HANDOFF_STORAGE_KEY_V1
+  );
+}
+
+export function clearAiLogoToBrandKitHandoff(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(AI_LOGO_TO_BRAND_KIT_HANDOFF_STORAGE_KEY_V1);
+  } catch {
+    // ignore
+  }
+}
+
+export function clearAiLogoToHelpDeskHandoff(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(AI_LOGO_TO_AI_HELP_DESK_HANDOFF_STORAGE_KEY_V1);
+  } catch {
+    // ignore
   }
 }
 

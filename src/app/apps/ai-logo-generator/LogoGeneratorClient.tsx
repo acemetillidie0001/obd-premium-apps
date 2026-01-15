@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
@@ -17,6 +17,10 @@ import {
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
 import {
   buildAiLogoToSocialHandoffPayload,
+  buildAiLogoToBrandKitPayload,
+  buildAiLogoToHelpDeskPayload,
+  storeAiLogoToBrandKitHandoff,
+  storeAiLogoToHelpDeskHandoff,
   writeAiLogoToSocialAutoPosterHandoff,
 } from "./logo-handoff";
 import type {
@@ -25,6 +29,7 @@ import type {
   PersonalityStyle,
   LogoStyle,
 } from "./types";
+import LogoPreviewModal from "./components/LogoPreviewModal";
 
 type LogoGeneratorClientProps = {
   initialDefaults: LogoGeneratorRequest;
@@ -66,6 +71,44 @@ export default function LogoGeneratorClient({
   const [clampToastMessage, setClampToastMessage] = useState<string | null>(null);
   const [countUsed, setCountUsed] = useState<number | null>(null);
   const [handoffToastMessage, setHandoffToastMessage] = useState<string | null>(null);
+  const [editToastMessage, setEditToastMessage] = useState<string | null>(null);
+  const [exportToastMessage, setExportToastMessage] = useState<string | null>(null);
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const [bulkExportProgress, setBulkExportProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+
+  // Tier 5B+ (UI-only): active-output scoped, stable-id driven card meta.
+  type LogoCardMeta = {
+    name: string;
+    favorite: boolean;
+    edited: {
+      name: boolean;
+      favorite: boolean;
+    };
+  };
+
+  /**
+   * Output session id makes IDs stable within the active grid, while avoiding collisions
+   * across independent generations (concept IDs typically reset).
+   */
+  const [outputSessionId, setOutputSessionId] = useState<number>(0);
+  const [logoMetaById, setLogoMetaById] = useState<Record<string, LogoCardMeta>>({});
+
+  // Rename UX state
+  const [renamingLogoId, setRenamingLogoId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Preview lightbox state
+  const [preview, setPreview] = useState<{
+    imageUrl: string;
+    alt: string;
+    title: string;
+  } | null>(null);
+  const [previewTriggerElement, setPreviewTriggerElement] =
+    useState<HTMLElement | null>(null);
 
   const showClampToast = (message: string) => {
     setClampToastMessage(message);
@@ -76,6 +119,25 @@ export default function LogoGeneratorClient({
     setHandoffToastMessage(message);
     setTimeout(() => setHandoffToastMessage(null), 3500);
   };
+
+  const showEditToast = (message: string) => {
+    setEditToastMessage(message);
+    setTimeout(() => setEditToastMessage(null), 2500);
+  };
+
+  const showExportToast = (message: string) => {
+    setExportToastMessage(message);
+    setTimeout(() => setExportToastMessage(null), 3500);
+  };
+
+  useEffect(() => {
+    if (!renamingLogoId) return;
+    // Defer focus to ensure the input is in the DOM (React state is async).
+    setTimeout(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select?.();
+    }, 0);
+  }, [renamingLogoId]);
 
   const clampVariations = (value: number): number => {
     return Math.min(VARIATIONS_MAX, Math.max(VARIATIONS_MIN, Math.round(value)));
@@ -280,6 +342,17 @@ export default function LogoGeneratorClient({
           resetsAt: string;
         };
       } = await res.json();
+
+      // Tier 5B+ (UI-only): reset active-grid micro state per successful generation.
+      const nextSessionId = Date.now();
+      setOutputSessionId(nextSessionId);
+      setLogoMetaById({});
+      setRenamingLogoId(null);
+      setRenameDraft("");
+      setPreview(null);
+      setPreviewTriggerElement(null);
+      setEditToastMessage(null);
+
       setResult(data);
 
       // Reflect server-side clamped count (additive)
@@ -328,8 +401,156 @@ export default function LogoGeneratorClient({
     setClampToastMessage(null);
     setCountUsed(null);
     setHandoffToastMessage(null);
+    setEditToastMessage(null);
+    setExportToastMessage(null);
+    setBulkExporting(false);
+    setBulkExportProgress(null);
+    setLogoMetaById({});
+    setRenamingLogoId(null);
+    setRenameDraft("");
+    setPreview(null);
+    setPreviewTriggerElement(null);
+    setOutputSessionId(0);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const formatYyyyMmDd = (date: Date): string => {
+    const yyyy = String(date.getFullYear());
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const safeFilenameBase = (value: string): string => {
+    const base = (value || "").trim();
+    const normalized = base
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+    return normalized || "logo";
+  };
+
+  const inferFileExtensionFromContentType = (contentType: string | null): string => {
+    const ct = (contentType || "").toLowerCase();
+    if (ct.includes("image/png")) return "png";
+    if (ct.includes("image/jpeg")) return "jpg";
+    if (ct.includes("image/webp")) return "webp";
+    if (ct.includes("image/svg+xml")) return "svg";
+    return "png";
+  };
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadTextFile = (filename: string, content: string) => {
+    triggerDownload(new Blob([content], { type: "text/plain;charset=utf-8" }), filename);
+  };
+
+  const downloadJsonFile = (filename: string, obj: unknown) => {
+    triggerDownload(
+      new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8" }),
+      filename
+    );
+  };
+
+  const getLogoId = (conceptId: string | number) => `${outputSessionId}:${String(conceptId)}`;
+
+  const getDefaultMeta = (conceptId: string | number): LogoCardMeta => ({
+    name: `Logo Concept ${conceptId}`,
+    favorite: false,
+    edited: { name: false, favorite: false },
+  });
+
+  const updateLogoMeta = (
+    logoId: string,
+    defaultMeta: LogoCardMeta,
+    updater: (current: LogoCardMeta) => LogoCardMeta
+  ) => {
+    setLogoMetaById((prev) => {
+      const current = prev[logoId] ?? defaultMeta;
+      return { ...prev, [logoId]: updater(current) };
+    });
+  };
+
+  const startRename = (logoId: string, currentName: string) => {
+    setRenamingLogoId(logoId);
+    setRenameDraft(currentName);
+  };
+
+  const cancelRename = () => {
+    setRenamingLogoId(null);
+    setRenameDraft("");
+  };
+
+  const commitRename = (logoId: string, defaultMeta: LogoCardMeta) => {
+    const next = renameDraft.trim();
+    const currentName = (logoMetaById[logoId] ?? defaultMeta).name;
+
+    if (!next) {
+      // Prevent empty names: keep previous.
+      showEditToast("Name can’t be empty.");
+      setRenameDraft(currentName);
+      // Keep editing open for quick correction.
+      setTimeout(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select?.();
+      }, 0);
+      return;
+    }
+
+    if (next === currentName) {
+      cancelRename();
+      return;
+    }
+
+    updateLogoMeta(logoId, defaultMeta, (current) => ({
+      ...current,
+      name: next,
+      edited: { ...current.edited, name: true },
+    }));
+    showEditToast("Renamed.");
+    cancelRename();
+  };
+
+  const toggleFavorite = (logoId: string, defaultMeta: LogoCardMeta) => {
+    updateLogoMeta(logoId, defaultMeta, (current) => {
+      const nextFavorite = !current.favorite;
+      return {
+        ...current,
+        favorite: nextFavorite,
+        edited: { ...current.edited, favorite: true },
+      };
+    });
+    showEditToast("Updated favorite.");
+  };
+
+  const sortedConcepts = useMemo(() => {
+    if (!result?.concepts?.length) return [];
+
+    const entries = result.concepts.map((concept, index) => {
+      const logoId = getLogoId(concept.id);
+      const defaultMeta = getDefaultMeta(concept.id);
+      const meta = logoMetaById[logoId] ?? defaultMeta;
+      return { concept, index, logoId, defaultMeta, meta };
+    });
+
+    // Favorite-first, stable within each group (preserve original order).
+    return entries
+      .slice()
+      .sort((a, b) => {
+        if (a.meta.favorite === b.meta.favorite) return a.index - b.index;
+        return a.meta.favorite ? -1 : 1;
+      });
+  }, [result, logoMetaById, outputSessionId]);
 
   const handleCopy = async (text: string, id: string) => {
     try {
@@ -406,16 +627,203 @@ export default function LogoGeneratorClient({
     URL.revokeObjectURL(url);
   };
 
+  const handleBulkExport = async () => {
+    if (bulkExporting) return;
+    if (!result?.concepts?.length) return;
+
+    // Tier 6 (fallback): selection fallback (Option A). No selection UI => export all active logos.
+    setBulkExporting(true);
+    setBulkExportProgress(null);
+
+    try {
+      const dateStr = formatYyyyMmDd(new Date());
+      const manifestFileName = `OBD_AI_Logo_Generator_Manifest_${dateStr}.json`;
+
+      const failures: Array<{
+        id: string;
+        name: string;
+        tags: string[];
+        palette: string[];
+        prompt: string;
+        imageUrl: string | null;
+        reason: string;
+      }> = [];
+
+      const items = sortedConcepts.map(({ concept, logoId, meta }) => {
+        const image = result.images.find((img) => img.conceptId === concept.id);
+        const prompt = (image?.prompt || "").trim();
+        const name = (meta?.name || `Logo Concept ${concept.id}`).trim();
+        const safeName = safeFilenameBase(name || "logo");
+        const shortId = String(concept.id).slice(-6) || "id";
+        const base = `${safeName}-${shortId}`;
+
+        return {
+          conceptId: String(concept.id),
+          logoId,
+          name,
+          base,
+          imageUrl: image?.imageUrl ?? null,
+          prompt,
+          palette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
+          tags: (() => {
+            const t: string[] = [];
+            if (form.logoStyle) t.push(form.logoStyle);
+            if (form.personalityStyle) t.push(form.personalityStyle);
+            if (form.includeText === false) t.push("icon-only");
+            if (form.generateImages === true) t.push("with-images");
+            return t;
+          })(),
+        };
+      });
+
+      setBulkExportProgress({ current: 0, total: items.length });
+
+      // Concurrency <= 3 to reduce browser throttling / download blocking.
+      const concurrency = Math.min(3, Math.max(1, items.length));
+      let nextIndex = 0;
+      let successCount = 0;
+
+      const worker = async () => {
+        while (true) {
+          const myIndex = nextIndex;
+          nextIndex += 1;
+          if (myIndex >= items.length) return;
+
+          const item = items[myIndex];
+
+          try {
+            // Prompt + palette files (always export)
+            downloadTextFile(`${item.base}.prompt.txt`, item.prompt || "");
+            await new Promise((r) => setTimeout(r, 120));
+
+            downloadJsonFile(`${item.base}.palette.json`, {
+              id: item.conceptId,
+              name: item.name,
+              tags: item.tags,
+              palette: item.palette,
+              prompt: item.prompt,
+              imageUrl: item.imageUrl,
+            });
+            await new Promise((r) => setTimeout(r, 120));
+
+            // Image download (best-effort; may be blocked by CORS or missing)
+            if (item.imageUrl) {
+              try {
+                const res = await fetch(item.imageUrl);
+                if (!res.ok) {
+                  failures.push({
+                    id: item.conceptId,
+                    name: item.name,
+                    tags: item.tags,
+                    palette: item.palette,
+                    prompt: item.prompt,
+                    imageUrl: item.imageUrl,
+                    reason: `image fetch failed (${res.status})`,
+                  });
+                } else {
+                  const blob = await res.blob();
+                  const ext = inferFileExtensionFromContentType(res.headers.get("content-type"));
+                  triggerDownload(blob, `${item.base}.${ext}`);
+                }
+              } catch {
+                failures.push({
+                  id: item.conceptId,
+                  name: item.name,
+                  tags: item.tags,
+                  palette: item.palette,
+                  prompt: item.prompt,
+                  imageUrl: item.imageUrl,
+                  reason: "image fetch failed",
+                });
+              }
+            } else {
+              failures.push({
+                id: item.conceptId,
+                name: item.name,
+                tags: item.tags,
+                palette: item.palette,
+                prompt: item.prompt,
+                imageUrl: null,
+                reason: "missing imageUrl",
+              });
+            }
+
+            successCount += 1;
+          } catch {
+            failures.push({
+              id: item.conceptId,
+              name: item.name,
+              tags: item.tags,
+              palette: item.palette,
+              prompt: item.prompt,
+              imageUrl: item.imageUrl,
+              reason: "export failed",
+            });
+          } finally {
+            setBulkExportProgress((prev) => {
+              if (!prev) return { current: 1, total: items.length };
+              return { current: Math.min(prev.current + 1, prev.total), total: prev.total };
+            });
+            await new Promise((r) => setTimeout(r, 150));
+          }
+        }
+      };
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+      // Manifest download (summarizes batch + failures)
+      downloadJsonFile(manifestFileName, {
+        exportedAt: new Date().toISOString(),
+        count: items.length,
+        businessId: businessId || null,
+        logos: items.map((i) => ({
+          id: i.conceptId,
+          name: i.name,
+          tags: i.tags,
+          palette: i.palette,
+          prompt: i.prompt,
+          imageUrl: i.imageUrl,
+        })),
+        failures,
+      });
+
+      if (failures.length > 0) {
+        showExportToast(`Exported ${successCount}/${items.length} logos (some failed).`);
+      } else {
+        showExportToast(`Exported ${items.length} logos.`);
+      }
+    } catch (err) {
+      console.error("Bulk export failed:", err);
+      showEditToast("Bulk export failed. Please try again.");
+    } finally {
+      setBulkExporting(false);
+      setBulkExportProgress(null);
+    }
+  };
+
   const canSendToSocial = !!result?.concepts?.length && !!businessId;
 
+  /**
+   * Tier 5C Integration Note (Selection Fallback)
+   * ---------------------------------------------
+   * The Social Auto-Poster handoff sender needs a list of “selected” logos.
+   * Full multi-select + bulk selection UX is implemented in Tier 5B.
+   *
+   * Until Tier 5B selection exists, we use an integration-safe fallback:
+   * - If there is no explicit selection UI/state, we treat ALL logos in the active version set
+   *   as selected for the purpose of sending to Social Auto-Poster.
+   *
+   * This is intentionally NOT Tier 5B bulk selection:
+   * - No bulk edit actions
+   * - No rename/favorite coupling
+   * - No persisted selection state
+   *
+   * When Tier 5B lands, replace this fallback with canonical selection
+   * derived from LogoItem[] + stable IDs (see logo-state.ts helpers).
+   */
   const handleSendToSocialAutoPoster = () => {
     if (!result?.concepts?.length) return;
     if (!businessId) return;
-    /**
-     * Tier 5C integration exception (Selection Fallback Rule — Option A):
-     * If no selection UI exists yet (Tier 5B), treat ALL current generated logos
-     * as selected for sending. Tier 5B will replace this with canonical multi-select.
-     */
 
     const tags: string[] = [];
     if (form.logoStyle) tags.push(form.logoStyle);
@@ -426,9 +834,10 @@ export default function LogoGeneratorClient({
     const logos = result.concepts.map((concept) => {
       const image = result.images.find((img) => img.conceptId === concept.id);
       const prompt = (image?.prompt || "").trim();
+      const localName = logoMetaById[getLogoId(concept.id)]?.name?.trim();
       return {
         id: String(concept.id),
-        name: `Logo Concept ${concept.id}`,
+        name: localName || `Logo Concept ${concept.id}`,
         prompt,
         tags,
         palette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
@@ -452,6 +861,84 @@ export default function LogoGeneratorClient({
         `/apps/social-auto-poster/composer?handoff=1&businessId=${encodeURIComponent(
           businessId
         )}`
+      );
+    }, 150);
+  };
+
+  const handleSendToBrandKitBuilder = () => {
+    if (!result?.concepts?.length) return;
+    if (!businessId) return;
+
+    const tags: string[] = [];
+    if (form.logoStyle) tags.push(form.logoStyle);
+    if (form.personalityStyle) tags.push(form.personalityStyle);
+    if (form.includeText === false) tags.push("icon-only");
+    if (form.generateImages === true) tags.push("with-images");
+
+    const logos = result.concepts.map((concept) => {
+      const image = result.images.find((img) => img.conceptId === concept.id);
+      const prompt = (image?.prompt || "").trim();
+      const localName = logoMetaById[getLogoId(concept.id)]?.name?.trim();
+      return {
+        id: String(concept.id),
+        name: localName || `Logo Concept ${concept.id}`,
+        prompt,
+        tags,
+        palette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
+        imageUrl: image?.imageUrl ?? null,
+      };
+    });
+
+    const payload = buildAiLogoToBrandKitPayload({
+      businessId,
+      logos,
+    });
+    storeAiLogoToBrandKitHandoff(payload);
+
+    showHandoffToast(`Sent ${logos.length} logo(s) to Brand Kit Builder (draft).`);
+
+    setTimeout(() => {
+      router.push(
+        `/apps/brand-kit-builder?handoff=1&businessId=${encodeURIComponent(businessId)}`
+      );
+    }, 150);
+  };
+
+  const handleSuggestForHelpDeskIcon = () => {
+    if (!result?.concepts?.length) return;
+    if (!businessId) return;
+
+    const tags: string[] = [];
+    if (form.logoStyle) tags.push(form.logoStyle);
+    if (form.personalityStyle) tags.push(form.personalityStyle);
+    if (form.includeText === false) tags.push("icon-only");
+    if (form.generateImages === true) tags.push("with-images");
+
+    const logos = result.concepts.map((concept) => {
+      const image = result.images.find((img) => img.conceptId === concept.id);
+      const prompt = (image?.prompt || "").trim();
+      const localName = logoMetaById[getLogoId(concept.id)]?.name?.trim();
+      return {
+        id: String(concept.id),
+        name: localName || `Logo Concept ${concept.id}`,
+        prompt,
+        tags,
+        palette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
+        imageUrl: image?.imageUrl ?? null,
+      };
+    });
+
+    const payload = buildAiLogoToHelpDeskPayload({
+      businessId,
+      logos,
+    });
+    storeAiLogoToHelpDeskHandoff(payload);
+
+    showHandoffToast(`Sent ${logos.length} logo(s) to AI Help Desk (draft).`);
+
+    setTimeout(() => {
+      router.push(
+        `/apps/ai-help-desk?tab=widget&handoff=1&businessId=${encodeURIComponent(businessId)}`
       );
     }, 150);
   };
@@ -987,6 +1474,57 @@ export default function LogoGeneratorClient({
             </button>
             <button
               type="button"
+              onClick={handleBulkExport}
+              disabled={loading || !result?.concepts?.length || bulkExporting}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={!result?.concepts?.length ? "Generate first" : "Export all logos as ZIP"}
+            >
+              {bulkExporting && bulkExportProgress
+                ? `Exporting ${bulkExportProgress.current}/${bulkExportProgress.total}…`
+                : bulkExporting
+                  ? "Exporting…"
+                  : "Bulk Export"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSendToBrandKitBuilder}
+              disabled={!canSendToSocial || loading}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={
+                !businessId
+                  ? "Business context required (missing businessId)"
+                  : "Send logos to Brand Kit Builder (draft suggestion)"
+              }
+            >
+              Send to Brand Kit Builder
+            </button>
+            <button
+              type="button"
+              onClick={handleSuggestForHelpDeskIcon}
+              disabled={!canSendToSocial || loading}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={
+                !businessId
+                  ? "Business context required (missing businessId)"
+                  : "Suggest logo(s) for Help Desk assistant icon (draft-only)"
+              }
+            >
+              Suggest for Help Desk Icon
+            </button>
+            <button
+              type="button"
               onClick={handleSendToSocialAutoPoster}
               disabled={!canSendToSocial || loading}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -1066,15 +1604,16 @@ export default function LogoGeneratorClient({
               </p>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {result.concepts.map((concept) => {
+              {sortedConcepts.map(({ concept, logoId, defaultMeta, meta }) => {
                 const image = result.images.find((img) => img.conceptId === concept.id);
                 const hasImage = !!image?.imageUrl;
                 const hasImageError = !!image?.imageError;
                 const prompt = image?.prompt || "";
+                const isEdited = !!(meta.edited?.name || meta.edited?.favorite);
 
                 return (
                   <div
-                    key={concept.id}
+                    key={logoId}
                     className={`rounded-2xl border p-4 transition-colors ${
                       isDark
                         ? "bg-slate-800/50 border-slate-700 hover:border-slate-600"
@@ -1083,13 +1622,105 @@ export default function LogoGeneratorClient({
                   >
                     <div className="mb-3">
                       <div className="flex items-start justify-between gap-3">
-                        <h4
-                          className={`text-sm font-semibold ${
-                            isDark ? "text-white" : "text-slate-900"
-                          }`}
-                        >
-                          Logo Concept {concept.id}
-                        </h4>
+                        <div className="min-w-0 flex-1">
+                          {renamingLogoId === logoId ? (
+                            <input
+                              ref={renameInputRef}
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  commitRename(logoId, defaultMeta);
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelRename();
+                                }
+                              }}
+                              onBlur={() => commitRename(logoId, defaultMeta)}
+                              className={`w-full text-sm font-semibold rounded-md px-2 py-1 border ${
+                                isDark
+                                  ? "bg-slate-900 border-slate-600 text-slate-100"
+                                  : "bg-white border-slate-300 text-slate-900"
+                              }`}
+                              aria-label="Rename logo"
+                            />
+                          ) : (
+                            <h4
+                              className={`text-sm font-semibold truncate ${
+                                isDark ? "text-white" : "text-slate-900"
+                              }`}
+                              title={meta.name}
+                            >
+                              {meta.name}
+                            </h4>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            {isEdited && (
+                              <span
+                                className={`px-2 py-0.5 text-[11px] font-medium rounded-md ${
+                                  isDark
+                                    ? "bg-amber-600/20 text-amber-400 border border-amber-600/30"
+                                    : "bg-amber-100 text-amber-700 border border-amber-200"
+                                }`}
+                              >
+                                Edited
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => toggleFavorite(logoId, defaultMeta)}
+                            className={`p-1.5 rounded-md transition-colors border ${
+                              isDark
+                                ? "border-slate-700 hover:bg-slate-700 text-slate-200"
+                                : "border-slate-200 hover:bg-slate-100 text-slate-700"
+                            }`}
+                            aria-label={meta.favorite ? "Unfavorite" : "Favorite"}
+                            title={meta.favorite ? "Unfavorite" : "Favorite"}
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              viewBox="0 0 20 20"
+                              fill={meta.favorite ? "currentColor" : "none"}
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                            >
+                              <path d="M10 1.8l2.6 5.3 5.9.9-4.3 4.2 1 5.9-5.2-2.7-5.2 2.7 1-5.9L1.5 8l5.9-.9L10 1.8z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (renamingLogoId === logoId) return;
+                              startRename(logoId, meta.name);
+                            }}
+                            className={`p-1.5 rounded-md transition-colors border ${
+                              isDark
+                                ? "border-slate-700 hover:bg-slate-700 text-slate-200"
+                                : "border-slate-200 hover:bg-slate-100 text-slate-700"
+                            }`}
+                            aria-label="Rename"
+                            title="Rename"
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11 5h6m-6 4h6m-6 4h6M7 5h.01M7 9h.01M7 13h.01M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2v16a2 2 0 002 2z"
+                              />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                       <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
                         {concept.styleNotes}
@@ -1099,11 +1730,26 @@ export default function LogoGeneratorClient({
                     {/* Preview */}
                     {hasImage ? (
                       <div className="mb-3">
-                        <img
-                          src={image!.imageUrl!}
-                          alt={`Logo concept ${concept.id}`}
-                          className="w-full h-auto rounded-lg border border-slate-300 shadow-sm"
-                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            setPreviewTriggerElement(e.currentTarget);
+                            setPreview({
+                              imageUrl: image!.imageUrl!,
+                              alt: `Logo concept ${concept.id}`,
+                              title: meta.name,
+                            });
+                          }}
+                          className="w-full text-left"
+                          aria-label="Open preview"
+                          title="Click to zoom"
+                        >
+                          <img
+                            src={image!.imageUrl!}
+                            alt={`Logo concept ${concept.id}`}
+                            className="w-full h-auto rounded-lg border border-slate-300 shadow-sm"
+                          />
+                        </button>
                       </div>
                     ) : (
                       <div
@@ -1237,6 +1883,21 @@ export default function LogoGeneratorClient({
         ) : null}
       </OBDResultsPanel>
 
+      {preview && (
+        <LogoPreviewModal
+          isOpen={true}
+          imageUrl={preview.imageUrl}
+          alt={preview.alt}
+          title={preview.title}
+          isDark={isDark}
+          triggerElement={previewTriggerElement}
+          onClose={() => {
+            setPreview(null);
+            setPreviewTriggerElement(null);
+          }}
+        />
+      )}
+
       {/* Quota Toast */}
       {showQuotaToast && (
         <div
@@ -1344,11 +2005,121 @@ export default function LogoGeneratorClient({
         </div>
       )}
 
+      {/* Export Toast */}
+      {exportToastMessage && (
+        <div
+          className={`fixed ${
+            showQuotaToast || clampToastMessage ? "top-36" : "top-4"
+          } left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
+            isDark
+              ? "bg-emerald-900/90 border-emerald-700 text-emerald-100"
+              : "bg-emerald-50 border-emerald-200 text-emerald-900"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <svg
+              className="h-5 w-5 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+            <div className="flex-1">
+              <p className="font-semibold text-sm mb-1">Exported</p>
+              <p className="text-sm opacity-90">{exportToastMessage}</p>
+            </div>
+            <button
+              onClick={() => setExportToastMessage(null)}
+              className={`ml-2 flex-shrink-0 ${
+                isDark
+                  ? "text-emerald-200 hover:text-emerald-100"
+                  : "text-emerald-700 hover:text-emerald-900"
+              }`}
+              aria-label="Close"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Toast (UI-only) */}
+      {editToastMessage && (
+        <div
+          className={`fixed ${
+            showQuotaToast || clampToastMessage || exportToastMessage ? "top-52" : "top-4"
+          } left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
+            isDark
+              ? "bg-slate-900/95 border-slate-700 text-slate-100"
+              : "bg-white border-slate-200 text-slate-800"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <svg
+              className="h-5 w-5 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div className="flex-1">
+              <p className="font-semibold text-sm mb-1">Updated</p>
+              <p className="text-sm opacity-90">{editToastMessage}</p>
+            </div>
+            <button
+              onClick={() => setEditToastMessage(null)}
+              className={`ml-2 flex-shrink-0 ${
+                isDark ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-800"
+              }`}
+              aria-label="Close"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Handoff Toast */}
       {handoffToastMessage && (
         <div
           className={`fixed ${
-            showQuotaToast || clampToastMessage ? "top-36" : "top-4"
+            showQuotaToast || clampToastMessage || exportToastMessage || editToastMessage ? "top-72" : "top-4"
           } left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
             isDark
               ? "bg-emerald-900/90 border-emerald-700 text-emerald-100"

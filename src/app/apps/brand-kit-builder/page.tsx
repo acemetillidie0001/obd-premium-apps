@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -11,6 +12,15 @@ import {
   getErrorPanelClasses,
   getDividerClass,
 } from "@/lib/obd-framework/layout-helpers";
+import {
+  clearHandoffParamsFromUrl,
+  replaceUrlWithoutReload,
+} from "@/lib/utils/clear-handoff-params";
+import {
+  clearAiLogoToBrandKitHandoff,
+  readAiLogoToBrandKitHandoff,
+  type AiLogoToBrandKitHandoffPayload,
+} from "@/app/apps/ai-logo-generator/logo-handoff";
 import {
   BrandKitBuilderRequest,
   BrandKitBuilderResponse,
@@ -62,9 +72,24 @@ const VARIATION_MODES: VariationMode[] = ["Conservative", "Moderate", "Bold"];
 const HASHTAG_STYLES: HashtagStyle[] = ["Local", "Branded", "Minimal"];
 
 export default function BrandKitBuilderPage() {
+  const searchParams = useSearchParams();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+
+  // Tier 5C+ apply-only handoff banner + draft suggestion (no auto-apply)
+  const [aiLogoHandoff, setAiLogoHandoff] = useState<AiLogoToBrandKitHandoffPayload | null>(null);
+  const [aiLogoHandoffExpired, setAiLogoHandoffExpired] = useState(false);
+  const [suggestedBrandMark, setSuggestedBrandMark] = useState<
+    | null
+    | {
+        name: string;
+        imageUrl: string;
+        prompt: string;
+        businessId: string;
+        createdAt: string;
+      }
+  >(null);
 
   const [form, setForm] = useState<BrandKitBuilderRequest>(defaultFormValues);
   const [servicesInput, setServicesInput] = useState("");
@@ -82,6 +107,67 @@ export default function BrandKitBuilderPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [useBrandProfile, setUseBrandProfile] = useState(true);
+
+  const urlBusinessId = (searchParams?.get("businessId") || "").trim();
+
+  const preferredLogo = useMemo(() => {
+    const logos = aiLogoHandoff?.logos || [];
+    const firstWithImage = logos.find((l) => typeof l.imageUrl === "string" && l.imageUrl);
+    return firstWithImage ?? null;
+  }, [aiLogoHandoff]);
+
+  const handoffBusinessMismatch =
+    !!aiLogoHandoff?.businessId &&
+    !!urlBusinessId &&
+    aiLogoHandoff.businessId.trim() !== urlBusinessId;
+
+  // Read handoff from sessionStorage only when explicitly requested via ?handoff=1
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (searchParams?.get("handoff") !== "1") return;
+
+    const { payload, expired } = readAiLogoToBrandKitHandoff();
+    if (payload) {
+      setAiLogoHandoff(payload);
+      setAiLogoHandoffExpired(false);
+    } else if (expired) {
+      setAiLogoHandoff(null);
+      setAiLogoHandoffExpired(true);
+    }
+  }, [searchParams]);
+
+  const dismissAiLogoHandoff = () => {
+    clearAiLogoToBrandKitHandoff();
+    setAiLogoHandoff(null);
+    setAiLogoHandoffExpired(false);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  const applyAiLogoHandoff = () => {
+    if (!aiLogoHandoff) return;
+    if (!urlBusinessId || aiLogoHandoff.businessId.trim() !== urlBusinessId) return;
+    if (!preferredLogo?.imageUrl) return;
+
+    setSuggestedBrandMark({
+      name: preferredLogo.name || "Suggested brand mark",
+      imageUrl: preferredLogo.imageUrl,
+      prompt: preferredLogo.prompt || "",
+      businessId: aiLogoHandoff.businessId,
+      createdAt: aiLogoHandoff.createdAt,
+    });
+
+    // One-time apply: clear transport + URL. No auto-save, no mutation beyond local draft state.
+    dismissAiLogoHandoff();
+
+    // Scroll to the suggestion panel for visibility.
+    setTimeout(() => {
+      const el = document.getElementById("ai-logo-suggested-mark");
+      el?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    }, 100);
+  };
 
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
@@ -788,6 +874,184 @@ export default function BrandKitBuilderPage() {
       title="Brand Kit Builder"
       tagline="Generate a complete brand kit with colors, typography, voice, messaging, and ready-to-use assets for your Ocala business."
     >
+      {/* Tier 5C+ Import Banner (apply-only) */}
+      {(aiLogoHandoff || aiLogoHandoffExpired) && (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div
+            className={`rounded-xl border p-4 ${
+              isDark
+                ? "bg-slate-800/40 border-slate-700"
+                : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                  Import suggestion from AI Logo Generator
+                </p>
+                {aiLogoHandoffExpired ? (
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    This handoff expired (10 min TTL). Go back and send again.
+                  </p>
+                ) : (
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Apply will add a <span className="font-medium">draft</span> “Suggested brand mark” entry. Nothing is saved automatically.
+                  </p>
+                )}
+
+                {!aiLogoHandoffExpired && aiLogoHandoff && (
+                  <div className="mt-3 flex items-center gap-3 flex-wrap">
+                    {preferredLogo?.imageUrl ? (
+                      <img
+                        src={preferredLogo.imageUrl}
+                        alt="Suggested brand mark preview"
+                        className="w-12 h-12 rounded-lg border object-cover"
+                      />
+                    ) : (
+                      <div
+                        className={`w-12 h-12 rounded-lg border flex items-center justify-center text-xs ${
+                          isDark
+                            ? "border-slate-700 bg-slate-900/40 text-slate-400"
+                            : "border-slate-200 bg-slate-50 text-slate-500"
+                        }`}
+                      >
+                        No image
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>
+                        {preferredLogo?.name || "Suggested brand mark"}
+                      </p>
+                      <p className={`text-xs ${themeClasses.mutedText}`}>
+                        Business: {aiLogoHandoff.businessId}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {!aiLogoHandoffExpired && aiLogoHandoff && (!urlBusinessId || handoffBusinessMismatch) && (
+                  <p className={`text-xs mt-3 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                    Tenant mismatch guard: URL businessId must match payload businessId to apply.{" "}
+                    {urlBusinessId ? `URL=${urlBusinessId}` : "Missing URL businessId."}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {!aiLogoHandoffExpired && (
+                  <button
+                    type="button"
+                    onClick={applyAiLogoHandoff}
+                    disabled={
+                      !aiLogoHandoff ||
+                      !urlBusinessId ||
+                      handoffBusinessMismatch ||
+                      !preferredLogo?.imageUrl
+                    }
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDark
+                        ? "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                        : "bg-[#29c4a9] text-white hover:bg-[#25b09a]"
+                    }`}
+                  >
+                    Apply
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={dismissAiLogoHandoff}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* Draft-only Suggested Brand Mark Slot */}
+      {suggestedBrandMark && (
+        <OBDPanel isDark={isDark} className="mt-7" id="ai-logo-suggested-mark">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <OBDHeading level={2} isDark={isDark} className="!text-base">
+                Suggested brand mark (draft)
+              </OBDHeading>
+              <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                Draft-only suggestion. Nothing is saved until you explicitly use it elsewhere.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSuggestedBrandMark(null)}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-col sm:flex-row gap-4">
+            <img
+              src={suggestedBrandMark.imageUrl}
+              alt={suggestedBrandMark.name}
+              className="w-full sm:w-56 h-auto rounded-xl border object-contain bg-white"
+            />
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                {suggestedBrandMark.name}
+              </p>
+              {suggestedBrandMark.prompt ? (
+                <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                  <span className="font-medium">Prompt:</span> {suggestedBrandMark.prompt}
+                </p>
+              ) : null}
+              <p className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                Source: AI Logo Generator · {new Date(suggestedBrandMark.createdAt).toLocaleString()}
+              </p>
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <a
+                  href={suggestedBrandMark.imageUrl}
+                  download={`suggested-brand-mark-${Date.now()}.png`}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    isDark
+                      ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Download image
+                </a>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(suggestedBrandMark.imageUrl);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    isDark
+                      ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Copy URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
       {/* Form */}
       <OBDPanel isDark={isDark} className="mt-7">
         <div className="flex items-center justify-between mb-6">

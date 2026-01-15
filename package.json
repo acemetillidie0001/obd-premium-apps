@@ -38,7 +38,6 @@
     "postinstall": "prisma generate || echo 'Warning: prisma generate failed (DATABASE_URL may be missing). This is OK for local dev without DB connection.'",
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma generate && prisma migrate deploy && prisma generate",
     "prisma:generate": "prisma generate",
-  
     "prisma:migrate:deploy": "prisma migrate deploy",
     "deploy:migrate": "pnpm run migrate:deploy",
     "db:resolve:all": "node tools/resolve-all-failed-migrations.cjs",
@@ -84,13 +83,13 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.48.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@axe-core/playwright": "^4.10.1",
-    "@playwright/test": "^1.48.2",
     "@vitest/ui": "^4.0.16",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",

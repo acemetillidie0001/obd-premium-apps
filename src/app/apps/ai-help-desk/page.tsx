@@ -120,6 +120,17 @@ function AIHelpDeskPageContent() {
 
   // Tab mode
   const [tabMode, setTabMode] = useState<TabMode>("help-desk");
+  const tabInitialized = useRef(false);
+
+  // Optional: allow deep-linking to a tab (e.g., ?tab=widget) for handoff receivers.
+  useEffect(() => {
+    if (tabInitialized.current) return;
+    const raw = (searchParams?.get("tab") || "").trim();
+    if (raw === "help-desk" || raw === "knowledge" || raw === "insights" || raw === "widget") {
+      setTabMode(raw);
+    }
+    tabInitialized.current = true;
+  }, [searchParams]);
 
   // View mode (search vs chat) - only for help-desk tab
   const [viewMode, setViewMode] = useState<ViewMode>("search");

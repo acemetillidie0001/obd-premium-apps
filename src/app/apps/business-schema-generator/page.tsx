@@ -21,6 +21,7 @@ import {
 } from "./types";
 import {
   type SchemaDraft,
+  applyAdditiveNodes,
   applyEditedSchema,
   applyGeneratedSchema,
   createSchemaDraft,
@@ -37,6 +38,14 @@ import FAQImportBanner from "./components/FAQImportBanner";
 import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
 import ContentWriterSchemaImportModal from "./components/ContentWriterSchemaImportModal";
 import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  clearHandoff,
+  isTenantMatch,
+  mergeNodesAdditive,
+  readHandoffFromSession,
+} from "./handoffReceiver";
+import type { SchemaHandoffPayload } from "./handoffTypes";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -133,6 +142,11 @@ function BusinessSchemaGeneratorPageContent() {
   const [showImportBanner, setShowImportBanner] = useState(false);
   const [importedFaqJsonLd, setImportedFaqJsonLd] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Tier 5C: Safe, additive schema handoff receiver (sessionStorage + TTL, explicit apply/dismiss)
+  const [schemaHandoffPayload, setSchemaHandoffPayload] = useState<SchemaHandoffPayload | null>(null);
+  const [schemaHandoffDismissed, setSchemaHandoffDismissed] = useState(false);
+  const [importedSchemaNodes, setImportedSchemaNodes] = useState<Record<string, any>[]>([]);
   
   // Content Writer Schema handoff state
   const [contentWriterSchemaPayload, setContentWriterSchemaPayload] = useState<ContentWriterSchemaHandoff | null>(null);
@@ -149,6 +163,7 @@ function BusinessSchemaGeneratorPageContent() {
 
   // Tier 5B: minimal session persistence (ephemeral; survives refresh in the same tab)
   const businessIdFromQuery = searchParams?.get("businessId") || null;
+  const currentTenantId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
   const schemaDraftStorageKey = useMemo(() => {
     const suffix = businessIdFromQuery || draft.id || "unknown";
     return `obd:schemaDraft:${suffix}`;
@@ -274,6 +289,21 @@ function BusinessSchemaGeneratorPageContent() {
       }
     }
   }, [searchParams]);
+
+  // Tier 5C: read schema handoff from sessionStorage on mount (no auto-apply)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const payload = readHandoffFromSession();
+      if (payload) {
+        setSchemaHandoffPayload(payload);
+        setSchemaHandoffDismissed(false);
+      }
+    } catch (error) {
+      console.error("Failed to read schema handoff from sessionStorage:", error);
+    }
+  }, []);
 
   // Load brand profile on mount
   useEffect(() => {
@@ -512,11 +542,21 @@ function BusinessSchemaGeneratorPageContent() {
         // Tier 5B: update generated schema only; preserve any user edits (Edited > Generated).
         // NOTE: The generator's canonical combined bundle is `response.data.combinedJsonLd`.
         setDraft((prev) => {
-          const nextGenerated = buildCombinedJsonLdWithImportedFaq(
+          let nextGenerated = buildCombinedJsonLdWithImportedFaq(
             response.data!.combinedJsonLd,
             importedFaqJsonLd
           );
           if (!nextGenerated) return prev;
+
+          // Tier 5C: preserve applied additive handoff nodes across regenerate.
+          // Additive only: never overwrite existing nodes; never reorder existing @graph entries.
+          if (importedSchemaNodes.length > 0) {
+            try {
+              nextGenerated = mergeNodesAdditive(nextGenerated, importedSchemaNodes);
+            } catch {
+              // fail-safe: if merge fails, keep base generator output
+            }
+          }
           return applyGeneratedSchema(prev, normalizeJsonString(nextGenerated));
         });
         setTimeout(() => {
@@ -662,6 +702,77 @@ function BusinessSchemaGeneratorPageContent() {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
       replaceUrlWithoutReload(cleanUrl);
     }
+  };
+
+  // Tier 5C: schema handoff apply/dismiss handlers
+  const schemaSourceLabel = useMemo(() => {
+    const source = schemaHandoffPayload?.source;
+    if (!source) return null;
+    if (source === "ai-faq-generator") return "AI FAQ Generator";
+    if (source === "offers-promotions") return "Offers & Promotions";
+    if (source === "event-campaign-builder") return "Event Campaign Builder";
+    if (source === "local-seo-page-builder") return "Local SEO Page Builder";
+    return source;
+  }, [schemaHandoffPayload?.source]);
+
+  const schemaHandoffSummary = useMemo(() => {
+    if (!schemaHandoffPayload) return null;
+
+    const nodeCount = schemaHandoffPayload.nodes.length;
+    const typeSet = new Set<string>();
+    for (const node of schemaHandoffPayload.nodes) {
+      const t = (node as Record<string, unknown>)["@type"];
+      if (typeof t === "string" && t.trim()) typeSet.add(t);
+      if (Array.isArray(t)) {
+        for (const item of t) {
+          if (typeof item === "string" && item.trim()) typeSet.add(item);
+        }
+      }
+    }
+
+    const types = Array.from(typeSet);
+    return { nodeCount, types };
+  }, [schemaHandoffPayload]);
+
+  const handleApplySchemaHandoff = () => {
+    if (!schemaHandoffPayload) return;
+
+    if (!currentTenantId) {
+      setToast("Business context missing — cannot import schema handoff.");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
+    if (!isTenantMatch(schemaHandoffPayload.tenantId, currentTenantId)) {
+      // Tenant mismatch safety: do not apply, show error, and clear payload one-time.
+      clearHandoff();
+      setSchemaHandoffPayload(null);
+      setSchemaHandoffDismissed(false);
+
+      setToast("Schema handoff is for a different business.");
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
+    setDraft((prev) => applyAdditiveNodes(prev, schemaHandoffPayload.nodes));
+    setImportedSchemaNodes((prev) => [...prev, ...schemaHandoffPayload.nodes]);
+
+    // Clear stored handoff + clean URL
+    clearHandoff();
+    setSchemaHandoffPayload(null);
+    setSchemaHandoffDismissed(false);
+
+    // Show success toast
+    const count = schemaHandoffSummary?.nodeCount ?? schemaHandoffPayload.nodes.length;
+    setToast(`Imported ${count} schema node${count === 1 ? "" : "s"} successfully`);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleDismissSchemaHandoff = () => {
+    // Clear stored handoff + clean URL
+    clearHandoff();
+    setSchemaHandoffPayload(null);
+    setSchemaHandoffDismissed(true);
   };
 
   // Content Writer Schema handoff handlers
@@ -944,6 +1055,81 @@ function BusinessSchemaGeneratorPageContent() {
       title="Business Schema Generator"
       tagline="Generate copy-paste JSON-LD for your website and listings."
     >
+      {/* Tier 5C: Schema Handoff Confirmation Panel */}
+      {schemaHandoffPayload && schemaHandoffSummary && (
+        <div
+          className={`mb-6 rounded-xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+            isDark
+              ? "bg-teal-900/20 border-teal-700"
+              : "bg-teal-50 border-teal-200"
+          }`}
+        >
+          <div className="flex-1">
+            <div
+              className={`text-sm font-medium ${
+                isDark ? "text-teal-200" : "text-teal-900"
+              }`}
+            >
+              Schema data available from: {schemaSourceLabel ?? schemaHandoffPayload.source}
+            </div>
+            <div className={`text-xs mt-1 space-y-1 ${isDark ? "text-teal-300" : "text-teal-700"}`}>
+              <div>
+                <span className="font-medium">Nodes:</span> {schemaHandoffSummary.nodeCount}
+              </div>
+              <div>
+                <span className="font-medium">Types:</span>{" "}
+                {schemaHandoffSummary.types.length > 0
+                  ? schemaHandoffSummary.types.join(", ")
+                  : "Unknown"}
+              </div>
+            </div>
+            {!currentTenantId && (
+              <div className={`text-xs mt-2 ${isDark ? "text-yellow-300" : "text-yellow-800"}`}>
+                Business context required (missing businessId).
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              onClick={handleApplySchemaHandoff}
+              disabled={!currentTenantId}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                !currentTenantId
+                  ? isDark
+                    ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-[#29c4a9] text-white hover:bg-[#22ad93]"
+              }`}
+            >
+              Apply
+            </button>
+            <button
+              onClick={handleDismissSchemaHandoff}
+              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isDark
+                  ? "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-white/60"
+              }`}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tier 5C: Dismissed state (no mutation) */}
+      {!schemaHandoffPayload && schemaHandoffDismissed && (
+        <div
+          className={`mb-6 rounded-xl border p-4 ${
+            isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+          }`}
+        >
+          <div className={`text-sm ${isDark ? "text-slate-200" : "text-slate-800"}`}>
+            Schema handoff dismissed.
+          </div>
+        </div>
+      )}
+
       {/* FAQ Generator Import Banner */}
       {showImportBanner && handoffPayload && (
         <FAQImportBanner

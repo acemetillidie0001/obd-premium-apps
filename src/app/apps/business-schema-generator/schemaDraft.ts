@@ -1,3 +1,5 @@
+import { mergeNodesAdditive } from "./handoffReceiver";
+
 export type DraftStatus = "draft" | "generated" | "edited";
 
 export interface SchemaDraft {
@@ -79,6 +81,25 @@ export function applyGeneratedSchema(draft: SchemaDraft, nextGenerated: string |
     generatedJsonld: normalizeOrNull(nextGenerated),
     lastGeneratedAt: nextGenerated ? nowIso() : null,
   };
+}
+
+/**
+ * Apply inbound schema nodes additively into the draft's active schema,
+ * committing the result as a generated update (never overwriting edits).
+ */
+export function applyAdditiveNodes(
+  draft: SchemaDraft,
+  incomingNodes: Record<string, any>[]
+): SchemaDraft {
+  const activeJson = getActiveSchemaJson(draft);
+
+  try {
+    const merged = mergeNodesAdditive(activeJson, incomingNodes);
+    return applyGeneratedSchema(draft, merged);
+  } catch {
+    // Fail-safe: do not mutate draft if JSON parsing/merging fails.
+    return draft;
+  }
 }
 
 /**

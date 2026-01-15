@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -13,6 +14,11 @@ import {
   SUBMIT_BUTTON_CLASSES,
   getErrorPanelClasses,
 } from "@/lib/obd-framework/layout-helpers";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  buildAiLogoToSocialHandoffPayload,
+  writeAiLogoToSocialAutoPosterHandoff,
+} from "./logo-handoff";
 import type {
   LogoGeneratorRequest,
   LogoGeneratorResponse,
@@ -29,6 +35,10 @@ export default function LogoGeneratorClient({
 }: LogoGeneratorClientProps) {
   const VARIATIONS_MIN = 3;
   const VARIATIONS_MAX = 8;
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const businessId = resolveBusinessId(searchParams);
 
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
@@ -55,10 +65,16 @@ export default function LogoGeneratorClient({
   const [showQuotaToast, setShowQuotaToast] = useState(false);
   const [clampToastMessage, setClampToastMessage] = useState<string | null>(null);
   const [countUsed, setCountUsed] = useState<number | null>(null);
+  const [handoffToastMessage, setHandoffToastMessage] = useState<string | null>(null);
 
   const showClampToast = (message: string) => {
     setClampToastMessage(message);
     setTimeout(() => setClampToastMessage(null), 3500);
+  };
+
+  const showHandoffToast = (message: string) => {
+    setHandoffToastMessage(message);
+    setTimeout(() => setHandoffToastMessage(null), 3500);
   };
 
   const clampVariations = (value: number): number => {
@@ -311,6 +327,7 @@ export default function LogoGeneratorClient({
     setUsageInfo(null);
     setClampToastMessage(null);
     setCountUsed(null);
+    setHandoffToastMessage(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -387,6 +404,56 @@ export default function LogoGeneratorClient({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const canSendToSocial = !!result?.concepts?.length && !!businessId;
+
+  const handleSendToSocialAutoPoster = () => {
+    if (!result?.concepts?.length) return;
+    if (!businessId) return;
+    /**
+     * Tier 5C integration exception (Selection Fallback Rule — Option A):
+     * If no selection UI exists yet (Tier 5B), treat ALL current generated logos
+     * as selected for sending. Tier 5B will replace this with canonical multi-select.
+     */
+
+    const tags: string[] = [];
+    if (form.logoStyle) tags.push(form.logoStyle);
+    if (form.personalityStyle) tags.push(form.personalityStyle);
+    if (form.includeText === false) tags.push("icon-only");
+    if (form.generateImages === true) tags.push("with-images");
+
+    const logos = result.concepts.map((concept) => {
+      const image = result.images.find((img) => img.conceptId === concept.id);
+      const prompt = (image?.prompt || "").trim();
+      return {
+        id: String(concept.id),
+        name: `Logo Concept ${concept.id}`,
+        prompt,
+        tags,
+        palette: Array.isArray(concept.colorPalette) ? concept.colorPalette : [],
+        imageUrl: image?.imageUrl ?? null,
+      };
+    });
+
+    const payload = buildAiLogoToSocialHandoffPayload({
+      businessId,
+      logos,
+    });
+    writeAiLogoToSocialAutoPosterHandoff(payload);
+
+    showHandoffToast(
+      `Sent ${logos.length} logo(s) to Social Auto-Poster (draft).`
+    );
+
+    // Navigate after a brief tick so the toast can render before route change.
+    setTimeout(() => {
+      router.push(
+        `/apps/social-auto-poster/composer?handoff=1&businessId=${encodeURIComponent(
+          businessId
+        )}`
+      );
+    }, 150);
   };
 
   return (
@@ -920,6 +987,23 @@ export default function LogoGeneratorClient({
             </button>
             <button
               type="button"
+              onClick={handleSendToSocialAutoPoster}
+              disabled={!canSendToSocial || loading}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={
+                !businessId
+                  ? "Business context required (missing businessId)"
+                  : "Send logos to Social Auto-Poster (draft-only)"
+              }
+            >
+              Send to Social Auto-Poster
+            </button>
+            <button
+              type="button"
               onClick={handleStartNew}
               disabled={loading}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
@@ -976,6 +1060,11 @@ export default function LogoGeneratorClient({
                 Used {countUsed} variations.
               </p>
             )}
+            {!businessId && (
+              <p className={`text-xs mb-3 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                Business context required to send (missing businessId).
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {result.concepts.map((concept) => {
                 const image = result.images.find((img) => img.conceptId === concept.id);
@@ -993,10 +1082,18 @@ export default function LogoGeneratorClient({
                     }`}
                   >
                     <div className="mb-3">
-                      <h4 className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
-                        Logo Concept {concept.id}
-                      </h4>
-                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>{concept.styleNotes}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <h4
+                          className={`text-sm font-semibold ${
+                            isDark ? "text-white" : "text-slate-900"
+                          }`}
+                        >
+                          Logo Concept {concept.id}
+                        </h4>
+                      </div>
+                      <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                        {concept.styleNotes}
+                      </p>
                     </div>
 
                     {/* Preview */}
@@ -1227,6 +1324,61 @@ export default function LogoGeneratorClient({
               onClick={() => setClampToastMessage(null)}
               className={`ml-2 flex-shrink-0 ${
                 isDark ? "text-slate-200 hover:text-white" : "text-slate-600 hover:text-slate-800"
+              }`}
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Handoff Toast */}
+      {handoffToastMessage && (
+        <div
+          className={`fixed ${
+            showQuotaToast || clampToastMessage ? "top-36" : "top-4"
+          } left-4 right-4 sm:left-auto sm:right-4 z-50 rounded-lg border shadow-lg px-4 py-3 transition-all max-w-sm mx-auto sm:mx-0 ${
+            isDark
+              ? "bg-emerald-900/90 border-emerald-700 text-emerald-100"
+              : "bg-emerald-50 border-emerald-200 text-emerald-900"
+          }`}
+        >
+          <div className="flex items-start gap-2">
+            <svg
+              className="h-5 w-5 mt-0.5 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+            <div className="flex-1">
+              <p className="font-semibold text-sm mb-1">Sent</p>
+              <p className="text-sm opacity-90">{handoffToastMessage}</p>
+            </div>
+            <button
+              onClick={() => setHandoffToastMessage(null)}
+              className={`ml-2 flex-shrink-0 ${
+                isDark
+                  ? "text-emerald-200 hover:text-emerald-100"
+                  : "text-emerald-700 hover:text-emerald-900"
               }`}
             >
               <svg

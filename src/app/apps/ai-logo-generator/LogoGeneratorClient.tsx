@@ -244,66 +244,13 @@ export default function LogoGeneratorClient({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    setError(null);
-    setResult(null);
-    setFieldErrors({});
-
-    // Validation with inline errors
-    const errors: { businessName?: string; businessType?: string } = {};
-    let hasErrors = false;
-
-    if (!form.businessName.trim()) {
-      errors.businessName = "Business name is required";
-      hasErrors = true;
-    }
-
-    if (!form.businessType.trim()) {
-      errors.businessType = "Business type is required";
-      hasErrors = true;
-    }
-
-    if (hasErrors) {
-      setFieldErrors(errors);
-      return;
-    }
+  const submitWithPayload = async (payload: LogoGeneratorRequest) => {
+    setLastPayload(payload);
+    setCountUsed(null);
 
     setLoading(true);
 
     try {
-      // Clamp variationsCount client-side (3–8)
-      const requestedVariationsRaw = form.variationsCount ?? VARIATIONS_MIN;
-      const clampedVariations = clampVariations(requestedVariationsRaw);
-      if (
-        typeof requestedVariationsRaw === "number" &&
-        Number.isFinite(requestedVariationsRaw) &&
-        requestedVariationsRaw !== clampedVariations
-      ) {
-        showClampToast(
-          `Variations adjusted to ${clampedVariations} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
-        );
-      }
-
-      const payload: LogoGeneratorRequest = {
-        businessName: form.businessName.trim(),
-        businessType: form.businessType.trim(),
-        services: form.services?.trim() || undefined,
-        city: form.city?.trim() || "Ocala",
-        state: form.state?.trim() || "Florida",
-        brandVoice: form.brandVoice?.trim() || undefined,
-        personalityStyle: form.personalityStyle || undefined,
-        logoStyle: form.logoStyle || "Modern",
-        colorPreferences: form.colorPreferences?.trim() || undefined,
-        includeText: form.includeText ?? true,
-        variationsCount: clampedVariations,
-        generateImages: form.generateImages ?? false,
-      };
-
-      setLastPayload(payload);
-      setCountUsed(null);
-
       const res = await fetch("/api/ai-logo-generator", {
         method: "POST",
         headers: {
@@ -392,10 +339,74 @@ export default function LogoGeneratorClient({
     }
   };
 
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    setError(null);
+    setResult(null);
+    setFieldErrors({});
+
+    // Validation with inline errors
+    const errors: { businessName?: string; businessType?: string } = {};
+    let hasErrors = false;
+
+    if (!form.businessName.trim()) {
+      errors.businessName = "Business name is required";
+      hasErrors = true;
+    }
+
+    if (!form.businessType.trim()) {
+      errors.businessType = "Business type is required";
+      hasErrors = true;
+    }
+
+    if (hasErrors) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Clamp variationsCount client-side (3–8)
+      const requestedVariationsRaw = form.variationsCount ?? VARIATIONS_MIN;
+      const clampedVariations = clampVariations(requestedVariationsRaw);
+      if (
+        typeof requestedVariationsRaw === "number" &&
+        Number.isFinite(requestedVariationsRaw) &&
+        requestedVariationsRaw !== clampedVariations
+      ) {
+        showClampToast(
+          `Variations adjusted to ${clampedVariations} (allowed ${VARIATIONS_MIN}–${VARIATIONS_MAX}).`
+        );
+      }
+
+      const payload: LogoGeneratorRequest = {
+        businessName: form.businessName.trim(),
+        businessType: form.businessType.trim(),
+        services: form.services?.trim() || undefined,
+        city: form.city?.trim() || "Ocala",
+        state: form.state?.trim() || "Florida",
+        brandVoice: form.brandVoice?.trim() || undefined,
+        personalityStyle: form.personalityStyle || undefined,
+        logoStyle: form.logoStyle || "Modern",
+        colorPreferences: form.colorPreferences?.trim() || undefined,
+        includeText: form.includeText ?? true,
+        variationsCount: clampedVariations,
+        generateImages: form.generateImages ?? false,
+      };
+    }
+
+    await submitWithPayload(payload);
+  };
+
   const handleRegenerate = async () => {
     if (!lastPayload) return;
     setForm(lastPayload);
-    await handleSubmit();
+    setError(null);
+    setResult(null);
+    setFieldErrors({});
+    await submitWithPayload(lastPayload);
   };
 
   const handleStartNew = () => {

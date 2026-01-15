@@ -61,6 +61,12 @@ export default function FAQImportBanner({
             </span>
           )}
         </p>
+        <p className={`text-xs mt-1 ${isDark ? "text-blue-400/80" : "text-blue-700/80"}`}>
+          Draft only — nothing is applied automatically.
+          {hasExistingContent
+            ? " Add as New Draft replaces your current draft; Append adds to your current draft."
+            : ""}
+        </p>
       </div>
       <div className="flex gap-2 flex-shrink-0">
         <button

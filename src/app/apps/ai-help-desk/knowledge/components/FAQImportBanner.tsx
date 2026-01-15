@@ -43,6 +43,7 @@ export default function FAQImportBanner({
                 • This handoff was already imported in this session.
               </span>
             )}
+            <span className="ml-2">• Draft only — nothing is imported until you confirm.</span>
           </div>
         </div>
         <div className="flex items-center gap-2">

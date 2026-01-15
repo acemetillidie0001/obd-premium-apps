@@ -64,6 +64,7 @@ type AILogoGeneratorDraftHandoffV1 = {
     prompt?: string;
     tags?: string[];
     colorPalette?: string[];
+    palette?: string[];
     description?: string;
     styleNotes?: string;
   }>;
@@ -75,9 +76,30 @@ type AILogoGeneratorDraftHandoffV1 = {
     prompt?: string;
     tags?: string[];
     colorPalette?: string[];
+    palette?: string[];
     description?: string;
     styleNotes?: string;
   };
+};
+
+// Tier 5C sender key (AI Logo Generator → Social Auto-Poster). TTL enforced in receiver.
+const AI_LOGO_SENDER_KEY_V1 = "obd:handoff:ai-logo-generator:social-auto-poster:v1";
+
+type AiLogoToSocialHandoffPayloadV1 = {
+  v: 1;
+  type: "ai_logo_generator_to_social_auto_poster_draft";
+  sourceApp: "ai-logo-generator";
+  createdAt: string;
+  expiresAt: string;
+  businessId: string;
+  logos: Array<{
+    id: string;
+    name: string;
+    prompt: string;
+    tags: string[];
+    palette: string[];
+    imageUrl: string | null;
+  }>;
 };
 
 type DraftMediaItem = {
@@ -104,7 +126,58 @@ function isAILogoGeneratorDraftHandoffV1(payload: unknown): payload is AILogoGen
   return true;
 }
 
-function normalizeAiLogoHandoffItems(payload: AILogoGeneratorDraftHandoffV1): Array<{
+function isAiLogoToSocialHandoffPayloadV1(payload: unknown): payload is AiLogoToSocialHandoffPayloadV1 {
+  if (!payload || typeof payload !== "object") return false;
+  const p = payload as Record<string, unknown>;
+  if (p.v !== 1) return false;
+  if (p.type !== "ai_logo_generator_to_social_auto_poster_draft") return false;
+  if (p.sourceApp !== "ai-logo-generator") return false;
+  if (typeof p.createdAt !== "string" || p.createdAt.trim().length === 0) return false;
+  if (typeof p.expiresAt !== "string" || p.expiresAt.trim().length === 0) return false;
+  if (typeof p.businessId !== "string" || p.businessId.trim().length === 0) return false;
+  if (!Array.isArray(p.logos)) return false;
+  return true;
+}
+
+function readAiLogoSenderHandoffFromSessionStorage():
+  | { payload: AiLogoToSocialHandoffPayloadV1; expired: false }
+  | { payload: null; expired: true }
+  | { payload: null; expired: false } {
+  if (typeof window === "undefined") return { payload: null, expired: false };
+  try {
+    const raw = sessionStorage.getItem(AI_LOGO_SENDER_KEY_V1);
+    if (!raw) return { payload: null, expired: false };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isAiLogoToSocialHandoffPayloadV1(parsed)) return { payload: null, expired: false };
+
+    const expiresAt = new Date(parsed.expiresAt).getTime();
+    if (!expiresAt || Number.isNaN(expiresAt) || Date.now() > expiresAt) {
+      try {
+        sessionStorage.removeItem(AI_LOGO_SENDER_KEY_V1);
+      } catch {
+        // ignore
+      }
+      return { payload: null, expired: true };
+    }
+
+    return { payload: parsed, expired: false };
+  } catch {
+    return { payload: null, expired: false };
+  }
+}
+
+function clearAiLogoSenderKey(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(AI_LOGO_SENDER_KEY_V1);
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeAiLogoHandoffItems(
+  payload: AILogoGeneratorDraftHandoffV1 | AiLogoToSocialHandoffPayloadV1
+): Array<{
   name: string;
   imageUrl: string | null;
   prompt: string;
@@ -114,8 +187,8 @@ function normalizeAiLogoHandoffItems(payload: AILogoGeneratorDraftHandoffV1): Ar
   styleNotes: string;
 }> {
   const items: Array<any> = [];
-  if (payload.logo) items.push(payload.logo);
-  if (Array.isArray(payload.logos)) items.push(...payload.logos);
+  if ("logo" in payload && payload.logo) items.push(payload.logo);
+  if (Array.isArray((payload as any).logos)) items.push(...(payload as any).logos);
 
   return items
     .filter((x) => x && typeof x === "object")
@@ -124,9 +197,12 @@ function normalizeAiLogoHandoffItems(payload: AILogoGeneratorDraftHandoffV1): Ar
       const imageUrl = typeof x.imageUrl === "string" ? x.imageUrl : null;
       const prompt = typeof x.prompt === "string" ? x.prompt.trim() : "";
       const tags = Array.isArray(x.tags) ? x.tags.filter((t: unknown) => typeof t === "string") : [];
-      const colorPalette = Array.isArray(x.colorPalette)
-        ? x.colorPalette.filter((c: unknown) => typeof c === "string")
-        : [];
+      const rawPalette = Array.isArray(x.colorPalette)
+        ? x.colorPalette
+        : Array.isArray(x.palette)
+          ? x.palette
+          : [];
+      const colorPalette = rawPalette.filter((c: unknown) => typeof c === "string");
       const description = typeof x.description === "string" ? x.description.trim() : "";
       const styleNotes = typeof x.styleNotes === "string" ? x.styleNotes.trim() : "";
       return {
@@ -235,7 +311,9 @@ function SocialAutoPosterComposerPageContent() {
   };
 
   const [lhaDraftHandoff, setLhaDraftHandoff] = useState<LocalHiringAssistantDraftHandoff | null>(null);
-  const [aiLogoHandoff, setAiLogoHandoff] = useState<AILogoGeneratorDraftHandoffV1 | null>(null);
+  const [aiLogoHandoff, setAiLogoHandoff] = useState<
+    AILogoGeneratorDraftHandoffV1 | AiLogoToSocialHandoffPayloadV1 | null
+  >(null);
   const [draftMedia, setDraftMedia] = useState<DraftMediaItem[]>([]);
 
   const isLocalHiringAssistantHandoff = (payload: unknown): payload is LocalHiringAssistantDraftHandoff => {
@@ -291,6 +369,18 @@ function SocialAutoPosterComposerPageContent() {
             setAiLogoHandoff(payload);
             handoffProcessed.current = true;
             // Allow setup to load (no import run yet)
+            setHandoffImportCompleted(true);
+            return;
+          }
+        }
+
+        // AI Logo Generator handoff (sender key v1; sessionStorage + TTL)
+        // Only attempt read when explicit handoff flag is present to avoid surprising banners.
+        if (searchParams.get("handoff") === "1") {
+          const senderKeyResult = readAiLogoSenderHandoffFromSessionStorage();
+          if (senderKeyResult.payload) {
+            setAiLogoHandoff(senderKeyResult.payload);
+            handoffProcessed.current = true;
             setHandoffImportCompleted(true);
             return;
           }
@@ -558,6 +648,7 @@ function SocialAutoPosterComposerPageContent() {
 
     // Consume handoff + URL cleanup
     clearHandoff();
+    clearAiLogoSenderKey();
     setAiLogoHandoff(null);
     if (typeof window !== "undefined") {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
@@ -599,6 +690,7 @@ function SocialAutoPosterComposerPageContent() {
     setDraftMedia(nextMedia);
 
     clearHandoff();
+    clearAiLogoSenderKey();
     setAiLogoHandoff(null);
     if (typeof window !== "undefined") {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
@@ -609,6 +701,7 @@ function SocialAutoPosterComposerPageContent() {
 
   const dismissAiLogoHandoff = () => {
     clearHandoff();
+    clearAiLogoSenderKey();
     setAiLogoHandoff(null);
     if (typeof window !== "undefined") {
       const cleanUrl = clearHandoffParamsFromUrl(window.location.href);

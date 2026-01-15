@@ -186,12 +186,13 @@ function normalizeAiLogoHandoffItems(
   description: string;
   styleNotes: string;
 }> {
-  const items: Array<any> = [];
+  const items: unknown[] = [];
   if ("logo" in payload && payload.logo) items.push(payload.logo);
-  if (Array.isArray((payload as any).logos)) items.push(...(payload as any).logos);
+  const maybeLogos = (payload as unknown as { logos?: unknown }).logos;
+  if (Array.isArray(maybeLogos)) items.push(...maybeLogos);
 
   return items
-    .filter((x) => x && typeof x === "object")
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
     .map((x) => {
       const name = typeof x.name === "string" ? x.name.trim() : "";
       const imageUrl = typeof x.imageUrl === "string" ? x.imageUrl : null;

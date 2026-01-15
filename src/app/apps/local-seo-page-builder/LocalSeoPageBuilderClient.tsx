@@ -32,6 +32,15 @@ import { type BrandProfile } from "@/lib/bdw";
 import LocalSeoAccordionSection from "./components/LocalSeoAccordionSection";
 import LocalSeoExportCenterPanel from "./components/LocalSeoExportCenterPanel";
 import {
+  LOCAL_SEO_HANDOFF_TTL_MS,
+  buildContentWriterDraftPayload,
+  buildFaqGeneratorPayload,
+  buildHelpDeskSuggestionPayload,
+  storeLocalSeoToContentWriterDraftHandoff,
+  storeLocalSeoToFaqGeneratorSeedHandoff,
+  storeLocalSeoToHelpDeskFaqSuggestionHandoff,
+} from "./handoffs/builders";
+import {
   getActiveFaqs,
   getActivePageCopy,
   getActivePageSections,
@@ -83,6 +92,10 @@ export default function LocalSeoPageBuilderClient({
   const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">(
     "Combined"
   );
+
+  const [handoffTarget, setHandoffTarget] = useState<
+    null | "content-writer" | "faq-generator" | "ai-help-desk"
+  >(null);
   const [useBrandProfile, setUseBrandProfile] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -109,6 +122,28 @@ export default function LocalSeoPageBuilderClient({
   const activeFaqs = useMemo(() => getActiveFaqs(draft), [draft]);
   const activePageSections = useMemo(() => getActivePageSections(draft), [draft]);
   const activeSchemaJsonLd = useMemo(() => getActiveSchemaJsonLd(draft), [draft]);
+
+  const canSendPageCopy = useMemo(() => {
+    return activePageCopy.trim().length > 0;
+  }, [activePageCopy]);
+
+  const canSendFaqSeedQuestions = useMemo(() => {
+    return (
+      Array.isArray(activeFaqs) &&
+      activeFaqs.some((f) => (f?.question || "").trim().length > 0)
+    );
+  }, [activeFaqs]);
+
+  const canSuggestHelpDeskQa = useMemo(() => {
+    return (
+      Array.isArray(activeFaqs) &&
+      activeFaqs.some(
+        (f) =>
+          (f?.question || "").trim().length > 0 &&
+          (f?.answer || "").trim().length > 0
+      )
+    );
+  }, [activeFaqs]);
 
   // Tier 5A: accordion sections
   const [accordionState, setAccordionState] = useState({
@@ -153,6 +188,39 @@ export default function LocalSeoPageBuilderClient({
   const showToast = (message: string) => {
     setActionToast(message);
     setTimeout(() => setActionToast(null), 1200);
+  };
+
+  const openHandoffModal = (
+    target: "content-writer" | "faq-generator" | "ai-help-desk"
+  ) => {
+    setHandoffTarget(target);
+  };
+
+  const closeHandoffModal = () => setHandoffTarget(null);
+
+  const confirmHandoff = () => {
+    if (typeof window === "undefined") return;
+
+    try {
+      if (handoffTarget === "content-writer") {
+        const payload = buildContentWriterDraftPayload(draft);
+        storeLocalSeoToContentWriterDraftHandoff(payload);
+        window.location.assign("/apps/content-writer");
+      } else if (handoffTarget === "faq-generator") {
+        const payload = buildFaqGeneratorPayload(draft);
+        storeLocalSeoToFaqGeneratorSeedHandoff(payload);
+        window.location.assign("/apps/faq-generator");
+      } else if (handoffTarget === "ai-help-desk") {
+        const payload = buildHelpDeskSuggestionPayload(draft);
+        storeLocalSeoToHelpDeskFaqSuggestionHandoff(payload);
+        window.location.assign("/apps/ai-help-desk");
+      }
+    } catch (error) {
+      console.error("Failed to prepare handoff:", error);
+      showToast("Failed to prepare handoff. Please try again.");
+    } finally {
+      closeHandoffModal();
+    }
   };
 
   // Draft status chip (Tier 5A)
@@ -1473,6 +1541,216 @@ export default function LocalSeoPageBuilderClient({
           activeSchemaJsonLd={activeSchemaJsonLd}
         />
       </OBDPanel>
+
+      {/* Next Steps (Tier 5C): user-initiated draft-only handoffs */}
+      <OBDPanel isDark={isDark} className="mt-7 sm:mt-8">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <OBDHeading level={2} isDark={isDark}>
+            Next Steps
+          </OBDHeading>
+          <p className={`text-xs ${themeClasses.mutedText}`}>
+            Send your draft content to other OBD tools. Nothing is applied automatically.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => openHandoffModal("content-writer")}
+            disabled={!canSendPageCopy}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              isDark
+                ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+            title={
+              canSendPageCopy
+                ? "Send draft page copy to AI Content Writer"
+                : "Add or generate page copy first"
+            }
+          >
+            Send Page Copy → AI Content Writer
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openHandoffModal("faq-generator")}
+            disabled={!canSendFaqSeedQuestions}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              isDark
+                ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+            title={
+              canSendFaqSeedQuestions
+                ? "Send draft FAQs as seed questions to AI FAQ Generator"
+                : "Add or generate FAQs first"
+            }
+          >
+            Send FAQs → AI FAQ Generator
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openHandoffModal("ai-help-desk")}
+            disabled={!canSuggestHelpDeskQa}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              isDark
+                ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            }`}
+            title={
+              canSuggestHelpDeskQa
+                ? "Suggest draft Q&A items to AI Help Desk"
+                : "Add or generate FAQs with answers first"
+            }
+          >
+            Suggest Q&amp;A → AI Help Desk
+          </button>
+        </div>
+
+        <p className={`text-xs mt-3 ${themeClasses.mutedText}`}>
+          Draft only. We store a handoff payload in your browser for about{" "}
+          {Math.round(LOCAL_SEO_HANDOFF_TTL_MS / 60000)} minutes.
+        </p>
+      </OBDPanel>
+
+      {/* Tier 5C confirmation modal */}
+      {handoffTarget && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 z-50"
+            onClick={closeHandoffModal}
+            aria-hidden="true"
+          />
+
+          {/* Modal */}
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl shadow-xl pointer-events-auto ${
+                isDark
+                  ? "bg-slate-800 border border-slate-700"
+                  : "bg-white border border-slate-200"
+              }`}
+            >
+              {/* Header */}
+              <div
+                className={`sticky top-0 px-6 py-4 border-b ${
+                  isDark
+                    ? "border-slate-700 bg-slate-800"
+                    : "border-slate-200 bg-white"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h3
+                    className={`text-lg font-semibold ${
+                      isDark ? "text-white" : "text-slate-900"
+                    }`}
+                  >
+                    Confirm draft-only handoff
+                  </h3>
+                  <button
+                    onClick={closeHandoffModal}
+                    className={`text-2xl leading-none ${
+                      isDark
+                        ? "text-slate-400 hover:text-slate-200"
+                        : "text-slate-400 hover:text-slate-600"
+                    }`}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="px-6 py-4 space-y-4">
+                <div
+                  className={`rounded-lg p-3 text-sm border ${
+                    isDark
+                      ? "bg-blue-900/20 border-blue-800/50 text-blue-100"
+                      : "bg-blue-50 border-blue-200 text-blue-900"
+                  }`}
+                >
+                  <div className="font-semibold">Draft only</div>
+                  <div className={`text-xs mt-1 ${isDark ? "text-blue-200/80" : "text-blue-800"}`}>
+                    Nothing is applied automatically. You’ll review and decide what to use in the destination app.
+                  </div>
+                </div>
+
+                <div className={`text-sm ${isDark ? "text-slate-200" : "text-slate-700"}`}>
+                  {handoffTarget === "content-writer" ? (
+                    <>
+                      <div className="font-semibold mb-1">
+                        Send Page Copy → AI Content Writer
+                      </div>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Saves your active page copy (edited wins) as a draft payload.</li>
+                        <li>Opens AI Content Writer so you can reuse/edit it.</li>
+                      </ul>
+                    </>
+                  ) : handoffTarget === "faq-generator" ? (
+                    <>
+                      <div className="font-semibold mb-1">
+                        Send FAQs → AI FAQ Generator
+                      </div>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Sends your active FAQ questions as seed questions.</li>
+                        <li>Opens AI FAQ Generator so you can generate variants and refine.</li>
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-semibold mb-1">
+                        Suggest Q&amp;A → AI Help Desk
+                      </div>
+                      <ul className="list-disc list-inside space-y-1 text-sm">
+                        <li>Sends your active FAQ Q&amp;A pairs as a suggestion.</li>
+                        <li>Opens AI Help Desk where you can choose what to import.</li>
+                      </ul>
+                    </>
+                  )}
+                </div>
+
+                <p className={`text-xs ${themeClasses.mutedText}`}>
+                  This stores the draft payload in your browser session for about{" "}
+                  {Math.round(LOCAL_SEO_HANDOFF_TTL_MS / 60000)} minutes.
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div
+                className={`sticky bottom-0 px-6 py-4 border-t flex gap-3 justify-end ${
+                  isDark
+                    ? "border-slate-700 bg-slate-800"
+                    : "border-slate-200 bg-white"
+                }`}
+              >
+                <button
+                  onClick={closeHandoffModal}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    isDark
+                      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmHandoff}
+                  className={SUBMIT_BUTTON_CLASSES}
+                >
+                  Confirm &amp; Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Results (Tier 5A parity) */}
       <OBDResultsPanel

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Local SEO Page Builder — Tier 5C (2026-01-15)**
+  - Draft-only Next Steps handoffs (with confirmation) to AI Content Writer, AI FAQ Generator, and AI Help Desk.
+  - SessionStorage handoff transport using per-destination keys (`obd:handoff:local-seo-page-builder:<app>:v1`) with TTL enforced via `createdAt/expiresAt` + `store*/read*/clear*` helpers.
+  - Disabled-until-ready behavior + confirm modal; cancel has no side effects.
+
 - **Local Hiring Assistant — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-14)**
   - **Tier 5B — Canonical + Determinism**
     - Canonical `JobPostItem` model + selectors (single source of truth for outputs)
@@ -48,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Variations clamped to 3–8 across UI + API, with `countUsed` reflected in the UI
     - Apply-only enforcement + tenant mismatch guards for handoff receivers (draft-only; no auto-save)
   - **Refs**: `0bd6267`, `e618336`, `4e51194`, `6ca316e`, `c76303e`, `93fe560`, `9c7f49a`, `ae5ca58`, `e0211d4`, `8053cb5`, `ab97e5b`, `b74de83`, `9281360`
+
+- **Ecosystem**
+  - Hardened Tier 5C handoff guard labels (labels only) in FAQ import banners (AI Content Writer, AI Help Desk).
 
 - **Demo Mode — Complete Implementation (2026-01-06)**
   - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit

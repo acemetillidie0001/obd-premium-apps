@@ -100,6 +100,7 @@ export default function LogoGeneratorClient({
   const [renamingLogoId, setRenamingLogoId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const skipNextRenameBlurRef = useRef(false);
 
   // Preview lightbox state
   const [preview, setPreview] = useState<{
@@ -482,6 +483,7 @@ export default function LogoGeneratorClient({
   };
 
   const startRename = (logoId: string, currentName: string) => {
+    skipNextRenameBlurRef.current = false;
     setRenamingLogoId(logoId);
     setRenameDraft(currentName);
   };
@@ -678,8 +680,8 @@ export default function LogoGeneratorClient({
 
       setBulkExportProgress({ current: 0, total: items.length });
 
-      // Concurrency <= 3 to reduce browser throttling / download blocking.
-      const concurrency = Math.min(3, Math.max(1, items.length));
+      // Concurrency <= 2 to reduce browser throttling / download blocking.
+      const concurrency = Math.min(2, Math.max(1, items.length));
       let nextIndex = 0;
       let successCount = 0;
 
@@ -1631,14 +1633,26 @@ export default function LogoGeneratorClient({
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();
+                                  // If we are going to close the editor (non-empty name), ignore the unmount blur.
+                                  if (renameDraft.trim()) {
+                                    skipNextRenameBlurRef.current = true;
+                                  }
                                   commitRename(logoId, defaultMeta);
                                 }
                                 if (e.key === "Escape") {
                                   e.preventDefault();
+                                  // Escape cancels (and the input unmount will trigger blur).
+                                  skipNextRenameBlurRef.current = true;
                                   cancelRename();
                                 }
                               }}
-                              onBlur={() => commitRename(logoId, defaultMeta)}
+                              onBlur={() => {
+                                if (skipNextRenameBlurRef.current) {
+                                  skipNextRenameBlurRef.current = false;
+                                  return;
+                                }
+                                commitRename(logoId, defaultMeta);
+                              }}
                               className={`w-full text-sm font-semibold rounded-md px-2 py-1 border ${
                                 isDark
                                   ? "bg-slate-900 border-slate-600 text-slate-100"

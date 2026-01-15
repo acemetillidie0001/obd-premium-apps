@@ -19,6 +19,17 @@ import {
   SchemaGeneratorRequest,
   SchemaGeneratorResponse,
 } from "./types";
+import {
+  type SchemaDraft,
+  applyEditedSchema,
+  applyGeneratedSchema,
+  createSchemaDraft,
+  getActiveSchemaJson,
+  getDraftStatus,
+  normalizeJsonString,
+  resetToGenerated,
+  safeJsonParse,
+} from "./schemaDraft";
 import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload, parseContentWriterSchemaHandoff, type ContentWriterSchemaHandoff } from "@/lib/apps/business-schema-generator/handoff-parser";
 import FAQImportBanner from "./components/FAQImportBanner";
 import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
@@ -105,6 +116,8 @@ function BusinessSchemaGeneratorPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SchemaGeneratorResponse | null>(null);
+  // Tier 5B: canonical, deterministic schema draft state (Generated vs Edited).
+  const [draft, setDraft] = useState<SchemaDraft>(() => createSchemaDraft());
   const [useBrandProfile, setUseBrandProfile] = useState(true);
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
   const [autoFilledFields, setAutoFilledFields] = useState<Set<string>>(new Set());
@@ -125,7 +138,59 @@ function BusinessSchemaGeneratorPageContent() {
   const [showContentWriterSchemaBanner, setShowContentWriterSchemaBanner] = useState(false);
   const [showContentWriterSchemaModal, setShowContentWriterSchemaModal] = useState(false);
 
+  // Tier 5B: inline JSON-LD editor state
+  const [isEditingJsonLd, setIsEditingJsonLd] = useState(false);
+  const [jsonLdEditorText, setJsonLdEditorText] = useState("");
+  const [jsonLdEditorError, setJsonLdEditorError] = useState<string | null>(null);
+
   const formRef = useRef<HTMLFormElement | null>(null);
+
+  // Tier 5B: minimal session persistence (ephemeral; survives refresh in the same tab)
+  const businessIdFromQuery = searchParams?.get("businessId") || null;
+  const schemaDraftStorageKey = useMemo(() => {
+    const suffix = businessIdFromQuery || draft.id || "unknown";
+    return `obd:schemaDraft:${suffix}`;
+  }, [businessIdFromQuery, draft.id]);
+
+  function isValidSchemaDraft(value: unknown): value is SchemaDraft {
+    if (!value || typeof value !== "object") return false;
+    const v = value as SchemaDraft;
+    return (
+      typeof v.id === "string" &&
+      (typeof v.generatedJsonld === "string" || v.generatedJsonld === null) &&
+      (typeof v.editedJsonld === "string" || v.editedJsonld === null) &&
+      (typeof v.lastGeneratedAt === "string" || v.lastGeneratedAt === null) &&
+      (typeof v.lastEditedAt === "string" || v.lastEditedAt === null)
+    );
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = sessionStorage.getItem(schemaDraftStorageKey);
+      if (!raw) return;
+      const parsed = safeJsonParse(raw);
+      if (parsed && isValidSchemaDraft(parsed)) {
+        setDraft(parsed);
+        // Always return to a safe view-only state on refresh/restore
+        setIsEditingJsonLd(false);
+        setJsonLdEditorError(null);
+        setJsonLdEditorText(getActiveSchemaJson(parsed));
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaDraftStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(schemaDraftStorageKey, JSON.stringify(draft));
+    } catch {
+      // ignore
+    }
+  }, [schemaDraftStorageKey, draft]);
 
   // Tier 5A: accordion-based inputs (UI scaffold only)
   const [accordionState, setAccordionState] = useState({
@@ -442,6 +507,16 @@ function BusinessSchemaGeneratorPageContent() {
 
       if (response.ok && response.data) {
         setResult(response);
+        // Tier 5B: update generated schema only; preserve any user edits (Edited > Generated).
+        // NOTE: The generator's canonical combined bundle is `response.data.combinedJsonLd`.
+        setDraft((prev) => {
+          const nextGenerated = buildCombinedJsonLdWithImportedFaq(
+            response.data!.combinedJsonLd,
+            importedFaqJsonLd
+          );
+          if (!nextGenerated) return prev;
+          return applyGeneratedSchema(prev, normalizeJsonString(nextGenerated));
+        });
         setTimeout(() => {
           const resultsElement = document.getElementById("schema-results");
           if (resultsElement) {
@@ -474,11 +549,49 @@ function BusinessSchemaGeneratorPageContent() {
     formRef.current?.requestSubmit();
   };
 
+  const buildCombinedJsonLdWithImportedFaq = (
+    baseCombinedJsonLd: string | null,
+    nextImportedFaqJsonLd: string | null
+  ): string | null => {
+    if (!baseCombinedJsonLd) {
+      if (!nextImportedFaqJsonLd) return null;
+      const importedFaq = safeJsonParse(nextImportedFaqJsonLd);
+      if (!importedFaq) return null;
+      return JSON.stringify(
+        { "@context": "https://schema.org", "@graph": [importedFaq] },
+        null,
+        2
+      );
+    }
+
+    if (!nextImportedFaqJsonLd) return baseCombinedJsonLd;
+
+    const combined = safeJsonParse<Record<string, unknown>>(baseCombinedJsonLd);
+    const importedFaq = safeJsonParse(nextImportedFaqJsonLd);
+    if (!combined || !importedFaq) return baseCombinedJsonLd;
+
+    const graph = combined["@graph"];
+    if (Array.isArray(graph)) {
+      graph.push(importedFaq);
+      return JSON.stringify(combined, null, 2);
+    }
+
+    const existing = { ...combined };
+    delete (existing as Record<string, unknown>)["@context"];
+
+    const nextCombined: Record<string, unknown> = { ...combined };
+    nextCombined["@graph"] = [existing, importedFaq];
+    if ("@type" in nextCombined) {
+      delete nextCombined["@type"];
+    }
+    return JSON.stringify(nextCombined, null, 2);
+  };
+
   const handleExportJson = () => {
-    const combinedJsonLd = getCombinedJsonLd() || result?.data?.combinedJsonLd;
-    if (!combinedJsonLd) return;
+    const activeJsonLd = getActiveSchemaJson(draft);
+    if (!activeJsonLd.trim()) return;
     try {
-      const jsonObj = JSON.parse(combinedJsonLd);
+      const jsonObj = JSON.parse(activeJsonLd);
       const json = JSON.stringify(jsonObj, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -495,9 +608,9 @@ function BusinessSchemaGeneratorPageContent() {
   };
 
   const handleExportTxt = () => {
-    const combinedJsonLd = getCombinedJsonLd() || result?.data?.combinedJsonLd;
-    if (!combinedJsonLd) return;
-    const text = combinedJsonLd;
+    const activeJsonLd = getActiveSchemaJson(draft);
+    if (!activeJsonLd.trim()) return;
+    const text = activeJsonLd;
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -520,6 +633,16 @@ function BusinessSchemaGeneratorPageContent() {
 
     // Store the imported FAQ JSON-LD
     setImportedFaqJsonLd(handoffPayload.jsonLd);
+
+    // Keep the canonical generated bundle in sync (so reset-to-generated includes the imported FAQ)
+    setDraft((prev) => {
+      const nextGenerated = buildCombinedJsonLdWithImportedFaq(
+        result?.data?.combinedJsonLd ?? null,
+        handoffPayload.jsonLd
+      );
+      if (!nextGenerated) return prev;
+      return applyGeneratedSchema(prev, normalizeJsonString(nextGenerated));
+    });
 
     // Mark handoff as imported
     markHandoffImported("business-schema-generator", handoffHash);
@@ -751,78 +874,74 @@ function BusinessSchemaGeneratorPageContent() {
     }, 100);
   };
 
-  // Build combined JSON-LD including imported FAQ
-  const getCombinedJsonLd = (): string | null => {
-    if (!result?.data) {
-      // If no result yet but we have imported FAQ, return just the FAQ wrapped in @graph
-      if (importedFaqJsonLd) {
-        try {
-          const importedFaq = JSON.parse(importedFaqJsonLd);
-          const combined = {
-            "@context": "https://schema.org",
-            "@graph": [importedFaq],
-          };
-          return JSON.stringify(combined, null, 2);
-        } catch (error) {
-          console.error("Failed to wrap imported FAQ:", error);
-          return null;
-        }
-      }
-      return null;
-    }
+  const activeSchemaJsonLd = useMemo(() => {
+    return getActiveSchemaJson(draft);
+  }, [draft]);
 
-    try {
-      // Parse the existing combined JSON-LD
-      const combined = JSON.parse(result.data.combinedJsonLd);
-      
-      // If there's an imported FAQ, add it to the graph
-      if (importedFaqJsonLd) {
-        const importedFaq = JSON.parse(importedFaqJsonLd);
-        
-        // If combined has @graph, add to it; otherwise create @graph
-        if (combined["@graph"] && Array.isArray(combined["@graph"])) {
-          // Check if FAQPage already exists in graph
-          const hasExistingFaq = combined["@graph"].some(
-            (item: unknown) =>
-              typeof item === "object" &&
-              item !== null &&
-              "@type" in item &&
-              item["@type"] === "FAQPage"
-          );
-          
-          // Always add (don't overwrite) - add as second FAQPage if one exists
-          combined["@graph"].push(importedFaq);
-        } else {
-          // Convert single object to graph array
-          const existing = { ...combined };
-          delete existing["@context"];
-          combined["@graph"] = [existing, importedFaq];
-          if ("@type" in combined) {
-            delete combined["@type"];
-          }
-        }
-      }
+  const draftStatus = useMemo(() => getDraftStatus(draft), [draft]);
+  const isEdited = draftStatus === "edited";
+  const canExport = Boolean(activeSchemaJsonLd.trim());
 
-      return JSON.stringify(combined, null, 2);
-    } catch (error) {
-      console.error("Failed to combine JSON-LD:", error);
-      return result.data.combinedJsonLd;
-    }
+  const handleStartEditingJsonLd = () => {
+    const seed = activeSchemaJsonLd || draft.generatedJsonld || "";
+    setJsonLdEditorText(seed);
+    setJsonLdEditorError(null);
+    setIsEditingJsonLd(true);
   };
 
-  const combinedJsonLdForExport = useMemo(() => {
-    return getCombinedJsonLd() || result?.data?.combinedJsonLd || null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, importedFaqJsonLd]);
+  const handleCancelEditingJsonLd = () => {
+    // Revert the buffer back to the current active schema and exit edit mode
+    setJsonLdEditorText(getActiveSchemaJson(draft));
+    setIsEditingJsonLd(false);
+    setJsonLdEditorError(null);
+  };
 
-  const canExport = Boolean(combinedJsonLdForExport);
+  const handleSaveEditingJsonLd = () => {
+    setJsonLdEditorError(null);
+    const parsed = safeJsonParse(jsonLdEditorText);
+    if (parsed === null) {
+      setJsonLdEditorError("Invalid JSON. Please fix the syntax before saving.");
+      return;
+    }
+    // Must be an object or array (not string/number/boolean/null)
+    if (typeof parsed !== "object" || parsed === null) {
+      setJsonLdEditorError("JSON must be an object or array (not a string/number).");
+      return;
+    }
+    const pretty = normalizeJsonString(jsonLdEditorText);
+    setDraft((prev) => applyEditedSchema(prev, pretty));
+    setIsEditingJsonLd(false);
+  };
+
+  const handleResetToGenerated = () => {
+    if (!isEdited) return;
+    const ok =
+      typeof window === "undefined"
+        ? true
+        : window.confirm("Discard your saved JSON-LD edits and revert to the generated schema?");
+    if (!ok) return;
+    setDraft((prev) => resetToGenerated(prev));
+    setIsEditingJsonLd(false);
+    setJsonLdEditorError(null);
+  };
+
+  const handleResetAllEdits = () => {
+    if (!isEdited) return;
+    const ok =
+      typeof window === "undefined"
+        ? true
+        : window.confirm("Reset ALL saved edits in this tool? This will not change the generator output.");
+    if (!ok) return;
+    setDraft((prev) => resetToGenerated(prev));
+    setIsEditingJsonLd(false);
+    setJsonLdEditorError(null);
+  };
 
   const status = useMemo(() => {
-    // Tier 5A requirement for this step: Draft (no output) / Generated (has output).
-    // Do not invent "Edited" state unless the app already tracks it.
-    if (result?.data) return { label: "Generated", tone: "success" as const };
+    if (draftStatus === "edited") return { label: "Edited", tone: "info" as const };
+    if (draftStatus === "generated") return { label: "Generated", tone: "success" as const };
     return { label: "Draft", tone: "neutral" as const };
-  }, [result]);
+  }, [draftStatus]);
 
   const statusChip = (
     <span
@@ -831,6 +950,10 @@ function BusinessSchemaGeneratorPageContent() {
           ? isDark
             ? "bg-green-500/20 text-green-400 border-green-500"
             : "bg-green-50 text-green-700 border-green-300"
+          : status.tone === "info"
+          ? isDark
+            ? "bg-teal-500/20 text-teal-300 border-teal-500"
+            : "bg-teal-50 text-teal-700 border-teal-300"
           : isDark
           ? "bg-slate-500/20 text-slate-300 border-slate-500"
           : "bg-slate-50 text-slate-700 border-slate-300"
@@ -1643,28 +1766,30 @@ function BusinessSchemaGeneratorPageContent() {
         </OBDPanel>
 
       {/* Results */}
-      {result?.data && (
+      {(result?.data || activeSchemaJsonLd) && (
         <div id="schema-results" className="mt-8">
           <OBDHeading level={2} isDark={isDark} className="mb-6">
-            Generated Schema
+            Schema Draft
           </OBDHeading>
 
           <div className="space-y-6">
             {/* LocalBusiness JSON-LD */}
-            <ResultCard
-              title="LocalBusiness JSON-LD"
-              isDark={isDark}
-              copyText={result.data.localBusinessJsonLd}
-            >
-              <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
-                isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
-              }`}>
-                <code>{result.data.localBusinessJsonLd}</code>
-              </pre>
-            </ResultCard>
+            {result?.data?.localBusinessJsonLd && (
+              <ResultCard
+                title="LocalBusiness JSON-LD"
+                isDark={isDark}
+                copyText={result.data.localBusinessJsonLd}
+              >
+                <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
+                  isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
+                }`}>
+                  <code>{result.data.localBusinessJsonLd}</code>
+                </pre>
+              </ResultCard>
+            )}
 
             {/* FAQPage JSON-LD (from form) */}
-            {result.data.faqJsonLd && (
+            {result?.data?.faqJsonLd && (
               <ResultCard
                 title="FAQPage JSON-LD"
                 isDark={isDark}
@@ -1701,7 +1826,7 @@ function BusinessSchemaGeneratorPageContent() {
             )}
 
             {/* WebPage JSON-LD */}
-            {result.data.webPageJsonLd && (
+            {result?.data?.webPageJsonLd && (
               <ResultCard
                 title="WebPage JSON-LD"
                 isDark={isDark}
@@ -1719,38 +1844,202 @@ function BusinessSchemaGeneratorPageContent() {
             <ResultCard
               title="Full Schema Bundle (Recommended)"
               isDark={isDark}
-              copyText={getCombinedJsonLd() || result.data.combinedJsonLd}
+              copyText={activeSchemaJsonLd || undefined}
             >
               <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
                 Paste this into your website or SEO plugin. This includes everything above.
               </p>
-              <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
-                isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
-              }`}>
-                <code>{getCombinedJsonLd() || result.data.combinedJsonLd}</code>
-              </pre>
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={handleExportJson}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                    isDark
-                      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                  }`}
-                >
-                  Export .json
-                </button>
-                <button
-                  onClick={handleExportTxt}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                    isDark
-                      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                  }`}
-                >
-                  Export .txt
-                </button>
+
+              <div className="flex items-center justify-between mb-2">
+                <div className={`text-xs ${themeClasses.mutedText}`}>
+                  {draft.lastGeneratedAt && (
+                    <span>Generated: {new Date(draft.lastGeneratedAt).toLocaleString()}</span>
+                  )}
+                  {draft.lastEditedAt && (
+                    <span className="ml-3">Edited: {new Date(draft.lastEditedAt).toLocaleString()}</span>
+                  )}
+                </div>
+                {isEdited && (
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full border ${
+                      isDark
+                        ? "bg-teal-900/30 text-teal-200 border-teal-700/50"
+                        : "bg-teal-50 text-teal-700 border-teal-200"
+                    }`}
+                  >
+                    Edited
+                  </span>
+                )}
               </div>
+
+              {isEditingJsonLd ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={jsonLdEditorText}
+                    onChange={(e) => setJsonLdEditorText(e.target.value)}
+                    rows={16}
+                    className={getInputClasses(isDark, "font-mono text-xs")}
+                    placeholder={`{\n  "@context": "https://schema.org",\n  "@graph": []\n}`}
+                  />
+                  {jsonLdEditorError && (
+                    <div
+                      className={`text-xs p-2 rounded border ${
+                        isDark
+                          ? "bg-red-900/20 border-red-700/50 text-red-200"
+                          : "bg-red-50 border-red-200 text-red-800"
+                      }`}
+                    >
+                      {jsonLdEditorError}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveEditingJsonLd}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        isDark
+                          ? "bg-teal-600 text-white hover:bg-teal-500"
+                          : "bg-teal-600 text-white hover:bg-teal-500"
+                      }`}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelEditingJsonLd}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isEdited}
+                      onClick={handleResetToGenerated}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !isEdited
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Reset to generated
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isEdited}
+                      onClick={handleResetAllEdits}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !isEdited
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Reset all edits
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
+                    isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
+                  }`}>
+                    <code>{activeSchemaJsonLd || ""}</code>
+                  </pre>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleStartEditingJsonLd}
+                      disabled={!activeSchemaJsonLd}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !activeSchemaJsonLd
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Edit JSON-LD
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isEdited}
+                      onClick={handleResetToGenerated}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !isEdited
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Reset to generated
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!isEdited}
+                      onClick={handleResetAllEdits}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !isEdited
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Reset all edits
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canExport}
+                      onClick={handleExportJson}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !canExport
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Export .json
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canExport}
+                      onClick={handleExportTxt}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                        !canExport
+                          ? isDark
+                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : isDark
+                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      }`}
+                    >
+                      Export .txt
+                    </button>
+                  </div>
+                </>
+              )}
             </ResultCard>
           </div>
 
@@ -1795,13 +2084,18 @@ function BusinessSchemaGeneratorPageContent() {
         </button>
         <button
           type="button"
-          disabled={true}
+          disabled={!isEdited}
+          onClick={handleResetAllEdits}
           className={`text-sm px-4 py-2 rounded-lg border transition-colors ${
-            isDark
-              ? "border-slate-700 text-slate-500 cursor-not-allowed"
-              : "border-slate-200 text-slate-400 cursor-not-allowed"
+            !isEdited
+              ? isDark
+                ? "border-slate-700 text-slate-500 cursor-not-allowed"
+                : "border-slate-200 text-slate-400 cursor-not-allowed"
+              : isDark
+              ? "border-slate-600 text-slate-200 hover:bg-slate-800"
+              : "border-slate-300 text-slate-700 hover:bg-slate-50"
           }`}
-          title="Reset isn’t available yet in this tool."
+          title={isEdited ? "Reset all saved edits" : "No edits to reset"}
         >
           Reset
         </button>

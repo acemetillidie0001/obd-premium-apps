@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Business Schema Generator — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-15)**
+  - **Tier 5A — UX scaffold**
+    - Accordion input sections + sticky action bar with Draft/Generated/Edited status chip.
+    - Draft-only trust microcopy (“Nothing is published, injected, or installed automatically.”).
+  - **Tier 5B — Canonical + determinism**
+    - Canonical `SchemaDraft` model with strict Edited > Generated semantics and inline JSON-LD editing (invalid JSON blocked; last valid preserved).
+    - Regenerate updates generated layer only (never wipes edits); reset-to-generated clears edits only.
+  - **Tier 5B+ — Export Center**
+    - Export readiness checks (blockers block) + warning-only guidance.
+    - Export formats: Raw JSON-LD, Pretty JSON, HTML `<script type="application/ld+json">`, plus deterministic section exports when identifiable nodes exist.
+  - **Tier 5C — Safe inbound handoff receiver**
+    - SessionStorage receiver with TTL, explicit Apply/Dismiss, strict tenant guards, and additive non-overwriting merges that persist across regenerate.
+
 - **Local SEO Page Builder — Tier 5C (2026-01-15)**
   - Draft-only Next Steps handoffs (with confirmation) to AI Content Writer, AI FAQ Generator, and AI Help Desk.
   - SessionStorage handoff transport using per-destination keys (`obd:handoff:local-seo-page-builder:<app>:v1`) with TTL enforced via `createdAt/expiresAt` + `store*/read*/clear*` helpers.
@@ -56,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Ecosystem**
   - Hardened Tier 5C handoff guard labels (labels only) in FAQ import banners (AI Content Writer, AI Help Desk).
+
+### Fixed
+
+- Security: removed `DATABASE_URL` debug logging from Brand Profile API to prevent credential leakage.
 
 - **Demo Mode — Complete Implementation (2026-01-06)**
   - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit

@@ -39,6 +39,10 @@ import {
   hasEdits,
 } from "./draft";
 import { createInitialDraft, draftReducer } from "./draft-reducer";
+import PageCopyEditor from "./editors/PageCopyEditor";
+import SeoPackEditor from "./editors/SeoPackEditor";
+import FaqsEditor from "./editors/FaqsEditor";
+import PageSectionsEditor from "./editors/PageSectionsEditor";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
 
@@ -1457,48 +1461,14 @@ export default function LocalSeoPageBuilderClient({
 
             <div className="grid grid-cols-1 gap-4">
               <ResultCard title="SEO Pack" isDark={isDark}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <p
-                      className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                        isDark ? "text-slate-400" : "text-slate-500"
-                      }`}
-                    >
-                      Meta Title
-                    </p>
-                    <p className="font-semibold">{activeSeoPack?.metaTitle}</p>
-                  </div>
-                  <div>
-                    <p
-                      className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                        isDark ? "text-slate-400" : "text-slate-500"
-                      }`}
-                    >
-                      Meta Description
-                    </p>
-                    <p className="text-sm">{activeSeoPack?.metaDescription}</p>
-                  </div>
-                  <div>
-                    <p
-                      className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                        isDark ? "text-slate-400" : "text-slate-500"
-                      }`}
-                    >
-                      Slug
-                    </p>
-                    <p className="font-mono text-sm">{activeSeoPack?.slug}</p>
-                  </div>
-                  <div>
-                    <p
-                      className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                        isDark ? "text-slate-400" : "text-slate-500"
-                      }`}
-                    >
-                      H1
-                    </p>
-                    <p className="font-semibold text-lg">{activeSeoPack?.h1}</p>
-                  </div>
-                </div>
+                <SeoPackEditor
+                  isDark={isDark}
+                  activeSeoPack={activeSeoPack}
+                  generatedSeoPack={result?.seoPack}
+                  isEdited={draft.edits.seoPack !== undefined}
+                  onSave={(next) => dispatch({ type: "APPLY_EDIT", key: "seoPack", value: next })}
+                  onReset={() => dispatch({ type: "RESET_SECTION", key: "seoPack" })}
+                />
               </ResultCard>
 
               {copyMode === "Combined" ? (
@@ -1507,35 +1477,39 @@ export default function LocalSeoPageBuilderClient({
                   isDark={isDark}
                   copyText={currentPageCopy}
                 >
-                  {form.outputFormat === "HTML" ? (
-                    <div className="overflow-x-auto">
-                      <pre className="text-xs p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700 whitespace-pre-wrap">
-                        <code>{currentPageCopy}</code>
-                      </pre>
-                    </div>
-                  ) : (
-                    <div className="whitespace-pre-wrap">{currentPageCopy}</div>
-                  )}
+                  <PageCopyEditor
+                    isDark={isDark}
+                    activeValue={activePageCopy}
+                    generatedValue={result?.pageCopy ?? null}
+                    isEdited={draft.edits.pageCopy !== undefined}
+                    onSave={(next) => dispatch({ type: "APPLY_EDIT", key: "pageCopy", value: next })}
+                    onReset={() => dispatch({ type: "RESET_SECTION", key: "pageCopy" })}
+                  />
                 </ResultCard>
               ) : (
-                activePageSections && (
-                  <ResultCard
-                    title="Section Cards"
+                <ResultCard
+                  title="Page Sections"
+                  isDark={isDark}
+                  copyText={activePageSections ? [
+                    activePageSections.hero,
+                    activePageSections.intro,
+                    activePageSections.services,
+                    activePageSections.whyChooseUs,
+                    activePageSections.areasServed,
+                    activePageSections.closingCta,
+                  ].join("\n\n") : undefined}
+                >
+                  <PageSectionsEditor
                     isDark={isDark}
-                    copyText={[
-                      activePageSections.hero,
-                      activePageSections.intro,
-                      activePageSections.services,
-                      activePageSections.whyChooseUs,
-                      activePageSections.areasServed,
-                      activePageSections.closingCta,
-                    ].join("\n\n")}
-                  >
-                    <p className={`text-sm ${themeClasses.mutedText}`}>
-                      Switch Copy Mode to “Combined” to see a single full-page block.
-                    </p>
-                  </ResultCard>
-                )
+                    activeSections={activePageSections}
+                    generatedSections={result?.pageSections}
+                    isEdited={draft.edits.pageSections !== undefined}
+                    onSave={(next) =>
+                      dispatch({ type: "APPLY_EDIT", key: "pageSections", value: next })
+                    }
+                    onReset={() => dispatch({ type: "RESET_SECTION", key: "pageSections" })}
+                  />
+                </ResultCard>
               )}
 
               <ResultCard
@@ -1545,17 +1519,14 @@ export default function LocalSeoPageBuilderClient({
                   .map((faq, i) => `Q${i + 1}: ${faq.question}\nA${i + 1}: ${faq.answer}`)
                   .join("\n\n")}
               >
-                <div className="space-y-4">
-                  {activeFaqs.map((faq, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 rounded border border-slate-300 dark:border-slate-600"
-                    >
-                      <p className="font-semibold mb-2">Q: {faq.question}</p>
-                      <p className="text-sm">{faq.answer}</p>
-                    </div>
-                  ))}
-                </div>
+                <FaqsEditor
+                  isDark={isDark}
+                  activeFaqs={activeFaqs}
+                  generatedFaqs={result?.faqs ?? null}
+                  isEdited={draft.edits.faqs !== undefined}
+                  onSave={(next) => dispatch({ type: "APPLY_EDIT", key: "faqs", value: next })}
+                  onReset={() => dispatch({ type: "RESET_SECTION", key: "faqs" })}
+                />
               </ResultCard>
 
               {activeSchemaJsonLd ? (

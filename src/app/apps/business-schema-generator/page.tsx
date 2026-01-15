@@ -30,6 +30,8 @@ import {
   resetToGenerated,
   safeJsonParse,
 } from "./schemaDraft";
+import ExportCenter from "./ExportCenter.tsx";
+import { getExportIssues } from "./exportCenter";
 import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload, parseContentWriterSchemaHandoff, type ContentWriterSchemaHandoff } from "@/lib/apps/business-schema-generator/handoff-parser";
 import FAQImportBanner from "./components/FAQImportBanner";
 import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
@@ -588,38 +590,10 @@ function BusinessSchemaGeneratorPageContent() {
   };
 
   const handleExportJson = () => {
-    const activeJsonLd = getActiveSchemaJson(draft);
-    if (!activeJsonLd.trim()) return;
-    try {
-      const jsonObj = JSON.parse(activeJsonLd);
-      const json = JSON.stringify(jsonObj, null, 2);
-      const blob = new Blob([json], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `business-schema-bundle.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Failed to export JSON:", err);
-    }
-  };
-
-  const handleExportTxt = () => {
-    const activeJsonLd = getActiveSchemaJson(draft);
-    if (!activeJsonLd.trim()) return;
-    const text = activeJsonLd;
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `business-schema-bundle.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Tier 5C: Export is centralized in the Export Center UI (no auto-publish/inject).
+    const el = document.getElementById("export-center");
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // Handle FAQ import insert
@@ -874,16 +848,15 @@ function BusinessSchemaGeneratorPageContent() {
     }, 100);
   };
 
-  const activeSchemaJsonLd = useMemo(() => {
-    return getActiveSchemaJson(draft);
-  }, [draft]);
+  const activeJson = useMemo(() => getActiveSchemaJson(draft), [draft]);
+  const issues = useMemo(() => getExportIssues(activeJson), [activeJson]);
 
   const draftStatus = useMemo(() => getDraftStatus(draft), [draft]);
   const isEdited = draftStatus === "edited";
-  const canExport = Boolean(activeSchemaJsonLd.trim());
+  const canExport = !issues.some((i) => i.level === "blocker");
 
   const handleStartEditingJsonLd = () => {
-    const seed = activeSchemaJsonLd || draft.generatedJsonld || "";
+    const seed = activeJson || draft.generatedJsonld || "";
     setJsonLdEditorText(seed);
     setJsonLdEditorError(null);
     setIsEditingJsonLd(true);
@@ -1766,7 +1739,7 @@ function BusinessSchemaGeneratorPageContent() {
         </OBDPanel>
 
       {/* Results */}
-      {(result?.data || activeSchemaJsonLd) && (
+      {(result?.data || activeJson) && (
         <div id="schema-results" className="mt-8">
           <OBDHeading level={2} isDark={isDark} className="mb-6">
             Schema Draft
@@ -1778,7 +1751,6 @@ function BusinessSchemaGeneratorPageContent() {
               <ResultCard
                 title="LocalBusiness JSON-LD"
                 isDark={isDark}
-                copyText={result.data.localBusinessJsonLd}
               >
                 <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
                   isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
@@ -1793,7 +1765,6 @@ function BusinessSchemaGeneratorPageContent() {
               <ResultCard
                 title="FAQPage JSON-LD"
                 isDark={isDark}
-                copyText={result.data.faqJsonLd}
               >
                 <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
                   isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
@@ -1808,7 +1779,6 @@ function BusinessSchemaGeneratorPageContent() {
               <ResultCard
                 title={`FAQPage JSON-LD ${handoffPayload?.title ? `(${handoffPayload.title})` : "(Imported)"}`}
                 isDark={isDark}
-                copyText={importedFaqJsonLd}
               >
                 <div className={`mb-2 text-xs px-2 py-1 rounded ${
                   isDark
@@ -1830,7 +1800,6 @@ function BusinessSchemaGeneratorPageContent() {
               <ResultCard
                 title="WebPage JSON-LD"
                 isDark={isDark}
-                copyText={result.data.webPageJsonLd}
               >
                 <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
                   isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
@@ -1844,7 +1813,6 @@ function BusinessSchemaGeneratorPageContent() {
             <ResultCard
               title="Full Schema Bundle (Recommended)"
               isDark={isDark}
-              copyText={activeSchemaJsonLd || undefined}
             >
               <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
                 Paste this into your website or SEO plugin. This includes everything above.
@@ -1954,15 +1922,15 @@ function BusinessSchemaGeneratorPageContent() {
                   <pre className={`text-xs overflow-x-auto p-4 rounded-lg ${
                     isDark ? "bg-slate-900 text-slate-100" : "bg-slate-100 text-slate-900"
                   }`}>
-                    <code>{activeSchemaJsonLd || ""}</code>
+                    <code>{activeJson || ""}</code>
                   </pre>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={handleStartEditingJsonLd}
-                      disabled={!activeSchemaJsonLd}
+                      disabled={!activeJson}
                       className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                        !activeSchemaJsonLd
+                        !activeJson
                           ? isDark
                             ? "bg-slate-800 text-slate-500 cursor-not-allowed"
                             : "bg-slate-100 text-slate-400 cursor-not-allowed"
@@ -2019,23 +1987,7 @@ function BusinessSchemaGeneratorPageContent() {
                           : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                       }`}
                     >
-                      Export .json
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canExport}
-                      onClick={handleExportTxt}
-                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                        !canExport
-                          ? isDark
-                            ? "bg-slate-800 text-slate-500 cursor-not-allowed"
-                            : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : isDark
-                          ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                          : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                      }`}
-                    >
-                      Export .txt
+                      Open Export Center
                     </button>
                   </div>
                 </>
@@ -2063,6 +2015,11 @@ function BusinessSchemaGeneratorPageContent() {
           </div>
         </div>
       )}
+      </div>
+
+      {/* Export Center (authoritative UI surface; always present so readiness is visible even before generation) */}
+      <div id="export-center">
+        <ExportCenter activeJson={activeJson} issues={issues} />
       </div>
 
       {/* Sticky Action Bar (Tier 5A) */}
@@ -2112,7 +2069,7 @@ function BusinessSchemaGeneratorPageContent() {
               ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
               : "bg-slate-200 text-slate-700 hover:bg-slate-300"
           }`}
-          title={canExport ? "Export schema bundle (.json)" : "Generate schema to enable export"}
+          title={canExport ? "Open Export Center" : "Fix export blockers to enable export"}
         >
           Export
         </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/obd-framework/layout-helpers";
 import {
   LocalSEOPageBuilderRequest,
-  LocalSEOPageBuilderResponse,
+  type LocalSEOPageBuilderResponse,
   OutputFormat,
   TargetAudience,
   TonePreset,
@@ -30,6 +30,15 @@ import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { type BrandProfile } from "@/lib/bdw";
 import LocalSeoAccordionSection from "./components/LocalSeoAccordionSection";
+import {
+  getActiveFaqs,
+  getActivePageCopy,
+  getActivePageSections,
+  getActiveSchemaJsonLd,
+  getActiveSeoPack,
+  hasEdits,
+} from "./draft";
+import { createInitialDraft, draftReducer } from "./draft-reducer";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
 
@@ -61,16 +70,9 @@ export default function LocalSeoPageBuilderClient({
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
 
-  const [form, setForm] = useState<LocalSEOPageBuilderRequest>(initialDefaults);
   const [secondaryServicesInput, setSecondaryServicesInput] = useState("");
   const [neighborhoodsInput, setNeighborhoodsInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<LocalSEOPageBuilderResponse | null>(null);
-  const [editedPageCopy, setEditedPageCopy] = useState<string | null>(null); // In-memory edits only
   const [undoStack, setUndoStack] = useState<string[]>([]); // 1-deep undo stack
-  const [lastPayload, setLastPayload] =
-    useState<LocalSEOPageBuilderRequest | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">(
@@ -84,6 +86,24 @@ export default function LocalSeoPageBuilderClient({
       return false;
     }
   });
+
+  const [draft, dispatch] = useReducer(
+    draftReducer,
+    initialDefaults,
+    createInitialDraft
+  );
+
+  const form = draft.sourceInputs.form;
+  const result = draft.generated;
+  const loading = draft.status === "generating";
+  const error = draft.error;
+  const lastPayload = draft.sourceInputs.lastPayload;
+
+  const activeSeoPack = useMemo(() => getActiveSeoPack(draft), [draft]);
+  const activePageCopy = useMemo(() => getActivePageCopy(draft), [draft]);
+  const activeFaqs = useMemo(() => getActiveFaqs(draft), [draft]);
+  const activePageSections = useMemo(() => getActivePageSections(draft), [draft]);
+  const activeSchemaJsonLd = useMemo(() => getActiveSchemaJsonLd(draft), [draft]);
 
   // Tier 5A: accordion sections
   const [accordionState, setAccordionState] = useState({
@@ -133,7 +153,7 @@ export default function LocalSeoPageBuilderClient({
   // Draft status chip (Tier 5A)
   const statusLabel: "Draft" | "Generated" | "Edited" = !result
     ? "Draft"
-    : editedPageCopy !== null
+    : hasEdits(draft.edits)
       ? "Edited"
       : "Generated";
 
@@ -163,18 +183,16 @@ export default function LocalSeoPageBuilderClient({
   );
 
   // Current page copy (edited or original)
-  const currentPageCopy =
-    editedPageCopy !== null ? editedPageCopy : result?.pageCopy || "";
+  const currentPageCopy = activePageCopy;
 
   const canUndo = undoStack.length > 0;
 
   // Handle page copy change with undo stack
   const handlePageCopyChange = (newCopy: string) => {
-    const current =
-      editedPageCopy !== null ? editedPageCopy : result?.pageCopy || "";
+    const current = activePageCopy;
     if (newCopy !== current) {
       setUndoStack([current]); // store previous state (1-deep)
-      setEditedPageCopy(newCopy);
+      dispatch({ type: "APPLY_EDIT", key: "pageCopy", value: newCopy });
     }
   };
 
@@ -182,7 +200,11 @@ export default function LocalSeoPageBuilderClient({
   const handleUndo = () => {
     if (undoStack.length > 0) {
       const previous = undoStack[undoStack.length - 1];
-      setEditedPageCopy(previous);
+      if (previous === (result?.pageCopy ?? "")) {
+        dispatch({ type: "RESET_SECTION", key: "pageCopy" });
+      } else {
+        dispatch({ type: "APPLY_EDIT", key: "pageCopy", value: previous });
+      }
       setUndoStack([]);
     }
   };
@@ -193,11 +215,15 @@ export default function LocalSeoPageBuilderClient({
     form: form as unknown as Record<string, unknown>,
     setForm: (formOrUpdater) => {
       if (typeof formOrUpdater === "function") {
-        setForm((prev) =>
-          formOrUpdater(prev as unknown as Record<string, unknown>) as unknown as LocalSEOPageBuilderRequest
-        );
+        const nextForm = formOrUpdater(
+          form as unknown as Record<string, unknown>
+        ) as unknown as LocalSEOPageBuilderRequest;
+        dispatch({ type: "INIT_FROM_FORM", form: nextForm });
       } else {
-        setForm(formOrUpdater as unknown as LocalSEOPageBuilderRequest);
+        dispatch({
+          type: "INIT_FROM_FORM",
+          form: formOrUpdater as unknown as LocalSEOPageBuilderRequest,
+        });
       }
     },
     storageKey: "local-seo-page-builder-brand-hydrate-v1",
@@ -237,7 +263,7 @@ export default function LocalSeoPageBuilderClient({
     key: K,
     value: LocalSEOPageBuilderRequest[K]
   ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    dispatch({ type: "INIT_FROM_FORM", form: { ...form, [key]: value } });
   };
 
   // Schema toggle guard: require a valid page URL
@@ -257,28 +283,28 @@ export default function LocalSeoPageBuilderClient({
     if (e) e.preventDefault();
     if (loading) return;
 
-    setError(null);
-    setResult(null);
+    // Match prior behavior: clear previous error/results immediately on a new attempt.
+    dispatch({ type: "GENERATE_REQUEST", clearGenerated: true });
 
     // Validation (unchanged)
     if (!form.businessName.trim()) {
-      setError("Business name is required.");
+      dispatch({ type: "GENERATE_ERROR", error: "Business name is required." });
       return;
     }
     if (!form.businessType.trim()) {
-      setError("Business type is required.");
+      dispatch({ type: "GENERATE_ERROR", error: "Business type is required." });
       return;
     }
     if (!form.primaryService.trim()) {
-      setError("Primary service is required.");
+      dispatch({ type: "GENERATE_ERROR", error: "Primary service is required." });
       return;
     }
     if (!form.city.trim()) {
-      setError("City is required.");
+      dispatch({ type: "GENERATE_ERROR", error: "City is required." });
       return;
     }
     if (!form.state.trim()) {
-      setError("State is required.");
+      dispatch({ type: "GENERATE_ERROR", error: "State is required." });
       return;
     }
 
@@ -287,7 +313,10 @@ export default function LocalSeoPageBuilderClient({
       try {
         new URL(form.websiteUrl);
       } catch {
-        setError("Please enter a valid website URL (e.g., https://example.com).");
+        dispatch({
+          type: "GENERATE_ERROR",
+          error: "Please enter a valid website URL (e.g., https://example.com).",
+        });
         return;
       }
     }
@@ -297,14 +326,14 @@ export default function LocalSeoPageBuilderClient({
       try {
         new URL(form.pageUrl);
       } catch {
-        setError(
-          "Please enter a valid page URL (e.g., https://example.com/service-page)."
-        );
+        dispatch({
+          type: "GENERATE_ERROR",
+          error:
+            "Please enter a valid page URL (e.g., https://example.com/service-page).",
+        });
         return;
       }
     }
-
-    setLoading(true);
 
     try {
       // Convert inputs to arrays (unchanged)
@@ -355,10 +384,13 @@ export default function LocalSeoPageBuilderClient({
       const response = await res.json();
 
       if (response.ok && response.data) {
-        setResult(response.data);
-        setEditedPageCopy(null);
+        dispatch({
+          type: "GENERATE_SUCCESS",
+          payloadUsed: apiPayload,
+          response: response.data,
+          preserveEdits: false,
+        });
         setUndoStack([]);
-        setLastPayload(apiPayload);
         setTimeout(() => {
           const resultsElement = document.getElementById("seo-page-results");
           resultsElement?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -367,7 +399,12 @@ export default function LocalSeoPageBuilderClient({
         if (response.requestId) console.error("Request ID:", response.requestId);
         throw new Error(response.error);
       } else {
-        setResult(response);
+        dispatch({
+          type: "GENERATE_SUCCESS",
+          payloadUsed: apiPayload,
+          response: response as unknown as LocalSEOPageBuilderResponse,
+          preserveEdits: false,
+        });
       }
     } catch (error) {
       console.error("Local SEO Page Builder Submit Error:", error);
@@ -376,19 +413,14 @@ export default function LocalSeoPageBuilderClient({
       if (error instanceof Error) {
         errorMessage = error.message || errorMessage;
       }
-      setError(errorMessage);
-      setResult(null);
-    } finally {
-      setLoading(false);
+      dispatch({ type: "GENERATE_ERROR", error: errorMessage });
     }
   };
 
   const handleRegenerate = async () => {
     if (!lastPayload || loading) return;
 
-    setError(null);
-    setResult(null);
-    setLoading(true);
+    dispatch({ type: "GENERATE_REQUEST", clearGenerated: true });
 
     try {
       const res = await fetch("/api/local-seo-page-builder", {
@@ -411,8 +443,12 @@ export default function LocalSeoPageBuilderClient({
       const response = await res.json();
 
       if (response.ok && response.data) {
-        setResult(response.data);
-        setEditedPageCopy(null);
+        dispatch({
+          type: "GENERATE_SUCCESS",
+          payloadUsed: lastPayload,
+          response: response.data,
+          preserveEdits: true,
+        });
         recordGeneration("lseo-analytics");
         setTimeout(() => {
           const resultsElement = document.getElementById("seo-page-results");
@@ -425,10 +461,7 @@ export default function LocalSeoPageBuilderClient({
       console.error("Regenerate Error:", error);
       let errorMessage = "Something went wrong while regenerating. Please try again.";
       if (error instanceof Error) errorMessage = error.message || errorMessage;
-      setError(errorMessage);
-      setResult(null);
-    } finally {
-      setLoading(false);
+      dispatch({ type: "GENERATE_ERROR", error: errorMessage });
     }
   };
 
@@ -436,7 +469,9 @@ export default function LocalSeoPageBuilderClient({
   const handleExportTxt = () => {
     if (!result) return;
     recordExport("lseo-analytics", "download:txt");
-    const pageCopyToUse = editedPageCopy !== null ? editedPageCopy : result.pageCopy;
+    const pageCopyToUse = activePageCopy;
+    const seoPackToUse = activeSeoPack ?? result.seoPack;
+    const faqsToUse = activeFaqs;
 
     let text = `LOCAL SEO PAGE BUILDER OUTPUT\n`;
     text += `Generated: ${new Date(result.meta.createdAtISO).toLocaleString()}\n`;
@@ -444,16 +479,16 @@ export default function LocalSeoPageBuilderClient({
     text += "=".repeat(50) + "\n\n";
 
     text += `SEO PACK\n${"-".repeat(50)}\n`;
-    text += `Meta Title: ${result.seoPack.metaTitle}\n`;
-    text += `Meta Description: ${result.seoPack.metaDescription}\n`;
-    text += `Slug: ${result.seoPack.slug}\n`;
-    text += `H1: ${result.seoPack.h1}\n\n`;
+    text += `Meta Title: ${seoPackToUse.metaTitle}\n`;
+    text += `Meta Description: ${seoPackToUse.metaDescription}\n`;
+    text += `Slug: ${seoPackToUse.slug}\n`;
+    text += `H1: ${seoPackToUse.h1}\n\n`;
 
     text += `FULL PAGE COPY\n${"-".repeat(50)}\n`;
     text += `${pageCopyToUse}\n\n`;
 
     text += `FAQ SECTION\n${"-".repeat(50)}\n`;
-    result.faqs.forEach((faq, i) => {
+    faqsToUse.forEach((faq, i) => {
       text += `Q${i + 1}: ${faq.question}\n`;
       text += `A${i + 1}: ${faq.answer}\n\n`;
     });
@@ -480,7 +515,9 @@ export default function LocalSeoPageBuilderClient({
   const handleExportHtml = () => {
     if (!result || form.outputFormat !== "HTML") return;
     recordExport("lseo-analytics", "download:html");
-    const pageCopyToUse = editedPageCopy !== null ? editedPageCopy : result.pageCopy;
+    const pageCopyToUse = activePageCopy;
+    const seoPackToUse = activeSeoPack ?? result.seoPack;
+    const faqsToUse = activeFaqs;
 
     const escapeHtml = (text: string): string => {
       const map: Record<string, string> = {
@@ -496,12 +533,12 @@ export default function LocalSeoPageBuilderClient({
     let html = `<!DOCTYPE html>\n<html lang="en">\n<head>\n`;
     html += `  <meta charset="UTF-8">\n`;
     html += `  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n`;
-    html += `  <title>${escapeHtml(result.seoPack.metaTitle)}</title>\n`;
-    html += `  <meta name="description" content="${escapeHtml(result.seoPack.metaDescription)}">\n`;
+    html += `  <title>${escapeHtml(seoPackToUse.metaTitle)}</title>\n`;
+    html += `  <meta name="description" content="${escapeHtml(seoPackToUse.metaDescription)}">\n`;
     html += `</head>\n<body>\n`;
     html += pageCopyToUse;
     html += `\n\n<h2>Frequently Asked Questions</h2>\n`;
-    result.faqs.forEach((faq) => {
+    faqsToUse.forEach((faq) => {
       html += `\n<h3>${faq.question}</h3>\n`;
       html += `<p>${faq.answer}</p>\n`;
     });
@@ -527,11 +564,12 @@ export default function LocalSeoPageBuilderClient({
   };
 
   const handleExportJson = () => {
-    if (!result || !result.schemaJsonLd) return;
+    const schemaToUse = activeSchemaJsonLd;
+    if (!result || !schemaToUse) return;
     recordExport("lseo-analytics", "download:json");
 
     try {
-      const schemaData = JSON.parse(result.schemaJsonLd);
+      const schemaData = JSON.parse(schemaToUse);
       const json = JSON.stringify(schemaData, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -549,23 +587,19 @@ export default function LocalSeoPageBuilderClient({
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to export schema JSON:", err);
-      setError("Failed to export schema. Please try again.");
+      dispatch({ type: "GENERATE_ERROR", error: "Failed to export schema. Please try again." });
     }
   };
 
   const handleReset = () => {
     if (loading) return;
-    setError(null);
-    setResult(null);
-    setEditedPageCopy(null);
+    dispatch({ type: "RESET_DRAFT", form: initialDefaults });
     setUndoStack([]);
-    setLastPayload(null);
     setShowSuccessToast(false);
     setActionToast(null);
     setCopyMode("Combined");
     setSecondaryServicesInput("");
     setNeighborhoodsInput("");
-    setForm(initialDefaults);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -1181,7 +1215,7 @@ export default function LocalSeoPageBuilderClient({
                       <button
                         type="button"
                         onClick={handleExportJson}
-                        disabled={!result || !result.schemaJsonLd}
+                        disabled={!result || !activeSchemaJsonLd}
                         className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                           isDark
                             ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -1266,7 +1300,7 @@ export default function LocalSeoPageBuilderClient({
             <button
               type="button"
               onClick={handleExportJson}
-              disabled={!result || !result.schemaJsonLd}
+              disabled={!result || !activeSchemaJsonLd}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isDark
                   ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -1307,8 +1341,8 @@ export default function LocalSeoPageBuilderClient({
           onPageCopyChange={handlePageCopyChange}
           onUndo={handleUndo}
           canUndo={canUndo}
-          seoPack={result.seoPack}
-          faqs={result.faqs}
+          seoPack={activeSeoPack}
+          faqs={activeFaqs}
           formValues={{
             businessName: form.businessName,
             services: form.secondaryServices?.join(", ") || form.primaryService,
@@ -1319,38 +1353,36 @@ export default function LocalSeoPageBuilderClient({
           }}
           isDark={isDark}
           onApplyBrandProfile={(profile: BrandProfile, fillEmptyOnly: boolean) => {
-            setForm((prev) => {
-              const updates: Partial<LocalSEOPageBuilderRequest> = {};
-              if (profile.city && (!fillEmptyOnly || !prev.city.trim())) {
-                updates.city = profile.city;
+            const prev = form;
+            const updates: Partial<LocalSEOPageBuilderRequest> = {};
+
+            if (profile.city && (!fillEmptyOnly || !prev.city.trim())) {
+              updates.city = profile.city;
+            }
+            if (profile.state && (!fillEmptyOnly || !prev.state.trim())) {
+              updates.state = profile.state;
+            }
+            if (profile.services && (!fillEmptyOnly || !prev.secondaryServices?.length)) {
+              const servicesArray =
+                typeof profile.services === "string"
+                  ? profile.services
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                  : [];
+              if (servicesArray.length > 0) {
+                updates.secondaryServices = servicesArray;
+                setSecondaryServicesInput(servicesArray.join(", "));
               }
-              if (profile.state && (!fillEmptyOnly || !prev.state.trim())) {
-                updates.state = profile.state;
-              }
-              if (
-                profile.services &&
-                (!fillEmptyOnly || !prev.secondaryServices?.length)
-              ) {
-                const servicesArray =
-                  typeof profile.services === "string"
-                    ? profile.services
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                    : [];
-                if (servicesArray.length > 0) {
-                  updates.secondaryServices = servicesArray;
-                  setSecondaryServicesInput(servicesArray.join(", "));
-                }
-              }
-              if (
-                profile.uniqueSellingPoints &&
-                (!fillEmptyOnly || !prev.uniqueSellingPoints?.trim())
-              ) {
-                updates.uniqueSellingPoints = profile.uniqueSellingPoints;
-              }
-              return { ...prev, ...updates };
-            });
+            }
+            if (
+              profile.uniqueSellingPoints &&
+              (!fillEmptyOnly || !prev.uniqueSellingPoints?.trim())
+            ) {
+              updates.uniqueSellingPoints = profile.uniqueSellingPoints;
+            }
+
+            dispatch({ type: "INIT_FROM_FORM", form: { ...prev, ...updates } });
           }}
         />
       ) : null}
@@ -1434,7 +1466,7 @@ export default function LocalSeoPageBuilderClient({
                     >
                       Meta Title
                     </p>
-                    <p className="font-semibold">{result.seoPack.metaTitle}</p>
+                    <p className="font-semibold">{activeSeoPack?.metaTitle}</p>
                   </div>
                   <div>
                     <p
@@ -1444,7 +1476,7 @@ export default function LocalSeoPageBuilderClient({
                     >
                       Meta Description
                     </p>
-                    <p className="text-sm">{result.seoPack.metaDescription}</p>
+                    <p className="text-sm">{activeSeoPack?.metaDescription}</p>
                   </div>
                   <div>
                     <p
@@ -1454,7 +1486,7 @@ export default function LocalSeoPageBuilderClient({
                     >
                       Slug
                     </p>
-                    <p className="font-mono text-sm">{result.seoPack.slug}</p>
+                    <p className="font-mono text-sm">{activeSeoPack?.slug}</p>
                   </div>
                   <div>
                     <p
@@ -1464,7 +1496,7 @@ export default function LocalSeoPageBuilderClient({
                     >
                       H1
                     </p>
-                    <p className="font-semibold text-lg">{result.seoPack.h1}</p>
+                    <p className="font-semibold text-lg">{activeSeoPack?.h1}</p>
                   </div>
                 </div>
               </ResultCard>
@@ -1486,17 +1518,17 @@ export default function LocalSeoPageBuilderClient({
                   )}
                 </ResultCard>
               ) : (
-                result.pageSections && (
+                activePageSections && (
                   <ResultCard
                     title="Section Cards"
                     isDark={isDark}
                     copyText={[
-                      result.pageSections.hero,
-                      result.pageSections.intro,
-                      result.pageSections.services,
-                      result.pageSections.whyChooseUs,
-                      result.pageSections.areasServed,
-                      result.pageSections.closingCta,
+                      activePageSections.hero,
+                      activePageSections.intro,
+                      activePageSections.services,
+                      activePageSections.whyChooseUs,
+                      activePageSections.areasServed,
+                      activePageSections.closingCta,
                     ].join("\n\n")}
                   >
                     <p className={`text-sm ${themeClasses.mutedText}`}>
@@ -1509,12 +1541,12 @@ export default function LocalSeoPageBuilderClient({
               <ResultCard
                 title="FAQ Section"
                 isDark={isDark}
-                copyText={result.faqs
+                copyText={activeFaqs
                   .map((faq, i) => `Q${i + 1}: ${faq.question}\nA${i + 1}: ${faq.answer}`)
                   .join("\n\n")}
               >
                 <div className="space-y-4">
-                  {result.faqs.map((faq, idx) => (
+                  {activeFaqs.map((faq, idx) => (
                     <div
                       key={idx}
                       className="p-3 rounded border border-slate-300 dark:border-slate-600"
@@ -1526,14 +1558,14 @@ export default function LocalSeoPageBuilderClient({
                 </div>
               </ResultCard>
 
-              {result.schemaJsonLd ? (
+              {activeSchemaJsonLd ? (
                 <ResultCard
                   title="Schema Bundle (Optional)"
                   isDark={isDark}
-                  copyText={result.schemaJsonLd}
+                  copyText={activeSchemaJsonLd}
                 >
                   <pre className="text-xs overflow-x-auto p-3 rounded bg-slate-900/50 dark:bg-slate-950/50 border border-slate-700">
-                    <code>{result.schemaJsonLd}</code>
+                    <code>{activeSchemaJsonLd}</code>
                   </pre>
                 </ResultCard>
               ) : null}

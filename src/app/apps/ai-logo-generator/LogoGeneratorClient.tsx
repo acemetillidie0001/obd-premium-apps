@@ -694,7 +694,6 @@ export default function LogoGeneratorClient({
       const concurrency = 1;
       const interDownloadDelayMs = 200; // 150–250ms recommended
       let nextIndex = 0;
-      let successCount = 0;
 
       const worker = async () => {
         while (true) {
@@ -760,8 +759,6 @@ export default function LogoGeneratorClient({
                 reason: "missing imageUrl",
               });
             }
-
-            successCount += 1;
           } catch {
             failures.push({
               id: item.conceptId,
@@ -811,8 +808,10 @@ export default function LogoGeneratorClient({
         manifestFileName,
       });
 
-      if (failures.length > 0) {
-        showExportToast(`Exported ${successCount}/${items.length} logos (some failed).`);
+      if (failureCount > 0) {
+        showExportToast(
+          `Exported ${successCountForSummary}/${items.length} logos (some failed).`
+        );
       } else {
         showExportToast(`Exported ${items.length} logos.`);
       }

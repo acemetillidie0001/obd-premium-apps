@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import {
@@ -251,10 +251,10 @@ function buildWebPageSchema(
   return schema;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   // Block demo mode mutations (read-only)
   const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
-  const demoBlock = assertNotDemoRequest(req as any);
+  const demoBlock = assertNotDemoRequest(req);
   if (demoBlock) return demoBlock;
 
   const requestId = generateRequestId();

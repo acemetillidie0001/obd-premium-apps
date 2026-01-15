@@ -54,7 +54,7 @@ function parsePayload(raw: string): SchemaHandoffPayload | null {
     tenantId: parsed.tenantId,
     createdAt: parsed.createdAt,
     expiresAt: parsed.expiresAt,
-    nodes: parsed.nodes as Record<string, any>[],
+    nodes: parsed.nodes as Record<string, unknown>[],
   };
 }
 
@@ -208,7 +208,7 @@ function coerceToGraphDoc(parsed: unknown): JsonLdDoc {
  * - Does NOT overwrite existing nodes
  * - Does NOT reorder existing nodes (new nodes append to @graph)
  */
-export function mergeNodesAdditive(activeJson: string, incomingNodes: Record<string, any>[]): string {
+export function mergeNodesAdditive(activeJson: string, incomingNodes: Record<string, unknown>[]): string {
   const trimmed = (activeJson ?? "").trim();
   const parsed = trimmed ? (JSON.parse(trimmed) as unknown) : "";
 

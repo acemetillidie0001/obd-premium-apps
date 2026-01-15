@@ -15,7 +15,7 @@ export type SchemaHandoffPayload = {
   tenantId: string;
   createdAt: string; // ISO
   expiresAt: string; // ISO (now + 10 min recommended)
-  nodes: Record<string, any>[]; // schema nodes to add
+  nodes: Record<string, unknown>[]; // schema nodes to add
 };
 
 

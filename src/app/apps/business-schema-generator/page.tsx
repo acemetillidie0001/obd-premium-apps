@@ -146,7 +146,7 @@ function BusinessSchemaGeneratorPageContent() {
   // Tier 5C: Safe, additive schema handoff receiver (sessionStorage + TTL, explicit apply/dismiss)
   const [schemaHandoffPayload, setSchemaHandoffPayload] = useState<SchemaHandoffPayload | null>(null);
   const [schemaHandoffDismissed, setSchemaHandoffDismissed] = useState(false);
-  const [importedSchemaNodes, setImportedSchemaNodes] = useState<Record<string, any>[]>([]);
+  const [importedSchemaNodes, setImportedSchemaNodes] = useState<Record<string, unknown>[]>([]);
   
   // Content Writer Schema handoff state
   const [contentWriterSchemaPayload, setContentWriterSchemaPayload] = useState<ContentWriterSchemaHandoff | null>(null);
@@ -198,7 +198,6 @@ function BusinessSchemaGeneratorPageContent() {
     } catch {
       // ignore
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemaDraftStorageKey]);
 
   useEffect(() => {
@@ -939,7 +938,7 @@ function BusinessSchemaGeneratorPageContent() {
       if (handoffId) {
         try {
           localStorage.removeItem(`obd_handoff:${handoffId}`);
-        } catch (error) {
+      } catch {
           // Ignore errors
         }
       }

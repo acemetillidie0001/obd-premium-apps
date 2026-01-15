@@ -91,7 +91,7 @@ export function applyGeneratedSchema(draft: SchemaDraft, nextGenerated: string |
  */
 export function applyAdditiveNodes(
   draft: SchemaDraft,
-  incomingNodes: Record<string, any>[]
+  incomingNodes: Record<string, unknown>[]
 ): SchemaDraft {
   const activeJson = getActiveSchemaJson(draft);
 

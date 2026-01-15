@@ -162,12 +162,13 @@ function BusinessSchemaGeneratorPageContent() {
   const formRef = useRef<HTMLFormElement | null>(null);
 
   // Tier 5B: minimal session persistence (ephemeral; survives refresh in the same tab)
-  const businessIdFromQuery = searchParams?.get("businessId") || null;
   const currentTenantId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
   const schemaDraftStorageKey = useMemo(() => {
-    const suffix = businessIdFromQuery || draft.id || "unknown";
+    // Tenant safety: key session drafts by the resolved business id (demo-safe),
+    // falling back to the per-load draft id only when no tenant context exists.
+    const suffix = currentTenantId || draft.id || "unknown";
     return `obd:schemaDraft:${suffix}`;
-  }, [businessIdFromQuery, draft.id]);
+  }, [currentTenantId, draft.id]);
 
   function isValidSchemaDraft(value: unknown): value is SchemaDraft {
     if (!value || typeof value !== "object") return false;
@@ -304,6 +305,18 @@ function BusinessSchemaGeneratorPageContent() {
       console.error("Failed to read schema handoff from sessionStorage:", error);
     }
   }, []);
+
+  // Tier 5C tenant safety: if a handoff exists for a different business, clear it immediately
+  // to prevent cross-tenant leakage via UI summary.
+  useEffect(() => {
+    if (!schemaHandoffPayload) return;
+    if (!currentTenantId) return;
+    if (isTenantMatch(schemaHandoffPayload.tenantId, currentTenantId)) return;
+
+    clearHandoff();
+    setSchemaHandoffPayload(null);
+    setSchemaHandoffDismissed(false);
+  }, [schemaHandoffPayload, currentTenantId]);
 
   // Load brand profile on mount
   useEffect(() => {

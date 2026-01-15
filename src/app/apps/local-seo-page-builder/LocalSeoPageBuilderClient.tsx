@@ -30,6 +30,7 @@ import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { type BrandProfile } from "@/lib/bdw";
 import LocalSeoAccordionSection from "./components/LocalSeoAccordionSection";
+import LocalSeoExportCenterPanel from "./components/LocalSeoExportCenterPanel";
 import {
   getActiveFaqs,
   getActivePageCopy,
@@ -1446,6 +1447,32 @@ export default function LocalSeoPageBuilderClient({
           }}
         />
       ) : null}
+
+      {/* Export Center (Tier 5B+): deterministic exports from active content */}
+      <OBDPanel isDark={isDark} className="mt-7 sm:mt-8">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <OBDHeading level={2} isDark={isDark}>
+            Export Center
+          </OBDHeading>
+          <p className={`text-xs ${themeClasses.mutedText}`}>
+            Uses active content (edited wins). Existing Export buttons still work.
+          </p>
+        </div>
+        <LocalSeoExportCenterPanel
+          isDark={isDark}
+          storageKey="lseo-analytics"
+          businessName={form.businessName}
+          phone={form.phone}
+          websiteUrl={form.websiteUrl}
+          includeSchema={form.includeSchema}
+          pageUrl={form.pageUrl}
+          activeSeoPack={activeSeoPack}
+          activePageCopy={activePageCopy}
+          activeFaqs={activeFaqs}
+          activePageSections={activePageSections}
+          activeSchemaJsonLd={activeSchemaJsonLd}
+        />
+      </OBDPanel>
 
       {/* Results (Tier 5A parity) */}
       <OBDResultsPanel

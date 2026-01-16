@@ -19,7 +19,7 @@ export default function OBDAccordionSection({
   children,
 }: {
   isDark: boolean;
-  title: string;
+  title: React.ReactNode;
   titleRight?: React.ReactNode;
   summary?: string;
   isOpen: boolean;

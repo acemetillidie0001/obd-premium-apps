@@ -311,6 +311,32 @@ function buildHtmlDocument(args: {
       ul { margin: 8px 0 0 18px; }
       .hr { height: 1px; background: #e2e8f0; margin: 16px 0; }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e2e8f0; background: #fff; }
+      .print-section { }
+
+      /* Tier 6-3: PDF-friendly print rules travel with the export (CSS-only; conservative). */
+      @media print {
+        @page { margin: 16mm; }
+        body { margin: 0; color: #000; font-size: 11pt; line-height: 1.35; }
+        h1 { font-size: 18pt; }
+        h2 { font-size: 14pt; }
+        h3 { font-size: 12pt; }
+
+        /* Page breaks between major sections */
+        .print-section + .print-section { break-before: page; page-break-before: always; }
+
+        /* Avoid orphaned headings / awkward breaks */
+        h1, h2, h3 { break-after: avoid-page; page-break-after: avoid; }
+        .meta, .card, ul, ol { break-inside: avoid; page-break-inside: avoid; }
+
+        /* Hide UI-only elements (chips, tooltips, buttons) */
+        button, [role="button"], .pill, .no-print, .ui-only, .tooltip { display: none !important; }
+
+        /* Clean, readable print surface */
+        .hr { display: none; }
+        .meta { background: transparent; border-color: #cbd5e1; }
+        .card { border-color: #cbd5e1; box-shadow: none; }
+        a { color: inherit; text-decoration: underline; }
+      }
     </style>
   </head>
   <body>
@@ -347,7 +373,7 @@ function buildFullHtml(args: {
           .join("")
       : `<div class="card"><div class="muted">${escapeHtml(section.emptyState?.detail ?? section.emptyState?.summary ?? "No checks available")}</div></div>`;
 
-    return `<h2>${escapeHtml(section.title)}</h2>${inner}`;
+    return `<div class="print-section"><h2>${escapeHtml(section.title)}</h2>${inner}</div>`;
   }).join(`<div class="hr"></div>`);
 
   const roadmapInner =
@@ -367,12 +393,13 @@ function buildFullHtml(args: {
           })
           .join("");
 
-  const overall = `<div class="card">
+  const overall = `<div class="print-section"><div class="card">
   <div><span class="k">Score:</span> ${audit.score}/100 (${escapeHtml(audit.band)})</div>
   <div class="muted" style="margin-top:6px;">${escapeHtml(audit.summary)}</div>
-</div>`;
+</div></div>`;
 
-  const body = `${overall}<div class="hr"></div>${findingsHtml}<div class="hr"></div><h2>Roadmap (ordered)</h2>${roadmapInner}`;
+  const roadmapSection = `<div class="print-section"><h2>Roadmap (ordered)</h2>${roadmapInner}</div>`;
+  const body = `${overall}<div class="hr"></div>${findingsHtml}<div class="hr"></div>${roadmapSection}`;
 
   return buildHtmlDocument({
     title: "SEO Audit & Roadmap",
@@ -409,7 +436,7 @@ function buildRoadmapOnlyHtml(args: {
     audit,
     businessName,
     sourceInput,
-    bodyInnerHtml: `<h2>Roadmap</h2>${roadmapInner}`,
+    bodyInnerHtml: `<div class="print-section"><h2>Roadmap</h2>${roadmapInner}</div>`,
   });
 }
 
@@ -443,7 +470,7 @@ function buildSectionHtml(args: {
     audit,
     businessName,
     sourceInput,
-    bodyInnerHtml: `<h2>${escapeHtml(section.title)}</h2>${inner}`,
+    bodyInnerHtml: `<div class="print-section"><h2>${escapeHtml(section.title)}</h2>${inner}</div>`,
   });
 }
 

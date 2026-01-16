@@ -30,6 +30,39 @@ import {
   type Tier5SectionStatus,
 } from "./sections";
 
+const WHY_THIS_MATTERS: Record<Tier5SectionId, string[]> = {
+  technical: [
+    "If the page is hard to use on a phone, visitors leave quickly (and rankings can suffer).",
+    "Technical issues can block search engines from understanding or trusting the page.",
+    "Fixing fundamentals here usually improves everything else downstream.",
+  ],
+  "on-page": [
+    "Clear titles and headings help Google (and customers) understand what this page is about.",
+    "Small on-page improvements can increase clicks without changing your services.",
+    "This is often the fastest path to “better results from the same traffic.”",
+  ],
+  local: [
+    "Local signals help you show up for “near me” and city-specific searches.",
+    "If location terms are unclear, you can rank for the wrong area—or not at all.",
+    "Tight local relevance tends to improve call and direction-request intent.",
+  ],
+  content: [
+    "Thin or unclear content makes it hard for customers to choose you confidently.",
+    "Coverage gaps can prevent ranking for the services you actually want to sell.",
+    "Better coverage improves conversions even when rankings don’t change immediately.",
+  ],
+  trust: [
+    "Trust cues reduce hesitation—more visitors become calls, forms, or bookings.",
+    "Missing basics (photos, proof, clarity) can make a page feel risky.",
+    "Trust improvements often increase conversions without changing your offer.",
+  ],
+  schema: [
+    "Structured data helps search engines interpret your business details more reliably.",
+    "Good schema can improve how your results appear (rich features when eligible).",
+    "This should stay draft-only and be installed only when you choose.",
+  ],
+};
+
 const defaultFormValues: SEOAuditRoadmapRequest = {
   pageUrl: "",
   pageContent: "",
@@ -63,6 +96,14 @@ export default function SEOAuditRoadmapPage() {
   const [roadmapView, setRoadmapView] = useState<"roadmap" | "compare">("roadmap");
   const [roadmapBucket, setRoadmapBucket] = useState<"all" | "quick-wins" | "big-bets">("all");
   const [compareExpandedSections, setCompareExpandedSections] = useState<Record<string, boolean>>({});
+  const [whyOpenBySection, setWhyOpenBySection] = useState<Record<Tier5SectionId, boolean>>({
+    technical: false,
+    "on-page": false,
+    local: false,
+    content: false,
+    trust: false,
+    schema: false,
+  });
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [creatingShare, setCreatingShare] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -353,6 +394,64 @@ export default function SEOAuditRoadmapPage() {
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${classes}`}>
         Confidence: {label}
+      </span>
+    );
+  };
+
+  // Tier 6-1: Snapshot-derived audit confidence meter (derived ONLY from saved activeAudit snapshot).
+  // Missing confidence is treated as LOW. Advisory-only: does not recompute findings or call AI.
+  const auditConfidenceMeter = useMemo(() => {
+    const findings = result?.categoryResults ?? [];
+    if (!Array.isArray(findings) || findings.length === 0) return null;
+
+    const total = findings.length;
+    let sum = 0; // average of per-finding confidence weights (0–100)
+
+    for (const f of findings) {
+      const c = (f as any)?.confidence ?? "LOW";
+      sum += c === "HIGH" ? 100 : c === "MEDIUM" ? 66 : 33;
+    }
+
+    const percent = Math.round(sum / total);
+    const level = percent >= 80 ? "High" : percent >= 55 ? "Medium" : "Low";
+
+    return { percent, level };
+  }, [result?.categoryResults]);
+
+  // Tier 6-4: Soft re-run hint (informational only; no scheduling/automation).
+  const nextReview = useMemo(() => {
+    if (!result) return null;
+    const baseIso =
+      typeof (result as any)?.completedAt === "string"
+        ? ((result as any).completedAt as string)
+        : typeof result?.meta?.auditedAtISO === "string"
+          ? result.meta.auditedAtISO
+          : null;
+    if (!baseIso) return { around: null as string | null };
+    const base = new Date(baseIso);
+    if (Number.isNaN(base.getTime())) return { around: null as string | null };
+    const next = new Date(base.getTime());
+    next.setDate(next.getDate() + 90);
+    return { around: next.toLocaleDateString() };
+  }, [result]);
+
+  const getAuditConfidenceLevelChip = (level: "High" | "Medium" | "Low") => {
+    const classes =
+      level === "High"
+        ? isDark
+          ? "bg-emerald-900/30 text-emerald-300"
+          : "bg-emerald-100 text-emerald-800"
+        : level === "Medium"
+          ? isDark
+            ? "bg-amber-900/30 text-amber-300"
+            : "bg-amber-100 text-amber-800"
+          : isDark
+            ? "bg-slate-800 text-slate-300"
+            : "bg-slate-200 text-slate-800";
+
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${classes}`}>
+        {level}
       </span>
     );
   };
@@ -934,6 +1033,56 @@ export default function SEOAuditRoadmapPage() {
                 </p>
               </div>
 
+              {/* Tier 6-1: Audit Confidence Meter (snapshot-derived) */}
+              {auditConfidenceMeter && (
+                <div
+                  className={`mt-4 p-3 rounded-lg border ${
+                    isDark ? "bg-slate-900/30 border-slate-700" : "bg-slate-50 border-slate-200"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                          Audit confidence
+                        </p>
+                        <span
+                          className={`text-xs ${themeClasses.mutedText}`}
+                          title="Confidence reflects how directly this audit could verify inputs from your provided data."
+                        >
+                          (?)
+                        </span>
+                      </div>
+                      <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                        Confidence reflects how directly this audit could verify inputs from your provided data.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {getAuditConfidenceLevelChip(auditConfidenceMeter.level as any)}
+                      <span className={`text-xs ${themeClasses.mutedText}`}>
+                        {auditConfidenceMeter.percent}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tier 6-4: Next review recommended (informational only) */}
+              <div
+                className={`mt-3 p-3 rounded-lg border ${
+                  isDark ? "bg-slate-900/20 border-slate-700" : "bg-white border-slate-200"
+                }`}
+              >
+                <p className={`text-xs ${themeClasses.mutedText}`}>
+                  <span className="font-semibold">Next review recommended:</span> ~90 days, or after major website changes.
+                </p>
+                {nextReview?.around ? (
+                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                    Next review recommended around: <span className="font-medium">{nextReview.around}</span>
+                  </p>
+                ) : null}
+              </div>
+
               {/* Overall Score */}
               <div className="mt-6">
                 <ResultCard
@@ -984,7 +1133,42 @@ export default function SEOAuditRoadmapPage() {
                   <OBDAccordionSection
                     key={section.id}
                     isDark={isDark}
-                    title={section.title}
+                    title={
+                      <span className="relative inline-flex items-center gap-2 min-w-0">
+                        <span className="truncate">{section.title}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setWhyOpenBySection((prev) => ({
+                              ...prev,
+                              [section.id]: !prev[section.id],
+                            }))
+                          }
+                          className={`inline-flex items-center gap-1 text-xs font-medium underline underline-offset-2 ${
+                            isDark ? "text-slate-300 hover:text-slate-200" : "text-slate-600 hover:text-slate-800"
+                          }`}
+                          aria-expanded={!!whyOpenBySection[section.id]}
+                        >
+                          Why this matters <span aria-hidden>(?)</span>
+                        </button>
+
+                        {whyOpenBySection[section.id] && (
+                          <div
+                            className={`absolute left-0 top-full mt-2 z-20 w-80 max-w-[calc(100vw-3rem)] rounded-lg border p-3 shadow-lg ${
+                              isDark
+                                ? "bg-slate-950/95 border-slate-700 text-slate-200"
+                                : "bg-white border-slate-200 text-slate-800"
+                            }`}
+                          >
+                            <ul className={`list-disc pl-5 space-y-1 text-xs ${themeClasses.mutedText}`}>
+                              {WHY_THIS_MATTERS[section.id].map((line, idx) => (
+                                <li key={`${section.id}-why-${idx}`}>{line}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </span>
+                    }
                     titleRight={getTier5StatusChip(section.status)}
                     summary={section.summary}
                     isOpen={!!openSections[section.id]}

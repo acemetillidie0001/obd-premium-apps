@@ -21,6 +21,15 @@
 
 ---
 
+## Tier 6 Enhancements (Trust + usability polish)
+
+- **Audit Confidence Meter (snapshot-derived)**: A simple “Audit confidence” level/percent derived from `activeAudit.categoryResults[].confidence` (missing treated as LOW). No recompute, no AI.
+- **“Why this matters” micro-expanders (section header)**: Compact, static plain-language explainers per accordion section (UI-only; no API calls).
+- **PDF-ready HTML export print styles (CSS-only)**: Exported HTML includes embedded `@media print` rules for clean page breaks, readable typography, and hiding UI-only elements (chips/buttons/tooltips).
+- **Next review recommended hint (no scheduling)**: Soft guidance: “~90 days, or after major website changes,” with an optional example date derived from the saved snapshot timestamp.
+
+---
+
 ## What it does (advisory-only)
 
 - Audits **one page at a time** (URL fetch or pasted HTML/text) and returns:

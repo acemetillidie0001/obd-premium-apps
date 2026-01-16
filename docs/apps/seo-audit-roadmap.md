@@ -6,6 +6,21 @@
 
 ---
 
+## Status (Maintenance Mode)
+
+- **Status:** ✅ **LOCKED** — Maintenance Mode (Reference-Quality)
+- **Risk:** **Very Low**
+- **Automation:** **None**
+- **Role:** SEO diagnostics + prioritization + safe routing to OBD tools
+- **Non-negotiables (trust constraints):**
+  - No auto-fix, auto-apply, or background mutations
+  - No publishing, scheduling, or background jobs
+  - No schema injection / installation into CMS/plugins
+  - No crawling beyond the single provided URL/content input
+  - No cross-app changes without explicit user **Apply**
+
+---
+
 ## What it does (advisory-only)
 
 - Audits **one page at a time** (URL fetch or pasted HTML/text) and returns:

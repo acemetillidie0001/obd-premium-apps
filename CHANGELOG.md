@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `pnpm lint` ⚠️ (pre-existing warnings only)
   - **Status:** Reference-quality. Advisory-only. Draft-only. Maintenance-safe.
 
+- chore(seo-audit): lock app to maintenance mode (reference-quality snapshot + docs)
+
 - **Business Schema Generator — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-15)**
   - **Tier 5A — UX scaffold**
     - Accordion input sections + sticky action bar with Draft/Generated/Edited status chip.

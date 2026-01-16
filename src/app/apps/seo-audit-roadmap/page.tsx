@@ -677,6 +677,16 @@ export default function SEOAuditRoadmapPage() {
                   : "bg-slate-50 border-slate-200 text-slate-700"
               }`}
             >
+              {/* Maintenance lock indicator (Reference-Quality) */}
+              <div className="mb-3">
+                <p className="text-sm font-semibold">
+                  Maintenance Mode (Reference-Quality)
+                </p>
+                <p className={`text-sm ${themeClasses.mutedText}`}>
+                  Advisory-only. Draft outputs. No automatic changes.
+                </p>
+              </div>
+
               <p className="text-sm font-semibold mb-2">Before you run this audit</p>
               <ul className={`text-sm space-y-1 ${themeClasses.mutedText}`}>
                 <li>Advisory only. Nothing is changed automatically.</li>

@@ -10,17 +10,17 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 
 ### A) Determinism & State
 
-- **Single canonical active-results selector equivalent**: ❌ MISSING
+- **Single canonical active-results selector equivalent**: ✅ PASS
 - **Regenerate results stable**: ⚠️ PARTIAL (shape stable; content not guaranteed stable)
 - **Edited state protected**: ✅ PASS (not applicable; LKRT does not support edits)
 
 ### B) UX Consistency (Tier 5A)
 
-- **Accordion input parity**: ❌ MISSING
-- **Canonical sticky action bar**: ❌ MISSING
-- **Disabled-not-hidden actions**: ⚠️ PARTIAL
+- **Accordion input parity**: ✅ PASS
+- **Canonical sticky action bar**: ✅ PASS
+- **Disabled-not-hidden actions**: ✅ PASS
 - **Error/loading/empty states**: ✅ PASS
-- **Badge semantics (Live vs Mock)**: ⚠️ PARTIAL
+- **Badge semantics (Live vs Mock)**: ✅ PASS
 
 ### C) Export Integrity
 
@@ -30,10 +30,10 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 
 ### D) Ecosystem Awareness (Tier 5C)
 
-- **Safe handoff to Local SEO Page Builder**: ❌ MISSING
-- **Safe handoff to AI Content Writer**: ❌ MISSING
+- **Safe handoff to Local SEO Page Builder**: ✅ PASS
+- **Safe handoff to AI Content Writer**: ✅ PASS
 - **Safe handoff to SEO Audit & Roadmap**: ❌ MISSING
-- **Tenant-safe + TTL-protected + additive-only**: ❌ MISSING
+- **Tenant-safe + TTL-protected + additive-only**: ✅ PASS
 
 ### E) Trust & Guardrails
 
@@ -90,6 +90,23 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
   - Evidence: `src/app/apps/local-seo-page-builder/handoffs/builders.ts`, header comments + TTL/keys near top (~L11–L29).
 - Canonical selector pattern exists in suite (edited-over-generated).
   - Evidence: `src/lib/apps/event-campaign-builder/getActiveCampaign.ts`, ~L22–L27.
+
+### Tier 5C implementation (LKRT handoffs)
+
+- **Payloads + TTL + sessionStorage keys**
+  - Evidence: `src/lib/apps/local-keyword-research/handoff.ts`
+    - `lkrt:local-seo-suggestions:v1`
+    - `lkrt:content-seeds:v1`
+    - TTL via `createdAt/expiresAt` and automatic clear-on-expiry
+- **Receivers**
+  - Local SEO Page Builder receiver shows an import panel with Apply/Dismiss; apply is additive-only.
+    - Evidence: `src/app/apps/local-seo-page-builder/LocalSeoPageBuilderClient.tsx` + `components/LKRTImportBanner.tsx`
+  - AI Content Writer receiver shows an import panel with Apply/Dismiss; apply is additive-only and does not auto-generate.
+    - Evidence: `src/app/apps/content-writer/page.tsx`
+- **Guardrails**
+  - Tenant mismatch disables Apply and shows: “This handoff was created for a different business.”
+  - TTL expiry clears payload and shows “Expired” toast
+  - Cleanup guaranteed on Dismiss / successful Apply / TTL expiry
 
 ---
 

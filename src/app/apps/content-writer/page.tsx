@@ -28,6 +28,11 @@ import FAQImportBanner from "./components/FAQImportBanner";
 import OffersImportBanner from "./components/OffersImportBanner";
 import EventImportBanner from "./components/EventImportBanner";
 import {
+  clearLkrtToContentWriterSeedsHandoff,
+  readLkrtToContentWriterSeedsHandoff,
+  type LkrtToContentWriterSeedsHandoffV1,
+} from "@/lib/apps/local-keyword-research/handoff";
+import {
   getHandoffHash,
   wasHandoffAlreadyImported,
   markHandoffImported,
@@ -299,6 +304,7 @@ function BDWToolsTabs({
 }
 
 function ContentWriterPageContent() {
+  const isDev = process.env.NODE_ENV === "development";
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -346,6 +352,11 @@ function ContentWriterPageContent() {
     useState<LocalHiringAssistantToContentWriterPayload | null>(null);
   const [showLhaCareersImportBanner, setShowLhaCareersImportBanner] = useState(false);
   const [lhaCareersBusinessMismatch, setLhaCareersBusinessMismatch] = useState(false);
+
+  // LKRT -> Content Writer (draft input hints: topics/keywords)
+  const [lkrtHandoffPayload, setLkrtHandoffPayload] = useState<LkrtToContentWriterSeedsHandoffV1 | null>(null);
+  const [showLkrtImportBanner, setShowLkrtImportBanner] = useState(false);
+  const [lkrtBusinessMismatch, setLkrtBusinessMismatch] = useState(false);
 
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
@@ -508,6 +519,57 @@ function ContentWriterPageContent() {
     }
   }, [searchParams]);
 
+  // Tier 5C receiver: LKRT -> Content Writer (draft-only input hints)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Only check for LKRT handoff when explicitly routed with receiver flag.
+    // Accept both current and legacy flags for backward compatibility.
+    const handoffFlag = searchParams?.get("handoff");
+    const sourceFlag = searchParams?.get("source");
+    const isLkrtRoute =
+      handoffFlag === "lkrt" || (handoffFlag === "1" && sourceFlag === "lkrt");
+    if (!searchParams || !isLkrtRoute) {
+      return;
+    }
+
+    const urlBusinessId = searchParams.get("businessId") || "";
+
+    const { payload, expired } = readLkrtToContentWriterSeedsHandoff();
+    if (expired) {
+      // Already cleared by the reader, but keep receiver behavior explicit.
+      clearLkrtToContentWriterSeedsHandoff();
+      setLkrtHandoffPayload(null);
+      setShowLkrtImportBanner(false);
+      setLkrtBusinessMismatch(false);
+      if (isDev) console.info("[LKRT handoff][Content Writer] expired — cleared");
+      showToast("Expired");
+      return;
+    }
+
+    if (!payload) return;
+
+    // Tenant safety: require URL businessId and it must match the payload businessId.
+    // If URL businessId is missing, treat as mismatch (can't validate).
+    const payloadBusinessId = (payload.from?.businessId || "").trim();
+    const mismatch = !urlBusinessId.trim() || !payloadBusinessId || payloadBusinessId !== urlBusinessId.trim();
+
+    if (isDev) {
+      console.info("[LKRT handoff][Content Writer] detected payload", {
+        urlBusinessId,
+        payloadBusinessId,
+        mismatch,
+        createdAt: payload.createdAt,
+        expiresAt: payload.expiresAt,
+        type: payload.type,
+      });
+    }
+
+    setLkrtHandoffPayload(payload);
+    setLkrtBusinessMismatch(mismatch);
+    setShowLkrtImportBanner(true);
+  }, [searchParams]);
+
   // Handle Offers Builder handoff from sessionStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -631,6 +693,110 @@ function ContentWriterPageContent() {
     setShowLhaCareersImportBanner(false);
     setLhaCareersBusinessMismatch(false);
     clearReceiverImportParamsFromUrl();
+  };
+
+  const handleDismissLkrtImport = () => {
+    clearLkrtToContentWriterSeedsHandoff();
+    setLkrtHandoffPayload(null);
+    setShowLkrtImportBanner(false);
+    setLkrtBusinessMismatch(false);
+    if (isDev) console.info("[LKRT handoff][Content Writer] dismissed — cleared");
+    clearReceiverImportParamsFromUrl();
+  };
+
+  const handleApplyLkrtToInputs = () => {
+    if (!lkrtHandoffPayload) return;
+
+    if (lkrtBusinessMismatch) {
+      // Safety: never apply if the business context doesn't match.
+      return;
+    }
+
+    if (isDev) console.info("[LKRT handoff][Content Writer] applying (additive only)");
+
+    const topics = Array.isArray(lkrtHandoffPayload.suggestions?.topics)
+      ? lkrtHandoffPayload.suggestions.topics
+      : [];
+    const primaryKeywords = Array.isArray(lkrtHandoffPayload.suggestions?.primaryKeywords)
+      ? lkrtHandoffPayload.suggestions.primaryKeywords
+      : [];
+    const secondaryKeywords = Array.isArray(lkrtHandoffPayload.suggestions?.secondaryKeywords)
+      ? lkrtHandoffPayload.suggestions.secondaryKeywords
+      : [];
+
+    // Apply additively only:
+    // - Never overwrite existing user text
+    // - Only fill empty fields, and append keywords safely
+    setFormValues((prev) => {
+      const next = { ...prev };
+
+      const topicWasEmpty = !next.topic.trim();
+      if (topicWasEmpty && topics.length > 0) {
+        next.topic = (topics[0] || "").trim();
+      }
+
+      // If an “ideas” textarea exists (closest in ACW is customOutline), only fill it if empty.
+      // Do NOT append to avoid mutating user-authored outlines/notes.
+      if (!next.customOutline.trim() && topics.length > 0) {
+        const ideas = topics
+          .map((t) => (t || "").trim())
+          .filter(Boolean)
+          .slice(0, 10);
+        if (ideas.length > 0) {
+          next.customOutline = `LKRT topic ideas:\n${ideas.map((t) => `- ${t}`).join("\n")}`;
+        }
+      }
+
+      // Fill-empty-only for location/business fields (avoid overwriting user edits)
+      const city = (next.city || "").trim();
+      if (!city && lkrtHandoffPayload.context.location?.city) {
+        next.city = lkrtHandoffPayload.context.location.city;
+      }
+      const state = (next.state || "").trim();
+      if (!state && lkrtHandoffPayload.context.location?.state) {
+        next.state = lkrtHandoffPayload.context.location.state;
+      }
+
+      // Keywords: append unique values (comma-separated)
+      const existing = (next.keywords || "")
+        .split(/[\n,]+/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const seen = new Set(existing.map((s) => s.toLowerCase()));
+      const additions: string[] = [];
+      for (const k of [...primaryKeywords, ...secondaryKeywords]) {
+        const v = (k || "").trim();
+        if (!v) continue;
+        const key = v.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        additions.push(v);
+        if (additions.length >= 25) break;
+      }
+
+      if (!next.keywords.trim()) {
+        next.keywords = additions.slice(0, 15).join(", ");
+      } else if (additions.length > 0) {
+        next.keywords = `${next.keywords.trim()}, ${additions.join(", ")}`;
+      }
+
+      return next;
+    });
+
+    clearLkrtToContentWriterSeedsHandoff();
+    setLkrtHandoffPayload(null);
+    setShowLkrtImportBanner(false);
+    setLkrtBusinessMismatch(false);
+    clearReceiverImportParamsFromUrl();
+
+    showToast("Imported");
+
+    setTimeout(() => {
+      const formElement = document.querySelector("form");
+      if (formElement) {
+        formElement.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
   };
 
   const handleApplyLhaCareersToInputs = () => {
@@ -1746,6 +1912,90 @@ function ContentWriterPageContent() {
       />
 
       {/* Import Banner */}
+      {showLkrtImportBanner && lkrtHandoffPayload && (
+        <OBDPanel isDark={isDark} className="mb-6">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <OBDHeading level={2} isDark={isDark}>
+                Import LKRT draft seeds
+              </OBDHeading>
+              <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                Draft only. Nothing regenerates automatically. Review the preview, then click Apply to merge additively.
+              </p>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button
+                onClick={handleApplyLkrtToInputs}
+                disabled={lkrtBusinessMismatch}
+                className={`${SUBMIT_BUTTON_CLASSES} ${lkrtBusinessMismatch ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={lkrtBusinessMismatch ? "This handoff was created for a different business." : "Apply to inputs (additive only)"}
+              >
+                Apply
+              </button>
+              <button
+                onClick={handleDismissLkrtImport}
+                className={getSecondaryButtonClasses(isDark)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+
+          {lkrtBusinessMismatch ? (
+            <div className="mt-4">
+              <p className={`text-sm font-semibold ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                This handoff was created for a different business.
+              </p>
+              <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                Apply is disabled for tenant safety. You can still Dismiss.
+              </p>
+            </div>
+          ) : null}
+
+          <div className={`mt-4 text-xs ${themeClasses.mutedText}`}>
+            <span className="font-medium">Seed:</span>{" "}
+            {(lkrtHandoffPayload.context.seedKeywords || []).slice(0, 6).join(", ") || "—"}{" "}
+            <span className="mx-2">•</span>
+            <span className="font-medium">Location:</span>{" "}
+            {lkrtHandoffPayload.context.location?.city}, {lkrtHandoffPayload.context.location?.state}{" "}
+            {lkrtHandoffPayload.context.nearMe ? <span className="mx-2">•</span> : null}
+            {lkrtHandoffPayload.context.nearMe ? <span className="font-medium">near me</span> : null}
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <div className={`text-xs font-semibold ${themeClasses.headingText}`}>
+                Topic ideas (preview)
+              </div>
+              <ul className={`mt-1 list-disc pl-4 text-xs ${themeClasses.mutedText}`}>
+                {(lkrtHandoffPayload.suggestions?.topics || []).slice(0, 8).map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+                {(lkrtHandoffPayload.suggestions?.topics || []).length === 0 && <li>—</li>}
+              </ul>
+            </div>
+            <div>
+              <div className={`text-xs font-semibold ${themeClasses.headingText}`}>
+                Keywords (preview)
+              </div>
+              <ul className={`mt-1 list-disc pl-4 text-xs ${themeClasses.mutedText}`}>
+                {[
+                  ...(lkrtHandoffPayload.suggestions?.primaryKeywords || []),
+                  ...(lkrtHandoffPayload.suggestions?.secondaryKeywords || []),
+                ]
+                  .slice(0, 12)
+                  .map((k) => (
+                    <li key={k}>{k}</li>
+                  ))}
+                {(
+                  (lkrtHandoffPayload.suggestions?.primaryKeywords || []).length +
+                  (lkrtHandoffPayload.suggestions?.secondaryKeywords || []).length
+                ) === 0 && <li>—</li>}
+              </ul>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
       {showLhaCareersImportBanner && lhaCareersHandoffPayload && (
         <div
           className={`mb-6 rounded-xl border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${

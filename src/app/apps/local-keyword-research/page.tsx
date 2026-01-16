@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -29,6 +30,16 @@ import type {
   LocalKeywordIntent,
 } from "@/app/api/local-keyword-research/types";
 import { getActiveKeywordResults } from "@/lib/apps/local-keyword-research/getActiveKeywordResults";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import { getHandoffHash } from "@/lib/utils/handoff-guard";
+import {
+  LKRT_HANDOFF_TTL_MS,
+  buildLkrtToContentWriterSeedsHandoffV1,
+  buildLkrtToLocalSeoSuggestionsHandoffV1,
+  storeLkrtToContentWriterSeedsHandoff,
+  storeLkrtToLocalSeoSuggestionsHandoff,
+  type LkrtMetricsMode,
+} from "@/lib/apps/local-keyword-research/handoff";
 
 const defaultFormValues: LocalKeywordRequest = {
   businessName: "",
@@ -109,6 +120,8 @@ function AccordionSection({
 export default function LocalKeywordResearchPage() {
   const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
+  const businessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
 
   const [form, setForm] = useState<LocalKeywordRequest>(defaultFormValues);
   const [isLoading, setIsLoading] = useState(false);
@@ -126,6 +139,12 @@ export default function LocalKeywordResearchPage() {
   const [copiedKeyword, setCopiedKeyword] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<LocalKeywordRequest | null>(null);
   const [refreshNotice, setRefreshNotice] = useState<null | "current-inputs">(null);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => setActionToast(null), 1200);
+  };
 
   // Sorting and filtering state
   const [sortBy, setSortBy] = useState<"score" | "volume" | "cpc" | "difficulty" | "intent" | "keyword">("score");
@@ -373,12 +392,84 @@ export default function LocalKeywordResearchPage() {
 
   const canRefresh = !!activeResult && !isLoading;
   const canExport = !!activeResult && !isLoading;
+  const canSendHandoff = !!activeResult && !!businessId && !isLoading;
 
   const secondaryActionButtonClasses =
     `px-4 py-2 text-sm font-medium rounded-xl transition-colors ` +
     (isDark
       ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
       : "bg-gray-100 text-gray-700 hover:bg-gray-200");
+
+  const sendHandoff = (target: "local-seo" | "content-writer") => {
+    if (!activeResult) return;
+    if (!businessId) {
+      setError(
+        "Business context is required to send handoffs. Open this tool from a business-scoped link."
+      );
+      return;
+    }
+    try {
+      const createdAt = new Date().toISOString();
+      const runId = getHandoffHash({
+        businessId,
+        lastRequest: lastRequest ?? null,
+        createdAt,
+      });
+
+      const bt = (form.businessType || "").trim();
+      const rawServices = (form.services || "")
+        .split(/[\n,]+/g)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const seedKeywords = [bt, ...rawServices].filter(Boolean).slice(0, 10);
+
+      // Reuse existing badge semantics for context only (no metrics correctness work here).
+      const metricsMode = (metricsModeLabel as LkrtMetricsMode) || "—";
+
+      if (target === "local-seo") {
+        const payload = buildLkrtToLocalSeoSuggestionsHandoffV1({
+          businessId,
+          city: form.city,
+          state: form.state,
+          nearMe: form.includeNearMeVariants,
+          seedKeywords,
+          metricsMode,
+          result: activeResult,
+          createdAt,
+          runId,
+        });
+        storeLkrtToLocalSeoSuggestionsHandoff(payload);
+        showToast("Sent — ready to apply in Local SEO Page Builder.");
+        setTimeout(() => {
+          window.location.assign(
+            `/apps/local-seo-page-builder?businessId=${encodeURIComponent(businessId)}&handoff=lkrt`
+          );
+        }, 150);
+      } else if (target === "content-writer") {
+        const payload = buildLkrtToContentWriterSeedsHandoffV1({
+          businessId,
+          city: form.city,
+          state: form.state,
+          nearMe: form.includeNearMeVariants,
+          seedKeywords,
+          metricsMode,
+          result: activeResult,
+          createdAt,
+          runId,
+        });
+        storeLkrtToContentWriterSeedsHandoff(payload);
+        showToast("Sent — ready to apply in AI Content Writer.");
+        setTimeout(() => {
+          window.location.assign(
+            `/apps/content-writer?businessId=${encodeURIComponent(businessId)}&handoff=lkrt`
+          );
+        }, 150);
+      }
+    } catch (e) {
+      console.error("Failed to prepare LKRT handoff:", e);
+      setError("Failed to prepare handoff. Please try again.");
+    }
+  };
 
   const handleCopyText = async (text: string, id?: string) => {
     try {
@@ -639,6 +730,32 @@ export default function LocalKeywordResearchPage() {
                 }`}
               >
                 Export TXT (Full Report)
+              </button>
+              <button
+                type="button"
+                onClick={() => sendHandoff("local-seo")}
+                disabled={!canSendHandoff}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                } ${!canSendHandoff ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={!businessId ? "Business context required (missing businessId)." : "Send draft suggestions to Local SEO Page Builder"}
+              >
+                Send → Local SEO
+              </button>
+              <button
+                type="button"
+                onClick={() => sendHandoff("content-writer")}
+                disabled={!canSendHandoff}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  isDark
+                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                } ${!canSendHandoff ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={!businessId ? "Business context required (missing businessId)." : "Send draft seeds to AI Content Writer"}
+              >
+                Send → Content Writer
               </button>
               <button
                 type="button"
@@ -1053,6 +1170,18 @@ export default function LocalKeywordResearchPage() {
       title="OBD Local Keyword Research Tool"
       tagline="Discover exactly what local customers are searching for in Ocala and surrounding areas."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div
+          className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+            isDark
+              ? "bg-slate-800 text-white border border-slate-700"
+              : "bg-white text-slate-900 border border-slate-200"
+          }`}
+        >
+          {actionToast}
+        </div>
+      )}
       <div className={`space-y-6 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
         {/* Status Label */}
         <div className="mt-4 mb-2">
@@ -1897,6 +2026,7 @@ export default function LocalKeywordResearchPage() {
             </p>
           </OBDPanel>
         )}
+
       </div>
 
       {/* Tier 5A: Sticky Action Bar (UI-only) */}

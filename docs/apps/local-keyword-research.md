@@ -1,11 +1,6 @@
-### Local Keyword Research Tool (LKRT) — Tier Upgrade Audit (V3.1)
+### Local Keyword Research Tool (LKRT) — Implementation Notes (V3.1)
 
-This document is **analysis + documentation only**.
-
-- **No runtime code changes**
-- **No API changes**
-- **No new dependencies**
-- **No assumptions beyond code truth**
+This document reflects **current shipped behavior** (code-truth), including Tier 5A UX parity and Tier 5C draft-only handoffs.
 
 ---
 
@@ -102,27 +97,27 @@ This document is **analysis + documentation only**.
 
 ## Tier gap analysis (Tier 5C / Tier 6 reference parity)
 
-### A) Determinism & State — ⚠️ PARTIAL
+### A) Determinism & State — ✅ PASS
 
-- **Single canonical active-results selector**: ❌ MISSING
-  - Reference pattern exists in suite (`edited ?? generated` selectors), e.g. `src/lib/apps/event-campaign-builder/getActiveCampaign.ts`.
+- **Single canonical active-results selector**: ✅ PASS
+  - Evidence: `src/lib/apps/local-keyword-research/getActiveKeywordResults.ts` (edited wins over generated; no recompute/mutation).
 - **Regenerate stability**: ⚠️ PARTIAL
   - Shape is normalized server-side, but content is LLM-generated and not guaranteed stable between regenerations.
 - **Edited state protection**: ✅ PASS (not applicable)
   - LKRT does not implement editable output state (unlike Local SEO Page Builder draft/edit model).
 
-### B) UX Consistency (Tier 5A) — ⚠️ PARTIAL
+### B) UX Consistency (Tier 5A) — ✅ PASS
 
-- **Accordion input parity**: ❌ MISSING
-  - Tier reference exists in `src/app/apps/local-seo-page-builder/LocalSeoPageBuilderClient.tsx` accordion state.
-- **Sticky action bar**: ❌ MISSING
-  - Tier reference uses `OBDStickyActionBar` in Local SEO Page Builder; LKRT does not.
-- **Disabled-not-hidden actions**: ⚠️ PARTIAL
-  - Some LKRT actions are conditional (e.g., metric columns). Tier reference export centers commonly compute blockers and disable actions with reasons.
+- **Accordion input parity**: ✅ PASS
+  - Evidence: `src/app/apps/local-keyword-research/page.tsx` (accordion sections with collapsed summaries).
+- **Sticky action bar**: ✅ PASS
+  - Evidence: `src/app/apps/local-keyword-research/page.tsx` (`OBDStickyActionBar` Refresh/Export actions; disabled-not-hidden).
+- **Disabled-not-hidden actions**: ✅ PASS
+  - Evidence: LKRT action buttons remain visible but disabled when unavailable (export/refresh/handoff).
 - **Error/loading/empty states**: ✅ PASS
   - LKRT shows explicit error panels and a “no results match filters” empty state with clear-filters action.
-- **Badge semantics (Live vs Mock)**: ⚠️ PARTIAL
-  - LKRT can show “Live Google Ads” based on `dataSource`, but Google Ads metrics are currently stubbed (metrics null).
+- **Badge semantics (Live vs Mock)**: ✅ PASS
+  - “Live” only when numeric metrics exist; otherwise “Google Ads (Connected — Metrics Pending)” or “Mock Data”.
 
 ### C) Export Integrity — ⚠️ PARTIAL
 
@@ -134,14 +129,27 @@ This document is **analysis + documentation only**.
 - **CSV safety & schema stability**: ⚠️ PARTIAL
   - LKRT CSV includes a metadata header block (`# ...`) and conditionally includes columns, which can reduce importer compatibility and schema stability.
 
-### D) Ecosystem Awareness (Tier 5C) — ❌ MISSING
+### D) Ecosystem Awareness (Tier 5C) — ✅ PASS
 
-- LKRT has **no Tier 5C handoff payload builder/transport**:
-  - No TTL’d, versioned, tenant-safe sessionStorage handoffs for sending keyword results into:
-    - Local SEO Page Builder
-    - AI Content Writer
-    - SEO Audit & Roadmap
-- Tier 5C reference exists in Local SEO Page Builder’s `src/app/apps/local-seo-page-builder/handoffs/builders.ts` (TTL, versioned keys, “active content only” payload design).
+Implemented two safe, draft-only handoffs (Apply/Dismiss receivers; no auto-apply):
+
+- **LKRT → Local SEO Page Builder** (draft input suggestions)
+  - Evidence:
+    - Sender UI: `src/app/apps/local-keyword-research/page.tsx` (“Send → Local SEO”)
+    - Payload/types/storage: `src/lib/apps/local-keyword-research/handoff.ts` (`lkrt:local-seo-suggestions:v1`, TTL, sessionStorage key)
+    - Receiver panel + additive apply: `src/app/apps/local-seo-page-builder/LocalSeoPageBuilderClient.tsx`
+- **LKRT → AI Content Writer** (topic + keyword seeds)
+  - Evidence:
+    - Sender UI: `src/app/apps/local-keyword-research/page.tsx` (“Send → Content Writer”)
+    - Payload/types/storage: `src/lib/apps/local-keyword-research/handoff.ts` (`lkrt:content-seeds:v1`, TTL, sessionStorage key)
+    - Receiver panel + additive apply: `src/app/apps/content-writer/page.tsx`
+
+Guardrails enforced in receivers:
+
+- **Tenant-safe**: Apply disabled on business mismatch with warning: “This handoff was created for a different business.”
+- **TTL enforced**: expired payload is cleared and user sees “Expired” toast
+- **Draft-only + explicit Apply/Dismiss**: nothing is applied automatically; no auto-generation; no background work
+- **Additive-only**: receivers fill-empty or append safely; never overwrite existing user text
 
 ### E) Trust & Guardrails — ⚠️ PARTIAL
 
@@ -197,6 +205,37 @@ Planned draft-only handoffs:
 Design constraints:
 
 - **Tenant-safe** (no cross-tenant share), **TTL-protected**, **additive-only**, **review-first**.
+
+---
+
+## Tier 5C handoffs (implemented)
+
+### Overview (shared guarantees)
+
+- **Draft-only**: no automatic application across apps; user must click **Apply**.
+- **TTL’d**: sessionStorage payloads expire after ~10 minutes and are cleared on read if expired.
+- **Tenant-safe**: payload includes `businessId`; receivers disable Apply if mismatch and show: **“This handoff was created for a different business.”**
+- **Apply/Dismiss**: both receivers provide explicit **Apply** (primary) and **Dismiss** (secondary).
+- **Cleanup**: payload cleared on **Dismiss**, **successful Apply**, and **TTL expiry**.
+
+### LKRT → Local SEO Page Builder
+
+- **Transport**: sessionStorage key `obd:handoff:lkrt:local-seo-suggestions:v1` (versioned payload `lkrt:local-seo-suggestions:v1`)
+- **Receiver flag**: navigates with `?handoff=lkrt`
+- **Apply semantics (additive only)**:
+  - Fills empty location fields (city/state)
+  - If `primaryService` is empty, fills from top suggested keyword
+  - Appends remaining keyword suggestions into `secondaryServices` (deduped; never overwrites)
+
+### LKRT → AI Content Writer
+
+- **Transport**: sessionStorage key `obd:handoff:lkrt:content-seeds:v1` (versioned payload `lkrt:content-seeds:v1`)
+- **Receiver flag**: navigates with `?handoff=lkrt`
+- **Apply semantics (additive only)**:
+  - If `topic` is empty, fills from first suggested topic
+  - Appends keyword suggestions into the `keywords` input (comma-separated; deduped)
+  - If the “ideas” textarea (`customOutline`) is empty, inserts a bullet list of topic ideas (fill-empty-only; does not append)
+  - **No auto-generation**; user-triggered generation only
 
 ### Tier 6 — Advisory Enhancements (non-predictive)
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -53,6 +54,13 @@ import PageCopyEditor from "./editors/PageCopyEditor";
 import SeoPackEditor from "./editors/SeoPackEditor";
 import FaqsEditor from "./editors/FaqsEditor";
 import PageSectionsEditor from "./editors/PageSectionsEditor";
+import LKRTImportBanner from "./components/LKRTImportBanner";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  clearLkrtToLocalSeoSuggestionsHandoff,
+  readLkrtToLocalSeoSuggestionsHandoff,
+  type LkrtToLocalSeoSuggestionsHandoffV1,
+} from "@/lib/apps/local-keyword-research/handoff";
 
 const STORAGE_KEY = "obd.v3.localSEOPageBuilder.form";
 
@@ -80,9 +88,12 @@ export default function LocalSeoPageBuilderClient({
 }: {
   initialDefaults?: LocalSEOPageBuilderRequest;
 }) {
+  const isDev = process.env.NODE_ENV === "development";
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
+  const businessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
 
   const [secondaryServicesInput, setSecondaryServicesInput] = useState("");
   const [neighborhoodsInput, setNeighborhoodsInput] = useState("");
@@ -116,6 +127,119 @@ export default function LocalSeoPageBuilderClient({
   const loading = draft.status === "generating";
   const error = draft.error;
   const lastPayload = draft.sourceInputs.lastPayload;
+
+  // Tier 5C receiver: LKRT -> Local SEO Page Builder (draft-only suggestions)
+  const [lkrtImport, setLkrtImport] = useState<LkrtToLocalSeoSuggestionsHandoffV1 | null>(null);
+
+  useEffect(() => {
+    // Only check for LKRT handoff when explicitly routed with receiver flag.
+    // (Keeps the banner from appearing unexpectedly on normal navigation.)
+    const handoffFlag = searchParams?.get("handoff");
+    const sourceFlag = searchParams?.get("source");
+    const isLkrtRoute = handoffFlag === "lkrt" || (handoffFlag === "1" && sourceFlag === "lkrt");
+    if (!isLkrtRoute) return;
+
+    const { payload, expired } = readLkrtToLocalSeoSuggestionsHandoff();
+    if (expired) {
+      // Already cleared by the reader, but keep receiver behavior explicit.
+      clearLkrtToLocalSeoSuggestionsHandoff();
+      setLkrtImport(null);
+      if (isDev) console.info("[LKRT handoff][Local SEO] expired — cleared");
+      showToast("Expired");
+      return;
+    }
+
+    if (payload) {
+      if (isDev) {
+        console.info("[LKRT handoff][Local SEO] detected payload", {
+          businessId: payload?.from?.businessId,
+          createdAt: payload?.createdAt,
+          expiresAt: payload?.expiresAt,
+          type: payload?.type,
+        });
+      }
+      setLkrtImport(payload);
+    }
+  }, [searchParams]);
+
+  const dismissLkrtImport = () => {
+    clearLkrtToLocalSeoSuggestionsHandoff();
+    setLkrtImport(null);
+    if (isDev) console.info("[LKRT handoff][Local SEO] dismissed — cleared");
+  };
+
+  const applyLkrtImport = () => {
+    if (!lkrtImport) return;
+    if (!businessId) return;
+    if (lkrtImport.from?.businessId !== businessId) return;
+
+    if (isDev) console.info("[LKRT handoff][Local SEO] applying (additive only)");
+
+    const current = draft.sourceInputs.form;
+    const next: LocalSEOPageBuilderRequest = { ...current };
+
+    const dedupe = (values: string[], limit: number): string[] => {
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const v of Array.isArray(values) ? values : []) {
+        const s = (v || "").trim();
+        if (!s) continue;
+        const key = s.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(s);
+        if (out.length >= limit) break;
+      }
+      return out;
+    };
+
+    // Fill-empty-only for scalar fields
+    const city = (next.city || "").trim();
+    if (!city && lkrtImport.context.location?.city) {
+      next.city = lkrtImport.context.location.city;
+    }
+    const state = (next.state || "").trim();
+    if (!state && lkrtImport.context.location?.state) {
+      next.state = lkrtImport.context.location.state;
+    }
+
+    const seed = Array.isArray(lkrtImport.context.seedKeywords)
+      ? lkrtImport.context.seedKeywords
+      : [];
+    const seedBusinessType = (seed[0] || "").trim();
+
+    if (!(next.businessType || "").trim() && seedBusinessType) {
+      next.businessType = seedBusinessType;
+    }
+
+    // Keyword suggestions (additive only)
+    const suggestedKeywords = dedupe(
+      [
+        ...(lkrtImport.suggestions?.primaryKeywords || []),
+        ...(lkrtImport.suggestions?.secondaryKeywords || []),
+      ],
+      25
+    );
+
+    const currentPrimaryService = (next.primaryService || "").trim();
+    if (!currentPrimaryService && suggestedKeywords.length > 0) {
+      // If empty, fill the primary keyword/service input from the top suggestion.
+      next.primaryService = suggestedKeywords[0];
+    }
+
+    // Never overwrite existing user text: always append into the secondary list.
+    // If primaryService was already populated, we append all suggested keywords.
+    // If we filled primaryService above, we append the remaining suggestions.
+    const existingSecondary = Array.isArray(next.secondaryServices) ? next.secondaryServices : [];
+    const keywordsToAppend = currentPrimaryService
+      ? suggestedKeywords
+      : suggestedKeywords.slice(1);
+    next.secondaryServices = dedupe([...existingSecondary, ...keywordsToAppend], 25);
+
+    dispatch({ type: "INIT_FROM_FORM", form: next });
+    showToast("Imported");
+    dismissLkrtImport();
+  };
 
   const activeSeoPack = useMemo(() => getActiveSeoPack(draft), [draft]);
   const activePageCopy = useMemo(() => getActivePageCopy(draft), [draft]);
@@ -813,6 +937,24 @@ export default function LocalSeoPageBuilderClient({
           Nothing is published automatically. Use Export when you’re ready to paste into your site.
         </p>
       </div>
+
+      {/* Tier 5C receiver: LKRT draft suggestions (Apply/Dismiss, tenant-safe) */}
+      {lkrtImport && (
+        <div className="mb-6">
+          <LKRTImportBanner
+            isDark={isDark}
+            payload={lkrtImport}
+            canApply={!!businessId && lkrtImport.from?.businessId === businessId}
+            applyBlockedReason={!businessId
+              ? "Missing businessId (tenant safety)."
+              : lkrtImport.from?.businessId !== businessId
+              ? "This handoff was created for a different business."
+              : undefined}
+            onDismiss={dismissLkrtImport}
+            onApply={applyLkrtImport}
+          />
+        </div>
+      )}
 
       {/* Inputs */}
       <OBDPanel isDark={isDark} className="mt-7">

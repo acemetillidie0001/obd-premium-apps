@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SessionStorage handoff transport using per-destination keys (`obd:handoff:local-seo-page-builder:<app>:v1`) with TTL enforced via `createdAt/expiresAt` + `store*/read*/clear*` helpers.
   - Disabled-until-ready behavior + confirm modal; cancel has no side effects.
 
+- **Local Keyword Research Tool — Tier 5C Safe Handoffs (2026-01-16)**
+  - Canonical results selector: `getActiveKeywordResults()` (edited wins over generated).
+  - Tier 5A UX upgrades (UI-only): sticky action bar, accordion inputs with summaries, deterministic refresh UX, corrected metrics badge semantics, and empty-state education copy.
+  - Tier 5C safe handoffs (draft-only, TTL’d, tenant-safe, Apply/Dismiss only):
+    - LKRT → Local SEO Page Builder: additive-only Apply (fill-empty + append; never overwrite).
+    - LKRT → AI Content Writer: additive-only Apply (fill-empty + append; never overwrite); no auto-generation.
+  - Receiver guardrails: Apply blocked on tenant mismatch with strong warning; payload clears on Dismiss / Apply / TTL expiry.
+
 - **Local Keyword Research Tool — Live Google Ads Keyword Planner historical metrics (Basic Access)**
   - Env-var–gated dispatcher (`LOCAL_KEYWORD_METRICS_SOURCE=google-ads`) with automatic mock fallback when creds are missing or calls fail (default-safe).
   - Per-chunk timeout protection (batched requests with timeout guard).

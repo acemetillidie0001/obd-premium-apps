@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - SessionStorage handoff transport using per-destination keys (`obd:handoff:local-seo-page-builder:<app>:v1`) with TTL enforced via `createdAt/expiresAt` + `store*/read*/clear*` helpers.
   - Disabled-until-ready behavior + confirm modal; cancel has no side effects.
 
+- **Local Keyword Research Tool — Live Google Ads Keyword Planner historical metrics (Basic Access)**
+  - Env-var–gated dispatcher (`LOCAL_KEYWORD_METRICS_SOURCE=google-ads`) with automatic mock fallback when creds are missing or calls fail (default-safe).
+  - Per-chunk timeout protection (batched requests with timeout guard).
+  - MCC-compatible configuration via optional `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (manager ID) + `GOOGLE_ADS_CLIENT_CUSTOMER_ID` (account being queried), both numbers only.
+  - No breaking changes; mock metrics remain the default.
+
 - **Local Hiring Assistant — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-14)**
   - **Tier 5B — Canonical + Determinism**
     - Canonical `JobPostItem` model + selectors (single source of truth for outputs)

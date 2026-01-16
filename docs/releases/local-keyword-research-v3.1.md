@@ -2,7 +2,7 @@
 
 **Release Date:** December 29, 2025  
 **Version:** V3.1  
-**Status:** ✅ Production Ready (Pre–Google Ads Live Metrics)
+**Status:** ✅ Production Ready (Live Google Ads metrics supported via Keyword Planner Basic Access)
 
 ## Overview
 
@@ -40,10 +40,44 @@ Local Keyword Research Tool V3.1 introduces polish improvements focused on UX cl
 
 ## Next Steps (When Google Approves Basic Access)
 
-- [ ] Enable Google Ads Keyword Planner live metrics ingestion
-- [ ] Confirm `dataSource` becomes `"google-ads"` for keywords with live data
-- [ ] Update badge to show "Live Google Ads" when applicable
-- [ ] Verify metrics badge helper text updates to: "Metrics are pulled from Google Ads Keyword Planner."
+- ✅ Enable Google Ads Keyword Planner historical metrics ingestion (Basic Access)
+- ✅ Confirm `dataSource` becomes `"google-ads"` for keywords with live data (UI badge flips to Live)
+- ✅ Keep mock fallback when credentials are missing or API calls fail
+
+## Enabling LIVE Google Ads metrics (Basic Access)
+
+Set `LOCAL_KEYWORD_METRICS_SOURCE=google-ads` and provide all required Google Ads env vars.
+
+### Required env vars
+
+- `LOCAL_KEYWORD_METRICS_SOURCE=google-ads`
+- `GOOGLE_ADS_DEVELOPER_TOKEN`
+- `GOOGLE_ADS_CLIENT_CUSTOMER_ID`
+- `GOOGLE_ADS_CLIENT_ID`
+- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_REFRESH_TOKEN`
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (optional, recommended when using a Manager/MCC account)
+
+### Example `.env.local`
+
+```bash
+LOCAL_KEYWORD_METRICS_SOURCE=google-ads
+GOOGLE_ADS_DEVELOPER_TOKEN=your_dev_token
+GOOGLE_ADS_CLIENT_ID=your_oauth_client_id.apps.googleusercontent.com
+GOOGLE_ADS_CLIENT_SECRET=your_oauth_client_secret
+GOOGLE_ADS_REFRESH_TOKEN=your_refresh_token
+GOOGLE_ADS_CLIENT_CUSTOMER_ID=2386063507
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=2386063507
+```
+
+### Notes
+
+- Uses Keyword Planner **historical metrics** (avg monthly searches, competition, CPC).
+- Uses **USA-only** geo targeting for now (`geoTargetConstants/2840`) and **English** (`languageConstants/1000`).
+- Requests are batched (100 keywords per request) with a 15s timeout per batch.
+- Customer IDs should be **numbers only** (no dashes):
+  - `GOOGLE_ADS_LOGIN_CUSTOMER_ID`: the **manager (MCC) account ID** (numbers only). Optional, but recommended when accessing a client account via an MCC.
+  - `GOOGLE_ADS_CLIENT_CUSTOMER_ID`: the **account being queried** (numbers only).
 
 ## Technical Notes
 

@@ -5,6 +5,9 @@ import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDFilterBar from "@/components/obd/OBDFilterBar";
+import OBDStickyActionBar, {
+  OBD_STICKY_ACTION_BAR_OFFSET_CLASS,
+} from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -25,6 +28,7 @@ import type {
   RankHistoryItem,
   LocalKeywordIntent,
 } from "@/app/api/local-keyword-research/types";
+import { getActiveKeywordResults } from "@/lib/apps/local-keyword-research/getActiveKeywordResults";
 
 const defaultFormValues: LocalKeywordRequest = {
   businessName: "",
@@ -47,16 +51,81 @@ const defaultFormValues: LocalKeywordRequest = {
   includeGmbPostIdeas: true,
 };
 
+function AccordionSection({
+  isOpen,
+  onToggle,
+  title,
+  summary,
+  isDark,
+  children,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  title: string;
+  summary: React.ReactNode;
+  isDark: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border ${
+        isDark ? "border-slate-700 bg-slate-800/20" : "border-slate-200 bg-white"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full text-left px-4 py-3 md:px-6 md:py-4 flex items-start justify-between gap-3 ${
+          isDark ? "hover:bg-slate-800/40" : "hover:bg-slate-50"
+        } rounded-2xl transition-colors`}
+        aria-expanded={isOpen}
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-sm font-semibold ${
+                isDark ? "text-slate-100" : "text-slate-900"
+              }`}
+            >
+              {title}
+            </span>
+          </div>
+          <div className="mt-1">{summary}</div>
+        </div>
+        <span
+          className={`mt-0.5 text-xs font-semibold ${
+            isDark ? "text-slate-300" : "text-slate-600"
+          }`}
+          aria-hidden="true"
+        >
+          {isOpen ? "▲" : "▼"}
+        </span>
+      </button>
+      {isOpen && <div className="px-4 pb-4 md:px-6 md:pb-6">{children}</div>}
+    </div>
+  );
+}
+
 export default function LocalKeywordResearchPage() {
   const { theme, isDark, setTheme } = useOBDTheme();
   const themeClasses = getThemeClasses(isDark);
 
   const [form, setForm] = useState<LocalKeywordRequest>(defaultFormValues);
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<LocalKeywordResponse | null>(null);
+  // Tier 5A state normalization:
+  // - generatedResult: latest generated response from API
+  // - editedResult: user-edited response (reserved for future UI; keep null unless editing is introduced)
+  const [generatedResult, setGeneratedResult] = useState<LocalKeywordResponse | null>(null);
+  const [editedResult, setEditedResult] = useState<LocalKeywordResponse | null>(null);
+  // Canonical active results selector (edited > generated)
+  const activeResult = useMemo(
+    () => getActiveKeywordResults(generatedResult, editedResult),
+    [generatedResult, editedResult]
+  );
   const [error, setError] = useState<string | null>(null);
   const [copiedKeyword, setCopiedKeyword] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<LocalKeywordRequest | null>(null);
+  const [refreshNotice, setRefreshNotice] = useState<null | "current-inputs">(null);
 
   // Sorting and filtering state
   const [sortBy, setSortBy] = useState<"score" | "volume" | "cpc" | "difficulty" | "intent" | "keyword">("score");
@@ -88,6 +157,122 @@ export default function LocalKeywordResearchPage() {
     }
   }, [form.websiteUrl]); // Removed rankTargetUrl from deps to avoid unnecessary re-runs
 
+  // Tier 5A: Accordion state (input sections)
+  const [accordionState, setAccordionState] = useState({
+    businessAndServices: true,
+    location: true,
+    targeting: false,
+    strategy: false,
+    voice: false,
+    extras: false,
+  });
+
+  const toggleAccordion = (section: keyof typeof accordionState) => {
+    setAccordionState((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const collapseAllAccordions = () => {
+    setAccordionState({
+      businessAndServices: true, // keep the primary section visible
+      location: false,
+      targeting: false,
+      strategy: false,
+      voice: false,
+      extras: false,
+    });
+  };
+
+  const expandAllAccordions = () => {
+    setAccordionState({
+      businessAndServices: true,
+      location: true,
+      targeting: true,
+      strategy: true,
+      voice: true,
+      extras: true,
+    });
+  };
+
+  const runBasis: LocalKeywordRequest = lastRequest ?? form;
+
+  const metricsModeLabel = useMemo(() => {
+    if (!activeResult) return "—";
+    const kws = activeResult.topPriorityKeywords || [];
+
+    const hasGoogleAdsSource = kws.some((k) => k.dataSource === "google-ads");
+    const hasMockSource = kws.some((k) => k.dataSource === "mock");
+
+    const hasNumericGoogleAdsMetrics = kws.some(
+      (k) =>
+        k.dataSource === "google-ads" &&
+        (typeof k.monthlySearchesExact === "number" ||
+          typeof k.cpcUsd === "number" ||
+          typeof k.adsCompetitionIndex === "number")
+    );
+
+    if (hasGoogleAdsSource) {
+      return hasNumericGoogleAdsMetrics
+        ? "Live Google Ads"
+        : "Google Ads (Connected — Metrics Pending)";
+    }
+
+    if (hasMockSource) return "Mock Data";
+
+    return "Estimated";
+  }, [activeResult]);
+
+  const seedKeywordsSummary = useMemo(() => {
+    const bt = (runBasis.businessType || "").trim();
+    const raw = (runBasis.services || "")
+      .split(/[\n,]+/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const services = raw
+      .filter((s) => {
+        const key = s.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 3);
+
+    const parts = [
+      bt ? bt : undefined,
+      services.length ? services.join(", ") : undefined,
+    ].filter(Boolean) as string[];
+
+    return parts.length ? parts.join(" • ") : "—";
+  }, [runBasis.businessType, runBasis.services]);
+
+  const locationModifierSummary = useMemo(() => {
+    const city = (runBasis.city || "").trim();
+    const state = (runBasis.state || "").trim();
+    const loc = [city, state].filter(Boolean).join(", ");
+    const modifiers: string[] = [];
+    if (loc) modifiers.push(loc);
+    if (runBasis.includeNearMeVariants) modifiers.push('"near me"');
+    return modifiers.length ? modifiers.join(" • ") : "—";
+  }, [runBasis.city, runBasis.state, runBasis.includeNearMeVariants]);
+
+  const accordionSummary = useMemo(() => {
+    const prefix = lastRequest ? "Last run:" : "Current:";
+    return (
+      <div className={`text-[11px] leading-snug ${themeClasses.mutedText}`}>
+        <span className="font-medium">{prefix}</span>{" "}
+        <span className="mr-2">Seed: {seedKeywordsSummary}</span>
+        <span className="mr-2">Location: {locationModifierSummary}</span>
+        <span>Metrics: {metricsModeLabel}</span>
+      </div>
+    );
+  }, [
+    lastRequest,
+    seedKeywordsSummary,
+    locationModifierSummary,
+    metricsModeLabel,
+    themeClasses.mutedText,
+  ]);
+
   const updateFormValue = <K extends keyof LocalKeywordRequest>(
     key: K,
     value: LocalKeywordRequest[K]
@@ -100,7 +285,9 @@ export default function LocalKeywordResearchPage() {
     setIsLoading(true);
     // Don't clear result on regenerate - preserve current results while loading
     if (!isRegenerate) {
-      setResult(null);
+      setGeneratedResult(null);
+      // If an edited view ever exists, clear it on fresh generation requests.
+      setEditedResult(null);
     }
 
     try {
@@ -124,7 +311,7 @@ export default function LocalKeywordResearchPage() {
       const data: LocalKeywordResponse = (jsonData && typeof jsonData === "object" && "ok" in jsonData && jsonData.ok === true && "data" in jsonData)
         ? jsonData.data
         : jsonData;
-      setResult(data);
+      setGeneratedResult(data);
       setLastRequest(requestPayload);
       
       // Scroll to results after a brief delay
@@ -161,10 +348,37 @@ export default function LocalKeywordResearchPage() {
     await performRequest(form);
   };
 
-  const handleRegenerate = async () => {
-    if (!lastRequest) return;
-    await performRequest(lastRequest, true);
+  const handleRefreshResults = async () => {
+    // UX determinism: refresh is always based on CURRENT form inputs.
+    // No background refresh; only user-triggered.
+    if (!form.businessType.trim()) {
+      setError(
+        "Please enter your business type (e.g., Massage Spa, Plumber, Restaurant)."
+      );
+      return;
+    }
+
+    if (!form.services.trim()) {
+      setError("Please list at least one service or specialty.");
+      return;
+    }
+
+    setRefreshNotice("current-inputs");
+    try {
+      await performRequest(form, true);
+    } finally {
+      setRefreshNotice(null);
+    }
   };
+
+  const canRefresh = !!activeResult && !isLoading;
+  const canExport = !!activeResult && !isLoading;
+
+  const secondaryActionButtonClasses =
+    `px-4 py-2 text-sm font-medium rounded-xl transition-colors ` +
+    (isDark
+      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+      : "bg-gray-100 text-gray-700 hover:bg-gray-200");
 
   const handleCopyText = async (text: string, id?: string) => {
     try {
@@ -193,7 +407,7 @@ export default function LocalKeywordResearchPage() {
   };
 
   const handleExportTxt = () => {
-    if (!result) return;
+    if (!activeResult) return;
     const meta = {
       businessName: form.businessName || undefined,
       city: form.city || undefined,
@@ -209,34 +423,67 @@ export default function LocalKeywordResearchPage() {
       zipCodes: form.includeZipCodes,
       language: form.language,
     };
-    const txt = generateFullReportTxt(result, meta, settings);
+    const txt = generateFullReportTxt(activeResult, meta, settings);
     const filename = getTxtFilename(form.businessName);
     downloadBlob(txt, filename, "text/plain");
   };
 
   // Determine metrics mode
   const getMetricsMode = (keywords: LocalKeywordIdea[]): { mode: string; helperText: string } => {
-    const hasGoogleAds = keywords.some((k) => k.dataSource === "google-ads");
-    const hasAnyMetrics = keywords.some(
-      (k) => typeof k.monthlySearchesExact === "number" || typeof k.cpcUsd === "number"
+    const hasGoogleAdsSource = keywords.some((k) => k.dataSource === "google-ads");
+    const hasMockSource = keywords.some((k) => k.dataSource === "mock");
+
+    const hasAnyNumericMetrics = keywords.some(
+      (k) =>
+        typeof k.monthlySearchesExact === "number" ||
+        typeof k.cpcUsd === "number" ||
+        typeof k.adsCompetitionIndex === "number"
     );
 
-    if (hasGoogleAds) {
+    const hasNumericGoogleAdsMetrics = keywords.some(
+      (k) =>
+        k.dataSource === "google-ads" &&
+        (typeof k.monthlySearchesExact === "number" ||
+          typeof k.cpcUsd === "number" ||
+          typeof k.adsCompetitionIndex === "number")
+    );
+
+    // Badge semantics fix (critical):
+    // - "Live" → only allowed when numeric Google Ads metrics exist.
+    // - "Google Ads (Connected — Metrics Pending)" → Google Ads source present but metrics are null.
+    // - "Mock Data" → mock source explicitly labeled.
+    if (hasGoogleAdsSource) {
+      if (hasNumericGoogleAdsMetrics) {
+        return {
+          mode: "Live Google Ads",
+          helperText: "Numeric metrics are available from Google Ads for at least some keywords.",
+        };
+      }
+
       return {
-        mode: "Live Google Ads",
-        helperText: "Metrics are pulled from Google Ads Keyword Planner.",
-      };
-    } else if (hasAnyMetrics) {
-      return {
-        mode: "Estimated",
-        helperText: "Google Ads live metrics will appear once Basic Access is approved.",
-      };
-    } else {
-      return {
-        mode: "Estimates",
-        helperText: "Search volume & CPC are estimates while Google Ads Basic Access is pending.",
+        mode: "Google Ads (Connected — Metrics Pending)",
+        helperText: "Google Ads source is selected, but numeric metrics are not available yet.",
       };
     }
+
+    if (hasMockSource) {
+      return {
+        mode: "Mock Data",
+        helperText: "Metrics shown are mock data for testing (not Google Ads).",
+      };
+    }
+
+    if (hasAnyNumericMetrics) {
+      return {
+        mode: "Estimated",
+        helperText: "Some numeric metrics are available, but they are not from Google Ads.",
+      };
+    }
+
+    return {
+      mode: "No Metrics",
+      helperText: "No numeric metrics are available for this run.",
+    };
   };
 
   // Difficulty ordering helper
@@ -255,9 +502,9 @@ export default function LocalKeywordResearchPage() {
 
   // Filter and sort keywords
   const filteredAndSortedKeywords = useMemo(() => {
-    if (!result?.topPriorityKeywords) return [];
+    if (!activeResult?.topPriorityKeywords) return [];
 
-    let filtered = [...result.topPriorityKeywords];
+    let filtered = [...activeResult.topPriorityKeywords];
 
     // Apply search filter
     if (searchQuery.trim()) {
@@ -327,7 +574,7 @@ export default function LocalKeywordResearchPage() {
       });
 
     return filtered;
-  }, [result?.topPriorityKeywords, searchQuery, filterDifficulty, filterIntent, sortBy, sortOrder]);
+  }, [activeResult?.topPriorityKeywords, searchQuery, filterDifficulty, filterIntent, sortBy, sortOrder]);
 
   const renderKeywordTable = (keywords: LocalKeywordIdea[]) => {
     if (!keywords?.length) return null;
@@ -806,376 +1053,464 @@ export default function LocalKeywordResearchPage() {
       title="OBD Local Keyword Research Tool"
       tagline="Discover exactly what local customers are searching for in Ocala and surrounding areas."
     >
-      {/* Status Label */}
-      <div className="mt-4 mb-2">
-        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
-          isDark
-            ? "bg-slate-800/50 border-slate-600 text-slate-300"
-            : "bg-slate-100 border-slate-300 text-slate-700"
-        }`}>
-          Status: Production Ready (Pre-Google Ads Live Metrics)
-        </span>
-      </div>
-      {/* Form */}
-      <OBDPanel isDark={isDark} className="mt-7">
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
-            <OBDHeading level={2} isDark={isDark}>
-              Step 1 — Tell us about your business
-            </OBDHeading>
-            <p className={`text-sm ${themeClasses.mutedText}`}>
-              We'll use these details to generate local keyword ideas that actually match what you do in Ocala.
-            </p>
-
-            {/* Business basics */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Business Name
-                </label>
-                <input
-                  type="text"
-                  id="businessName"
-                  value={form.businessName}
-                  onChange={(e) =>
-                    updateFormValue("businessName", e.target.value)
-                  }
-                  className={getInputClasses(isDark)}
-                  placeholder="Example: Sunshine Massage & Wellness"
-                />
-              </div>
-              <div>
-                <label htmlFor="businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Business Type *
-                </label>
-                <input
-                  type="text"
-                  id="businessType"
-                  value={form.businessType}
-                  onChange={(e) =>
-                    updateFormValue("businessType", e.target.value)
-                  }
-                  className={getInputClasses(isDark)}
-                  placeholder="Example: Massage spa, plumber, dentist"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                Services & specialties *
-              </label>
-              <textarea
-                id="services"
-                value={form.services}
-                onChange={(e) =>
-                  updateFormValue("services", e.target.value)
-                }
-                className={getInputClasses(isDark, "resize-none")}
-                placeholder="List your main services, separated by commas or lines (e.g. deep tissue massage, hot stone massage, couples massage, prenatal massage)"
-                rows={3}
-                required
-              />
-            </div>
-
-            {/* Location */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <label htmlFor="city" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  City
-                </label>
-                <input
-                  type="text"
-                  id="city"
-                  value={form.city}
-                  onChange={(e) => updateFormValue("city", e.target.value)}
-                  className={getInputClasses(isDark)}
-                  placeholder="Ocala"
-                />
-              </div>
-              <div>
-                <label htmlFor="state" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  State
-                </label>
-                <input
-                  type="text"
-                  id="state"
-                  value={form.state}
-                  onChange={(e) => updateFormValue("state", e.target.value)}
-                  className={getInputClasses(isDark)}
-                  placeholder="Florida"
-                />
-              </div>
-              <div>
-                <label htmlFor="radiusMiles" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Target Radius (miles)
-                </label>
-                <input
-                  type="number"
-                  id="radiusMiles"
-                  min={1}
-                  max={60}
-                  value={form.radiusMiles}
-                  onChange={(e) =>
-                    updateFormValue(
-                      "radiusMiles",
-                      Number(e.target.value || 0)
-                    )
-                  }
-                  className={getInputClasses(isDark)}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="websiteUrl" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                Website URL (optional)
-              </label>
-              <input
-                type="url"
-                id="websiteUrl"
-                value={form.websiteUrl ?? ""}
-                onChange={(e) =>
-                  updateFormValue("websiteUrl", e.target.value)
-                }
-                  className={getInputClasses(isDark)}
-                  placeholder="https://example.com"
-                  aria-label="Website URL (optional)"
-                />
-            </div>
-
-            {/* Local targeting options */}
-            <div className={`rounded-2xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50/50 border-slate-200"}`}>
-              <p className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>Local targeting options</p>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>Include "near me"</p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      e.g. "massage near me"
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeNearMeVariants}
-                    onChange={(e) =>
-                      updateFormValue("includeNearMeVariants", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include near me variants"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>Include ZIP codes</p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      e.g. 34470, 34471, 34474
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeZipCodes}
-                    onChange={(e) =>
-                      updateFormValue("includeZipCodes", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include ZIP codes"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>
-                      Include neighborhoods
-                    </p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      e.g. "near Downtown Ocala"
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeNeighborhoods}
-                    onChange={(e) =>
-                      updateFormValue("includeNeighborhoods", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include neighborhoods"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Strategy & output */}
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <label htmlFor="primaryGoal" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Primary goal
-                </label>
-                <select
-                  id="primaryGoal"
-                  value={form.primaryGoal}
-                  onChange={(e) =>
-                    updateFormValue(
-                      "primaryGoal",
-                      e.target.value as LocalKeywordRequest["primaryGoal"]
-                    )
-                  }
-                  className={getInputClasses(isDark)}
-                >
-                  <option value="SEO">SEO ranking</option>
-                  <option value="Content">Content & blog ideas</option>
-                  <option value="Ads">Google Ads targeting</option>
-                  <option value="Mixed">Mix of all three</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="maxKeywords" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Max keywords
-                </label>
-                <input
-                  type="number"
-                  id="maxKeywords"
-                  min={20}
-                  max={150}
-                  value={form.maxKeywords}
-                  onChange={(e) =>
-                    updateFormValue(
-                      "maxKeywords",
-                      Number(e.target.value || 0)
-                    )
-                  }
-                  className={getInputClasses(isDark)}
-                />
-                <p className={`text-[11px] mt-1 ${themeClasses.mutedText}`}>
-                  40–80 is a sweet spot for most local businesses.
-                </p>
-              </div>
-              <div>
-                <label htmlFor="language" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Language
-                </label>
-                <select
-                  id="language"
-                  value={form.language}
-                  onChange={(e) =>
-                    updateFormValue(
-                      "language",
-                      e.target.value as LocalKeywordRequest["language"]
-                    )
-                  }
-                  className={getInputClasses(isDark)}
-                >
-                  <option value="English">English</option>
-                  <option value="Spanish">Spanish</option>
-                  <option value="Bilingual">Bilingual</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Personality / brand voice */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Personality style
-                </label>
-                <select
-                  id="personalityStyle"
-                  value={form.personalityStyle}
-                  onChange={(e) =>
-                    updateFormValue(
-                      "personalityStyle",
-                      e.target.value as LocalKeywordRequest["personalityStyle"]
-                    )
-                  }
-                  className={getInputClasses(isDark)}
-                >
-                  <option value="None">None / neutral</option>
-                  <option value="Soft">Soft & friendly</option>
-                  <option value="Bold">Bold & confident</option>
-                  <option value="High-Energy">High-energy & upbeat</option>
-                  <option value="Luxury">Luxury & premium</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Brand voice (optional)
-                </label>
-                <textarea
-                  id="brandVoice"
-                  value={form.brandVoice}
-                  onChange={(e) =>
-                    updateFormValue("brandVoice", e.target.value)
-                  }
-                  className={getInputClasses(isDark, "resize-none")}
-                  rows={3}
-                  placeholder="Describe your brand voice in 1–3 sentences. Example: Warm, welcoming, and community-focused with a touch of Ocala charm."
-                />
-              </div>
-            </div>
-
-            {/* Extra idea outputs */}
-            <div className={`rounded-2xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50/50 border-slate-200"}`}>
-              <p className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                Extra strategy ideas you'd like
+      <div className={`space-y-6 ${OBD_STICKY_ACTION_BAR_OFFSET_CLASS}`}>
+        {/* Status Label */}
+        <div className="mt-4 mb-2">
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+            isDark
+              ? "bg-slate-800/50 border-slate-600 text-slate-300"
+              : "bg-slate-100 border-slate-300 text-slate-700"
+          }`}>
+            Status: Production Ready (Pre-Google Ads Live Metrics)
+          </span>
+        </div>
+        {/* Form */}
+        <OBDPanel isDark={isDark} className="mt-7">
+          <form onSubmit={handleSubmit}>
+            <div className="space-y-6">
+              <OBDHeading level={2} isDark={isDark}>
+                Step 1 — Tell us about your business
+              </OBDHeading>
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                We'll use these details to generate local keyword ideas that actually match what you do in Ocala.
               </p>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>
-                      Blog & article ideas
-                    </p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      Based on your best keyword clusters.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeBlogIdeas}
-                    onChange={(e) =>
-                      updateFormValue("includeBlogIdeas", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include blog and article ideas"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>FAQ ideas</p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      Great for service pages and OBD listing.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeFaqIdeas}
-                    onChange={(e) =>
-                      updateFormValue("includeFaqIdeas", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include FAQ ideas"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className={`text-xs font-medium ${themeClasses.labelText}`}>
-                      Google Business post ideas
-                    </p>
-                    <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                      Quick posts you can publish this week.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={form.includeGmbPostIdeas}
-                    onChange={(e) =>
-                      updateFormValue("includeGmbPostIdeas", e.target.checked)
-                    }
-                    className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    aria-label="Include Google Business Profile post ideas"
-                  />
+
+              {/* Tier 5A: Empty/Education State (non-sales, no automation claims) */}
+              <div
+                className={`rounded-2xl border p-4 md:p-5 ${
+                  isDark
+                    ? "bg-slate-800/40 border-slate-700"
+                    : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                  What this helps with (and what it doesn’t)
+                </p>
+                <ul className={`mt-2 list-disc space-y-1 pl-4 text-xs md:text-sm ${themeClasses.labelText}`}>
+                  <li>
+                    <span className="font-medium">Helps with:</span>{" "}
+                    choosing page topics, writing service page headings, planning content clusters, and prioritizing local intent terms.
+                  </li>
+                  <li>
+                    <span className="font-medium">Does not guarantee:</span>{" "}
+                    rankings, leads, or results. Use this as planning input—not a promise of performance.
+                  </li>
+                  <li>
+                    <span className="font-medium">Important:</span>{" "}
+                    Ads competition ≠ organic ranking certainty.
+                  </li>
+                  <li>
+                    <span className="font-medium">No automation:</span>{" "}
+                    nothing is published, scheduled, or changed anywhere automatically.
+                  </li>
+                </ul>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                  Collapse sections to review what was run at a glance.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={expandAllAccordions}
+                    className={getInputClasses(isDark, "text-xs py-1 px-2 w-auto")}
+                  >
+                    Expand all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAllAccordions}
+                    className={getInputClasses(isDark, "text-xs py-1 px-2 w-auto")}
+                  >
+                    Collapse all
+                  </button>
                 </div>
               </div>
-            </div>
+
+              <AccordionSection
+                isOpen={accordionState.businessAndServices}
+                onToggle={() => toggleAccordion("businessAndServices")}
+                title="Business & services (seed)"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Business Name
+                    </label>
+                    <input
+                      type="text"
+                      id="businessName"
+                      value={form.businessName}
+                      onChange={(e) =>
+                        updateFormValue("businessName", e.target.value)
+                      }
+                      className={getInputClasses(isDark)}
+                      placeholder="Example: Sunshine Massage & Wellness"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Business Type *
+                    </label>
+                    <input
+                      type="text"
+                      id="businessType"
+                      value={form.businessType}
+                      onChange={(e) =>
+                        updateFormValue("businessType", e.target.value)
+                      }
+                      className={getInputClasses(isDark)}
+                      placeholder="Example: Massage spa, plumber, dentist"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label htmlFor="services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                    Services & specialties *
+                  </label>
+                  <textarea
+                    id="services"
+                    value={form.services}
+                    onChange={(e) =>
+                      updateFormValue("services", e.target.value)
+                    }
+                    className={getInputClasses(isDark, "resize-none")}
+                    placeholder="List your main services, separated by commas or lines (e.g. deep tissue massage, hot stone massage, couples massage, prenatal massage)"
+                    rows={3}
+                    required
+                  />
+                </div>
+              </AccordionSection>
+
+              <AccordionSection
+                isOpen={accordionState.location}
+                onToggle={() => toggleAccordion("location")}
+                title="Location modifiers"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label htmlFor="city" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      City
+                    </label>
+                    <input
+                      type="text"
+                      id="city"
+                      value={form.city}
+                      onChange={(e) => updateFormValue("city", e.target.value)}
+                      className={getInputClasses(isDark)}
+                      placeholder="Ocala"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="state" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      State
+                    </label>
+                    <input
+                      type="text"
+                      id="state"
+                      value={form.state}
+                      onChange={(e) => updateFormValue("state", e.target.value)}
+                      className={getInputClasses(isDark)}
+                      placeholder="Florida"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="radiusMiles" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Target Radius (miles)
+                    </label>
+                    <input
+                      type="number"
+                      id="radiusMiles"
+                      min={1}
+                      max={60}
+                      value={form.radiusMiles}
+                      onChange={(e) =>
+                        updateFormValue(
+                          "radiusMiles",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className={getInputClasses(isDark)}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label htmlFor="websiteUrl" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                    Website URL (optional)
+                  </label>
+                  <input
+                    type="url"
+                    id="websiteUrl"
+                    value={form.websiteUrl ?? ""}
+                    onChange={(e) =>
+                      updateFormValue("websiteUrl", e.target.value)
+                    }
+                      className={getInputClasses(isDark)}
+                      placeholder="https://example.com"
+                      aria-label="Website URL (optional)"
+                    />
+                </div>
+              </AccordionSection>
+
+              <AccordionSection
+                isOpen={accordionState.targeting}
+                onToggle={() => toggleAccordion("targeting")}
+                title="Local targeting options"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>Include "near me"</p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        e.g. "massage near me"
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeNearMeVariants}
+                      onChange={(e) =>
+                        updateFormValue("includeNearMeVariants", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include near me variants"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>Include ZIP codes</p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        e.g. 34470, 34471, 34474
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeZipCodes}
+                      onChange={(e) =>
+                        updateFormValue("includeZipCodes", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include ZIP codes"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>
+                        Include neighborhoods
+                      </p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        e.g. "near Downtown Ocala"
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeNeighborhoods}
+                      onChange={(e) =>
+                        updateFormValue("includeNeighborhoods", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include neighborhoods"
+                    />
+                  </div>
+                </div>
+              </AccordionSection>
+
+              <AccordionSection
+                isOpen={accordionState.strategy}
+                onToggle={() => toggleAccordion("strategy")}
+                title="Strategy & output"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div>
+                    <label htmlFor="primaryGoal" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Primary goal
+                    </label>
+                    <select
+                      id="primaryGoal"
+                      value={form.primaryGoal}
+                      onChange={(e) =>
+                        updateFormValue(
+                          "primaryGoal",
+                          e.target.value as LocalKeywordRequest["primaryGoal"]
+                        )
+                      }
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="SEO">SEO ranking</option>
+                      <option value="Content">Content & blog ideas</option>
+                      <option value="Ads">Google Ads targeting</option>
+                      <option value="Mixed">Mix of all three</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="maxKeywords" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Max keywords
+                    </label>
+                    <input
+                      type="number"
+                      id="maxKeywords"
+                      min={20}
+                      max={150}
+                      value={form.maxKeywords}
+                      onChange={(e) =>
+                        updateFormValue(
+                          "maxKeywords",
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className={getInputClasses(isDark)}
+                    />
+                    <p className={`text-[11px] mt-1 ${themeClasses.mutedText}`}>
+                      40–80 is a sweet spot for most local businesses.
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="language" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Language
+                    </label>
+                    <select
+                      id="language"
+                      value={form.language}
+                      onChange={(e) =>
+                        updateFormValue(
+                          "language",
+                          e.target.value as LocalKeywordRequest["language"]
+                        )
+                      }
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="English">English</option>
+                      <option value="Spanish">Spanish</option>
+                      <option value="Bilingual">Bilingual</option>
+                    </select>
+                  </div>
+                </div>
+              </AccordionSection>
+
+              <AccordionSection
+                isOpen={accordionState.voice}
+                onToggle={() => toggleAccordion("voice")}
+                title="Voice & tone"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Personality style
+                    </label>
+                    <select
+                      id="personalityStyle"
+                      value={form.personalityStyle}
+                      onChange={(e) =>
+                        updateFormValue(
+                          "personalityStyle",
+                          e.target.value as LocalKeywordRequest["personalityStyle"]
+                        )
+                      }
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="None">None / neutral</option>
+                      <option value="Soft">Soft & friendly</option>
+                      <option value="Bold">Bold & confident</option>
+                      <option value="High-Energy">High-energy & upbeat</option>
+                      <option value="Luxury">Luxury & premium</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
+                      Brand voice (optional)
+                    </label>
+                    <textarea
+                      id="brandVoice"
+                      value={form.brandVoice}
+                      onChange={(e) =>
+                        updateFormValue("brandVoice", e.target.value)
+                      }
+                      className={getInputClasses(isDark, "resize-none")}
+                      rows={3}
+                      placeholder="Describe your brand voice in 1–3 sentences. Example: Warm, welcoming, and community-focused with a touch of Ocala charm."
+                    />
+                  </div>
+                </div>
+              </AccordionSection>
+
+              <AccordionSection
+                isOpen={accordionState.extras}
+                onToggle={() => toggleAccordion("extras")}
+                title="Extra strategy ideas"
+                summary={accordionSummary}
+                isDark={isDark}
+              >
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>
+                        Blog & article ideas
+                      </p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        Based on your best keyword clusters.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeBlogIdeas}
+                      onChange={(e) =>
+                        updateFormValue("includeBlogIdeas", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include blog and article ideas"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>FAQ ideas</p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        Great for service pages and OBD listing.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeFaqIdeas}
+                      onChange={(e) =>
+                        updateFormValue("includeFaqIdeas", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include FAQ ideas"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className={`text-xs font-medium ${themeClasses.labelText}`}>
+                        Google Business post ideas
+                      </p>
+                      <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                        Quick posts you can publish this week.
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={form.includeGmbPostIdeas}
+                      onChange={(e) =>
+                        updateFormValue("includeGmbPostIdeas", e.target.checked)
+                      }
+                      className="rounded border-gray-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                      aria-label="Include Google Business Profile post ideas"
+                    />
+                  </div>
+                </div>
+              </AccordionSection>
 
             {error && (
               <div className={getErrorPanelClasses(isDark)}>
@@ -1184,79 +1519,87 @@ export default function LocalKeywordResearchPage() {
               </div>
             )}
 
-            <div className="flex flex-col gap-2 border-t pt-4 md:flex-row md:items-center md:justify-between">
-              <p className={`text-[11px] ${themeClasses.mutedText}`}>
-                Tip: The more detail you include about your services, the
-                smarter the keyword suggestions will be.
-              </p>
-              <button type="submit" disabled={isLoading} className={SUBMIT_BUTTON_CLASSES}>
-                {isLoading
-                  ? "Analyzing local searches..."
-                  : "Generate local keyword strategy"}
-              </button>
-            </div>
-          </div>
-        </form>
-      </OBDPanel>
-
-      {/* Results */}
-      {result && (
-        <div ref={resultsRef} className="space-y-6">
-          <OBDPanel isDark={isDark} className="mt-8">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div>
-                <OBDHeading level={2} isDark={isDark}>
-                  Step 2 — Your local keyword strategy
-                </OBDHeading>
-              </div>
-              {lastRequest && (
-                <button
-                  type="button"
-                  onClick={() => handleRegenerate()}
-                  disabled={isLoading}
-                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-                    isLoading
-                      ? "opacity-50 cursor-not-allowed"
-                      : ""
-                  } ${
-                    isDark
-                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {isLoading ? "Regenerating…" : "Regenerate"}
+              <div className="flex flex-col gap-2 border-t pt-4 md:flex-row md:items-center md:justify-between">
+                <p className={`text-[11px] ${themeClasses.mutedText}`}>
+                  Tip: The more detail you include about your services, the
+                  smarter the keyword suggestions will be.
+                </p>
+                <button type="submit" disabled={isLoading} className={SUBMIT_BUTTON_CLASSES}>
+                  {isLoading
+                    ? "Analyzing local searches..."
+                    : "Generate local keyword strategy"}
                 </button>
-              )}
+              </div>
             </div>
-            <p className={`mt-2 text-sm ${themeClasses.labelText}`}>
-              {result.summary || "Your keyword strategy has been generated."}
-            </p>
-            {result.overviewNotes && result.overviewNotes.length > 0 && (
-              <ul className={`mt-3 list-disc space-y-1 pl-4 text-xs md:text-sm ${themeClasses.mutedText}`}>
-                {result.overviewNotes.map((note, idx) => (
-                  <li key={idx}>{note}</li>
-                ))}
-              </ul>
-            )}
-          </OBDPanel>
+          </form>
+        </OBDPanel>
+
+        {/* Results */}
+        {activeResult && (
+          <div ref={resultsRef} className="space-y-6">
+            <OBDPanel isDark={isDark} className="mt-8">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <OBDHeading level={2} isDark={isDark}>
+                    Step 2 — Your local keyword strategy
+                  </OBDHeading>
+                  {refreshNotice === "current-inputs" && isLoading && (
+                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                      Refreshing from current inputs…
+                    </p>
+                  )}
+                </div>
+                {activeResult && (
+                  <button
+                    type="button"
+                    onClick={handleRefreshResults}
+                    disabled={isLoading}
+                    className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
+                      isLoading
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                    } ${
+                      isDark
+                        ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {isLoading ? "Refreshing…" : "Refresh Results"}
+                  </button>
+                )}
+              </div>
+              <p className={`mt-2 text-sm ${themeClasses.labelText}`}>
+                {activeResult.summary || "Your keyword strategy has been generated."}
+              </p>
+              <p className={`mt-2 text-xs ${themeClasses.mutedText}`}>
+                Reminder: keyword research is directional. Ads competition is not a guarantee of organic difficulty or ranking outcomes.
+              </p>
+              {activeResult.overviewNotes && activeResult.overviewNotes.length > 0 && (
+                <ul className={`mt-3 list-disc space-y-1 pl-4 text-xs md:text-sm ${themeClasses.mutedText}`}>
+                  {activeResult.overviewNotes.map((note, idx) => (
+                    <li key={idx}>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </OBDPanel>
 
           {/* Legend */}
           <LocalKeywordLegend isDark={isDark} />
 
-          {renderKeywordTable(result.topPriorityKeywords)}
-          {renderClusterCards(result.keywordClusters)}
+          {renderKeywordTable(activeResult.topPriorityKeywords)}
+          {renderClusterCards(activeResult.keywordClusters)}
 
           <div className="grid gap-4 md:grid-cols-2">
-            {renderIdeaList("Blog & content ideas", result.blogIdeas)}
+            {renderIdeaList("Blog & content ideas", activeResult.blogIdeas)}
             {renderFaqIdeas(
               "FAQ ideas for your site & OBD listing",
-              result.faqIdeas
+              activeResult.faqIdeas
             )}
           </div>
 
           {renderIdeaList(
             "Google Business Profile post ideas",
-            result.gmbPostIdeas
+            activeResult.gmbPostIdeas
           )}
 
           {/* Rank Check Panel */}
@@ -1537,8 +1880,46 @@ export default function LocalKeywordResearchPage() {
               </div>
             )}
           </OBDPanel>
-        </div>
-      )}
+          </div>
+        )}
+
+        {/* Empty results education (before first run) */}
+        {!activeResult && !error && (
+          <OBDPanel isDark={isDark} className="mt-6">
+            <OBDHeading level={2} isDark={isDark}>
+              What you’ll get after you run this
+            </OBDHeading>
+            <p className={`mt-2 text-sm ${themeClasses.labelText}`}>
+              A local keyword strategy: clusters, priority keywords, intent labels, and optional ideas (blog/FAQ/GBP posts).
+            </p>
+            <p className={`mt-2 text-xs ${themeClasses.mutedText}`}>
+              This tool does not track rankings, scrape Google results, or automatically publish anything.
+            </p>
+          </OBDPanel>
+        )}
+      </div>
+
+      {/* Tier 5A: Sticky Action Bar (UI-only) */}
+      <OBDStickyActionBar isDark={isDark}>
+        <button
+          type="button"
+          onClick={handleRefreshResults}
+          disabled={!canRefresh}
+          className={`${SUBMIT_BUTTON_CLASSES} ${!canRefresh ? "opacity-50 cursor-not-allowed" : ""}`}
+          title={!activeResult ? "Generate results first to enable refresh." : (isLoading ? "Please wait…" : "Refresh from current inputs")}
+        >
+          {isLoading ? "Refreshing…" : "Refresh Results"}
+        </button>
+        <button
+          type="button"
+          onClick={handleExportTxt}
+          disabled={!canExport}
+          className={`${secondaryActionButtonClasses} ${!canExport ? "opacity-50 cursor-not-allowed" : ""}`}
+          title={!activeResult ? "Generate results first to enable export." : (isLoading ? "Please wait…" : "Export full report (.txt)")}
+        >
+          Export
+        </button>
+      </OBDStickyActionBar>
     </OBDPageContainer>
   );
 }

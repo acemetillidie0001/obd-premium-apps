@@ -82,6 +82,15 @@ export default async function SeoAuditSharePage({
             Read-only snapshot. Expires on <span className="font-medium">{formatDate(expiresOn)}</span>.
           </div>
 
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="text-sm font-semibold text-amber-900">
+              Maintenance Mode (Reference-Quality)
+            </div>
+            <div className="mt-1 text-sm text-amber-800">
+              Advisory-only. Draft outputs. No automatic changes.
+            </div>
+          </div>
+
           <div className="mt-3 text-xs text-slate-600">
             Report ID: <span className="font-mono">{report.id}</span> · Generated on{" "}
             <span className="font-medium">{formatDate(generatedOn)}</span>

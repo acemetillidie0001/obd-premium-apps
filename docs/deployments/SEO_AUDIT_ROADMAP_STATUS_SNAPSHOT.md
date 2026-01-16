@@ -5,6 +5,7 @@
 **Status:** ✅ **LOCKED** — Maintenance Mode (Reference-Quality)  
 **Automation:** None (advisory-only, draft-only)  
 **Risk:** Very Low  
+**Role:** SEO diagnostics + prioritization + safe routing to OBD tools  
 **Snapshot Date:** 2026-01-16  
 
 ---
@@ -69,6 +70,9 @@ This app is locked to maintenance mode to preserve safety guarantees and prevent
   - tokenized, expiring, revocable
   - no tenant metadata exposed
   - `noindex,nofollow` on the share page
+
+Explicitly:
+- **Non-negotiables**: no auto-fix, no publish, no schema injection
 
 ---
 

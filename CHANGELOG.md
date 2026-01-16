@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(seo-audit): Tier 6 trust + usability polish (confidence meter, why-it-matters, print styles, next review hint)
   - Reminder: still advisory-only / draft-only; no automation, reminders, or background tasks.
 
-- chore(seo-audit): lock app to maintenance mode (reference-quality snapshot + docs)
+- chore(seo-audit): lock app to maintenance mode (status snapshot + docs)
 
 - **Business Schema Generator — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-15)**
   - **Tier 5A — UX scaffold**

@@ -16,6 +16,13 @@ import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { parseHelpDeskHandoffPayload } from "@/lib/apps/faq-generator/handoff-parser";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import SeoAuditApplyToInputsModal from "@/components/obd/SeoAuditApplyToInputsModal";
+import {
+  clearSeoAuditRoadmapApplyToInputsHandoff,
+  readSeoAuditRoadmapApplyToInputsHandoff,
+  type SeoAuditRoadmapApplyToInputsPayload,
+} from "@/lib/apps/seo-audit-roadmap/apply-to-inputs-handoff";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -31,6 +38,12 @@ function FAQGeneratorPageContent() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+  const currentBusinessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
+
+  // Tier 5C+ (SEO Audit & Roadmap): apply-to-inputs receiver (sessionStorage + TTL, explicit apply/dismiss)
+  const [seoAuditApplyPayload, setSeoAuditApplyPayload] =
+    useState<SeoAuditRoadmapApplyToInputsPayload | null>(null);
+  const [showSeoAuditApplyModal, setShowSeoAuditApplyModal] = useState(false);
 
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -237,6 +250,52 @@ function FAQGeneratorPageContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const payload = readSeoAuditRoadmapApplyToInputsHandoff("faq-generator");
+    if (!payload) return;
+
+    // Tenant safety: require current business context and strict match
+    if (!currentBusinessId || payload.businessId !== currentBusinessId) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("faq-generator");
+      return;
+    }
+
+    const topicSuggestion =
+      (payload.suggestedInputs.faqTopics?.[0] || payload.suggestedInputs.contentGap || "").trim();
+    if (!topicSuggestion) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("faq-generator");
+      return;
+    }
+
+    setSeoAuditApplyPayload(payload);
+    setShowSeoAuditApplyModal(true);
+  }, [currentBusinessId]);
+
+  const dismissSeoAuditApply = () => {
+    clearSeoAuditRoadmapApplyToInputsHandoff("faq-generator");
+    setShowSeoAuditApplyModal(false);
+    setSeoAuditApplyPayload(null);
+  };
+
+  const applySeoAuditApply = () => {
+    if (!seoAuditApplyPayload) return dismissSeoAuditApply();
+    if (!currentBusinessId || seoAuditApplyPayload.businessId !== currentBusinessId) {
+      return dismissSeoAuditApply();
+    }
+
+    const topicSuggestion =
+      (seoAuditApplyPayload.suggestedInputs.faqTopics?.[0] ||
+        seoAuditApplyPayload.suggestedInputs.contentGap ||
+        "").trim();
+    if (topicSuggestion) {
+      setTopic(topicSuggestion);
+    }
+
+    dismissSeoAuditApply();
+  };
 
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
@@ -673,6 +732,24 @@ function FAQGeneratorPageContent() {
       title="AI FAQ Generator"
       tagline="Create comprehensive FAQ sections for your business website that answer common customer questions."
     >
+      {showSeoAuditApplyModal && seoAuditApplyPayload && (
+        <SeoAuditApplyToInputsModal
+          isDark={isDark}
+          payload={seoAuditApplyPayload}
+          blockedReason={null}
+          fields={[
+            {
+              label: "Topic",
+              preview:
+                (seoAuditApplyPayload.suggestedInputs.faqTopics?.[0] ||
+                  seoAuditApplyPayload.suggestedInputs.contentGap ||
+                  "").trim(),
+            },
+          ]}
+          onDismiss={dismissSeoAuditApply}
+          onApply={applySeoAuditApply}
+        />
+      )}
       {/* Toast Feedback */}
       {actionToast && (
         <div className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${

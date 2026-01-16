@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
@@ -37,6 +37,12 @@ import {
   clearHandoffParamsFromUrl,
   replaceUrlWithoutReload,
 } from "@/lib/utils/clear-handoff-params";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import HandoffGuardModal from "@/components/handoff/HandoffGuardModal";
+import {
+  SEO_AUDIT_ROADMAP_APPLY_INPUTS_SESSION_KEYS_V1,
+  type SeoAuditRoadmapApplyToInputsPayload,
+} from "@/lib/apps/seo-audit-roadmap/apply-to-inputs-handoff";
 
 interface ContentWriterFormValues {
   businessName: string;
@@ -303,6 +309,7 @@ function ContentWriterPageContent() {
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
   const searchParams = useSearchParams();
+  const currentBusinessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
 
   const [formValues, setFormValues] = useState<ContentWriterFormValues>(defaultFormValues);
   const [loading, setLoading] = useState(false);
@@ -327,6 +334,8 @@ function ContentWriterPageContent() {
   // Event Campaign Builder handoff state
   const [eventHandoffPayload, setEventHandoffPayload] = useState<any | null>(null);
   const [showEventImportBanner, setShowEventImportBanner] = useState(false);
+
+  const seoAuditHandoffKey = SEO_AUDIT_ROADMAP_APPLY_INPUTS_SESSION_KEYS_V1["content-writer"];
 
   // Local Hiring Assistant -> Content Writer (Careers page draft)
   type LocalHiringAssistantToContentWriterPayload = {
@@ -507,6 +516,16 @@ function ContentWriterPageContent() {
       }
     }
   }, [searchParams]);
+
+  const applySeoAuditApply = (raw: unknown) => {
+    const payload = raw as SeoAuditRoadmapApplyToInputsPayload;
+    const topicSuggestion = (payload?.suggestedInputs?.contentGap || "").trim();
+    if (!topicSuggestion) {
+      showToast("No applicable inputs to apply.");
+      return;
+    }
+    setFormValues((prev) => ({ ...prev, topic: topicSuggestion }));
+  };
 
   // Handle Offers Builder handoff from sessionStorage
   useEffect(() => {
@@ -1682,6 +1701,13 @@ function ContentWriterPageContent() {
       title="AI Content Writer"
       tagline="Write high-quality content for your business needs, from blog posts and service pages to emails, bios, policies, and job posts—all tailored for your Ocala business."
     >
+      <HandoffGuardModal
+        handoffKey={seoAuditHandoffKey}
+        expectedSourceApp="seo-audit-roadmap"
+        businessId={currentBusinessId}
+        onApply={applySeoAuditApply}
+        onDismiss={() => {}}
+      />
       {/* Brand Profile Auto-Import Panel */}
       <OBDPanel isDark={isDark} className="mt-7">
         <div className={`rounded-xl border ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>

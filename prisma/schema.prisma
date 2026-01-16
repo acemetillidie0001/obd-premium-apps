@@ -286,6 +286,74 @@ model SocialQueueItem {
   @@index([contentHash])
 }
 
+enum SeoAuditReportStatus {
+  DRAFT
+  COMPLETED
+}
+
+/**
+ * Tier 5B: Canonical deterministic SEO Audit report snapshots.
+ *
+ * Tenant key: businessId (string). All queries MUST be business-scoped.
+ * Reports are immutable snapshots: re-runs create new rows; never overwrite.
+ */
+model SeoAuditReport {
+  id         String             @id @default(cuid())
+  businessId String
+  status     SeoAuditReportStatus @default(DRAFT)
+
+  /**
+   * Inputs used to generate the report (URL/content + context fields).
+   * Stored as JSON for forward compatibility.
+   */
+  sourceInput Json
+
+  /**
+   * Structured findings snapshot (score/band/summary + category results).
+   * Stored as JSON for forward compatibility.
+   */
+  findings Json
+
+  /**
+   * Ordered roadmap snapshot.
+   * Stored as JSON for forward compatibility.
+   */
+  roadmap Json
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  completedAt DateTime?
+
+  shareTokens SeoAuditShareToken[]
+
+  @@index([businessId])
+  @@index([businessId, status, completedAt])
+}
+
+/**
+ * Optional shareable, read-only links for a specific SEO audit snapshot.
+ *
+ * Threat model notes:
+ * - Token is high-entropy and unguessable; URL must not contain businessId.
+ * - Token is time-bound (expiresAt) and can be revoked (revokedAt).
+ * - Token resolves to exactly one auditReportId scoped to one businessId.
+ * - Public route renders read-only snapshot only (no mutation, no tenant context).
+ */
+model SeoAuditShareToken {
+  id            String   @id @default(cuid())
+  businessId    String
+  auditReportId String
+  token         String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  revokedAt     DateTime?
+
+  auditReport SeoAuditReport @relation(fields: [auditReportId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([auditReportId])
+}
+
 model SocialDeliveryAttempt {
   id           String          @id @default(cuid())
   userId       String

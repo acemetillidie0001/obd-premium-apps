@@ -39,6 +39,12 @@ import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSche
 import ContentWriterSchemaImportModal from "./components/ContentWriterSchemaImportModal";
 import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import SeoAuditApplyToInputsModal from "@/components/obd/SeoAuditApplyToInputsModal";
+import {
+  clearSeoAuditRoadmapApplyToInputsHandoff,
+  readSeoAuditRoadmapApplyToInputsHandoff,
+  type SeoAuditRoadmapApplyToInputsPayload,
+} from "@/lib/apps/seo-audit-roadmap/apply-to-inputs-handoff";
 import {
   clearHandoff,
   isTenantMatch,
@@ -149,6 +155,11 @@ function BusinessSchemaGeneratorPageContent() {
   const [schemaHandoffPayload, setSchemaHandoffPayload] = useState<SchemaHandoffPayload | null>(null);
   const [schemaHandoffDismissed, setSchemaHandoffDismissed] = useState(false);
   const [importedSchemaNodes, setImportedSchemaNodes] = useState<Record<string, unknown>[]>([]);
+
+  // Tier 5C+ (SEO Audit & Roadmap): apply-to-inputs receiver (sessionStorage + TTL, explicit apply/dismiss)
+  const [seoAuditApplyPayload, setSeoAuditApplyPayload] =
+    useState<SeoAuditRoadmapApplyToInputsPayload | null>(null);
+  const [showSeoAuditApplyModal, setShowSeoAuditApplyModal] = useState(false);
   
   // Content Writer Schema handoff state
   const [contentWriterSchemaPayload, setContentWriterSchemaPayload] = useState<ContentWriterSchemaHandoff | null>(null);
@@ -306,6 +317,51 @@ function BusinessSchemaGeneratorPageContent() {
       console.error("Failed to read schema handoff from sessionStorage:", error);
     }
   }, []);
+
+  // Tier 5C+ receiver: read SEO Audit & Roadmap apply-to-inputs handoff from sessionStorage (no auto-apply)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const payload = readSeoAuditRoadmapApplyToInputsHandoff("business-schema-generator");
+    if (!payload) return;
+
+    // Tenant safety: require current business context and strict match
+    if (!currentTenantId || payload.businessId !== currentTenantId) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("business-schema-generator");
+      return;
+    }
+
+    // Only show if applicable inputs exist for this app
+    const hasInputs = payload.suggestedInputs.schemaType === "FAQPage" || payload.suggestedInputs.schemaType === "LocalBusiness";
+    if (!hasInputs) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("business-schema-generator");
+      return;
+    }
+
+    setSeoAuditApplyPayload(payload);
+    setShowSeoAuditApplyModal(true);
+  }, [currentTenantId]);
+
+  const dismissSeoAuditApply = () => {
+    clearSeoAuditRoadmapApplyToInputsHandoff("business-schema-generator");
+    setShowSeoAuditApplyModal(false);
+    setSeoAuditApplyPayload(null);
+  };
+
+  const applySeoAuditApply = () => {
+    if (!seoAuditApplyPayload) return dismissSeoAuditApply();
+    if (!currentTenantId || seoAuditApplyPayload.businessId !== currentTenantId) {
+      return dismissSeoAuditApply();
+    }
+
+    const schemaType = seoAuditApplyPayload.suggestedInputs.schemaType;
+    if (schemaType === "FAQPage") {
+      setForm((prev) => ({ ...prev, includeFaqSchema: true }));
+      setAccordionState((prev) => ({ ...prev, advancedSchemaTypes: true }));
+    }
+
+    dismissSeoAuditApply();
+  };
 
   // Tier 5C tenant safety: if a handoff exists for a different business, clear it immediately
   // to prevent cross-tenant leakage via UI summary.
@@ -1061,6 +1117,20 @@ function BusinessSchemaGeneratorPageContent() {
       title="Business Schema Generator"
       tagline="Generate copy-paste JSON-LD for your website and listings."
     >
+      {showSeoAuditApplyModal && seoAuditApplyPayload && (
+        <SeoAuditApplyToInputsModal
+          isDark={isDark}
+          payload={seoAuditApplyPayload}
+          blockedReason={null}
+          fields={
+            seoAuditApplyPayload.suggestedInputs.schemaType === "FAQPage"
+              ? [{ label: "Include FAQ schema", preview: "Enabled" }]
+              : [{ label: "Schema focus", preview: seoAuditApplyPayload.suggestedInputs.schemaType || "LocalBusiness" }]
+          }
+          onDismiss={dismissSeoAuditApply}
+          onApply={applySeoAuditApply}
+        />
+      )}
       {/* Tier 5C: Schema Handoff Confirmation Panel */}
       {schemaHandoffPayload && schemaHandoffSummary && (
         <div

@@ -1,0 +1,329 @@
+{
+  "audit": {
+    "score": 62,
+    "band": "Needs improvement",
+    "summary": "Your page needs several SEO improvements. Prioritize the high-priority fixes to see significant gains.",
+    "auditedUrl": "https://example.com/ocala-plumbing",
+    "categoryResults": [
+      {
+        "findingId": "seo-finding:title-tag",
+        "key": "title-tag",
+        "label": "Title Tag",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "Title tag length is good but missing local keywords",
+        "fixRecommendation": "Add your city or primary service to the title tag",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "<title> tag present",
+            "Length between 20–60 characters",
+            "Contains city or primary service keyword"
+          ],
+          "observed": [
+            "Title present: Yes",
+            "Title length: 34 characters",
+            "Title text: \"Plumbing Services - Expert Help\""
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:meta-description",
+        "key": "meta-description",
+        "label": "Meta Description",
+        "pointsEarned": 0,
+        "pointsMax": 10,
+        "status": "missing",
+        "shortExplanation": "Meta description is missing",
+        "fixRecommendation": "Add a meta description between 70-160 characters that includes your city or primary service",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "<meta name=\"description\" ...> present",
+            "Length between 70–160 characters"
+          ],
+          "observed": [
+            "Meta description present: No"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:h1-tag",
+        "key": "h1-tag",
+        "label": "H1 Tag",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "H1 tag exists but missing one keyword (service or city)",
+        "fixRecommendation": "Add the missing keyword (city or primary service) to your H1 tag",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "<h1> tags count (exactly one recommended)",
+            "H1 contains primary service and city"
+          ],
+          "observed": [
+            "H1 count: 1",
+            "H1 text: \"Plumbing Services\""
+          ],
+          "notes": "Input source: page URL fetch · Some themes inject H1 tags dynamically via JavaScript; this audit is based on the provided static HTML/content."
+        }
+      },
+      {
+        "findingId": "seo-finding:heading-structure",
+        "key": "heading-structure",
+        "label": "Heading Structure",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "Has H3 headings but no H2 headings (weak structure)",
+        "fixRecommendation": "Add H2 headings to create a logical content hierarchy",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "At least one H2 heading"
+          ],
+          "observed": [
+            "H2 count: 0",
+            "H3 count: 3"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:content-length",
+        "key": "content-length",
+        "label": "Content Length",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "Content length is adequate (452 words, 600+ recommended)",
+        "fixRecommendation": "Expand content to at least 600 words for better SEO",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "Word count threshold (400 minimum, 600+ recommended)"
+          ],
+          "observed": [
+            "Word count (approx): 452"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:images-alt",
+        "key": "images-alt",
+        "label": "Images with Alt Text",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "Some images missing alt text (2/4, 50%)",
+        "fixRecommendation": "Add alt text to 2 image(s) (aim for 80%+ coverage)",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "<img> tags detected",
+            "Alt attribute coverage (aim for 80%+)"
+          ],
+          "observed": [
+            "Images found: 4",
+            "Images with alt text: 2",
+            "Images missing alt text: 2"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:internal-links",
+        "key": "internal-links",
+        "label": "Internal Links",
+        "pointsEarned": 0,
+        "pointsMax": 10,
+        "status": "missing",
+        "shortExplanation": "No internal links found",
+        "fixRecommendation": "Add at least 3 internal links to other relevant pages on your site",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "Internal links count (3+ recommended)"
+          ],
+          "observed": [
+            "Internal links found: 0"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:local-keywords",
+        "key": "local-keywords",
+        "label": "Local Keywords",
+        "pointsEarned": 5,
+        "pointsMax": 10,
+        "status": "needs-improvement",
+        "shortExplanation": "Partial local keyword usage (city: 1x, state: 0x, service: 2x)",
+        "fixRecommendation": "Increase local keyword usage: city 2+ times, state 1+ time, service in body",
+        "confidence": "MEDIUM",
+        "evidence": {
+          "checked": [
+            "Mentions city keyword (\"Ocala\") in body text",
+            "Mentions state keyword (\"Florida\") in body text",
+            "Mentions primary service keyword (\"Plumbing\") in body text"
+          ],
+          "observed": [
+            "City found in body: Yes",
+            "State found in body: No",
+            "Primary service found in body: Yes"
+          ],
+          "notes": "Input source: page URL fetch · Keyword detection is based on the extracted text from the provided HTML/content (not a live crawl)."
+        }
+      },
+      {
+        "findingId": "seo-finding:mobile-friendly",
+        "key": "mobile-friendly",
+        "label": "Mobile-Friendly",
+        "pointsEarned": 0,
+        "pointsMax": 10,
+        "status": "missing",
+        "shortExplanation": "Viewport meta tag is missing",
+        "fixRecommendation": "Add viewport meta tag: <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+        "confidence": "HIGH",
+        "evidence": {
+          "checked": [
+            "<meta name=\"viewport\" ...> present",
+            "Viewport contains \"width=device-width\""
+          ],
+          "observed": [
+            "Viewport meta present: No"
+          ],
+          "notes": "Input source: page URL fetch"
+        }
+      },
+      {
+        "findingId": "seo-finding:conversion-signals",
+        "key": "conversion-signals",
+        "label": "Conversion Signals",
+        "pointsEarned": 10,
+        "pointsMax": 10,
+        "status": "pass",
+        "shortExplanation": "Both CTA keywords and contact methods found",
+        "fixRecommendation": "Maintain clear CTAs and contact methods",
+        "confidence": "MEDIUM",
+        "evidence": {
+          "checked": [
+            "CTA keywords present (call/book/request/quote/schedule/contact)",
+            "Contact method present (tel:/mailto: link or /contact link)"
+          ],
+          "observed": [
+            "CTA keywords found: call, contact",
+            "Phone link (tel:) present: Yes",
+            "Email link (mailto:) present: No",
+            "Contact page link (/contact) present: Yes"
+          ],
+          "notes": "Input source: page URL fetch · Conversion signals are heuristic (keyword + link presence) and may not capture all CTA patterns."
+        }
+      }
+    ],
+    "roadmap": [
+      {
+        "id": "item-1",
+        "priority": "HIGH",
+        "category": "mobile-friendly",
+        "title": "Fix Mobile-Friendly",
+        "whatIsWrong": "Viewport meta tag is missing",
+        "whyItMatters": "Mobile-friendliness is a ranking factor and essential for user experience, as most searches happen on mobile.",
+        "nextSteps": [
+          "Add viewport meta tag to <head>",
+          "Use: <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
+        ],
+        "estimatedEffort": "Low",
+        "pointsAvailable": 10
+      },
+      {
+        "id": "item-2",
+        "priority": "HIGH",
+        "category": "meta-description",
+        "title": "Fix Meta Description",
+        "whatIsWrong": "Meta description is missing",
+        "whyItMatters": "Meta descriptions appear in search results and can significantly improve click-through rates when optimized.",
+        "nextSteps": [
+          "Edit your page's meta description in the HTML head",
+          "Keep it between 70-160 characters",
+          "Include your city or primary service"
+        ],
+        "estimatedEffort": "Low",
+        "pointsAvailable": 10,
+        "dependsOnFindingIds": [
+          "seo-finding:title-tag"
+        ]
+      },
+      {
+        "id": "item-3",
+        "priority": "HIGH",
+        "category": "internal-links",
+        "title": "Fix Internal Links",
+        "whatIsWrong": "No internal links found",
+        "whyItMatters": "Internal linking helps search engines crawl and index your site better while distributing page authority.",
+        "nextSteps": [
+          "Add links to other relevant pages on your site",
+          "Use descriptive anchor text",
+          "Link to related services, about page, or contact page"
+        ],
+        "estimatedEffort": "Medium",
+        "pointsAvailable": 10
+      },
+      {
+        "id": "item-4",
+        "priority": "MEDIUM",
+        "category": "heading-structure",
+        "title": "Fix Heading Structure",
+        "whatIsWrong": "Has H3 headings but no H2 headings (weak structure)",
+        "whyItMatters": "Good heading structure improves readability for users and helps search engines understand your content hierarchy.",
+        "nextSteps": [
+          "Add H2 headings to break up content sections",
+          "Use H3 for subsections if needed",
+          "Maintain logical hierarchy (H1 → H2 → H3)"
+        ],
+        "estimatedEffort": "Medium",
+        "pointsAvailable": 5,
+        "dependsOnFindingIds": [
+          "seo-finding:h1-tag"
+        ]
+      },
+      {
+        "id": "item-5",
+        "priority": "MEDIUM",
+        "category": "content-length",
+        "title": "Fix Content Length",
+        "whatIsWrong": "Content length is adequate (452 words, 600+ recommended)",
+        "whyItMatters": "Longer, comprehensive content tends to rank better and provides more value to visitors, supporting topical authority.",
+        "nextSteps": [
+          "Expand content to at least 600 words",
+          "Add valuable, relevant information for your audience",
+          "Use headings to organize longer content"
+        ],
+        "estimatedEffort": "High",
+        "pointsAvailable": 5,
+        "dependsOnFindingIds": [
+          "seo-finding:heading-structure"
+        ]
+      }
+    ],
+    "meta": {
+      "requestId": "fixture-seo-audit-001",
+      "auditedAtISO": "2026-01-16T00:00:00.000Z"
+    }
+  },
+  "sourceInput": {
+    "pageUrl": "https://example.com/ocala-plumbing",
+    "primaryService": "Plumbing",
+    "city": "Ocala",
+    "state": "Florida",
+    "businessType": "ProfessionalService",
+    "targetAudience": "Both"
+  }
+}
+
+

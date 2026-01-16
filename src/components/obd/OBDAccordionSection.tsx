@@ -12,6 +12,7 @@ import OBDHeading from "@/components/obd/OBDHeading";
 export default function OBDAccordionSection({
   isDark,
   title,
+  titleRight,
   summary,
   isOpen,
   onToggle,
@@ -19,6 +20,7 @@ export default function OBDAccordionSection({
 }: {
   isDark: boolean;
   title: string;
+  titleRight?: React.ReactNode;
   summary?: string;
   isOpen: boolean;
   onToggle: () => void;
@@ -32,9 +34,12 @@ export default function OBDAccordionSection({
     >
       <div className="flex items-center justify-between p-4">
         <div className="min-w-0">
-          <OBDHeading level={2} isDark={isDark} className="!text-sm !mb-0">
-            {title}
-          </OBDHeading>
+          <div className="flex items-center gap-2 min-w-0">
+            <OBDHeading level={2} isDark={isDark} className="!text-sm !mb-0">
+              {title}
+            </OBDHeading>
+            {titleRight ? <div className="flex-shrink-0">{titleRight}</div> : null}
+          </div>
           {!isOpen && summary ? (
             <p
               className={`text-xs mt-1 truncate ${

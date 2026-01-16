@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SEO Audit & Roadmap — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-15)**
+  - **Tier 5A — UX parity scaffold**
+    - Accordion-based findings (6 sections) with status chips + collapsed summaries.
+    - Sticky action bar (Draft/Completed) with disabled-not-hidden actions.
+    - Trust microcopy (“Advisory only. Nothing is changed automatically.” / “Draft-only outputs. You choose what to apply.”).
+  - **Tier 5B — Canonical deterministic audit state**
+    - New `SeoAuditReport` snapshot model (tenant-keyed `businessId`) with `DRAFT → COMPLETED` lifecycle.
+    - `activeAudit = latest COMPLETED` and UI renders from DB snapshot only (no recompute on refresh).
+    - Re-run creates a new report row (never overwrite).
+  - **Tier 5B+ — Export Center (integrity-guaranteed)**
+    - Single authoritative Export Center exporting only from `activeAudit` (full report / roadmap-only / section-only; text/markdown/HTML).
+  - **Tier 5C — Ecosystem awareness (link-only)**
+    - Deterministic “Fix with OBD” suggestions per finding (no payload transfer; internal links only).
+  - **Tier 5C+: optional apply-to-inputs handoffs (session-scoped, TTL-guarded, user-initiated).**
+  - **Tier 5B+ — Trust + usability upgrades (2026-01-16)**
+    - Evidence + Confidence per finding (read-only, derived from provided inputs; collapsed Evidence panel).
+    - Dependency-aware roadmap ordering (saved in snapshot) with “Do this after” + “Do this first” chips.
+    - Version Compare (latest vs previous completed) with per-section improved/worsened/unchanged + “What changed”.
+    - Roadmap buckets: All / Quick Wins / Big Bets (computed UI-only from snapshot).
+    - Tier 5C+ templates for apply-to-inputs CTAs (structured intent only; “Prefills draft inputs only” tooltip).
+    - Optional expiring read-only share links (tokenized, revocable, noindex).
+    - Dev-only deterministic fixtures harness (never enabled in production).
+    - First-run empty state clarified (expectation setting + Run Audit CTA).
+
+- **SEO Audit & Roadmap — Tier 5C+ / Tier 5B+ Enhancements (Prompts 6–16 COMPLETE)**
+  - Implemented Tier 5C+ apply-to-inputs handoff (session-scoped, 10-minute TTL, tenant-guarded, user-initiated).
+  - Upgraded “Fix with OBD” links to intent-only prefill with Apply/Dismiss (no auto-apply, no generation, no publish).
+  - Added per-finding Evidence + Confidence (deterministic; no crawling).
+  - Added dependency-aware roadmap with stable ordering saved in snapshot.
+  - Added roadmap buckets: Quick Wins / Big Bets (UI-only grouping).
+  - Added expiring, revocable read-only share links for active audit reports (noindex, metadata shown).
+  - Improved first-run empty state with expectation-setting (“What this won’t do / What you get”).
+  - Standardized Tier 5C+ handoff utilities and shared Apply/Dismiss modal across apps.
+  - Added deterministic prefill templates (Service Area Page, FAQ Cluster, Schema Fix Pack, On-Page Rewrite Brief).
+  - Documented Prisma shadow-DB workaround + added safe migration scripts.
+  - Added dev-only fixtures harness for deterministic UI verification (no API, no DB writes).
+  - Updated docs and changelog; added Tier 5C+ audit addendum.
+  - **Verification:**
+    - `pnpm typecheck` ✅
+    - `pnpm build` ✅
+    - `pnpm lint` ⚠️ (pre-existing warnings only)
+  - **Status:** Reference-quality. Advisory-only. Draft-only. Maintenance-safe.
+
 - **Business Schema Generator — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-15)**
   - **Tier 5A — UX scaffold**
     - Accordion input sections + sticky action bar with Draft/Generated/Edited status chip.

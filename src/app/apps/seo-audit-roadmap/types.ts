@@ -20,7 +20,27 @@ export interface SEOAuditRoadmapRequest {
 
 export type CategoryStatus = "pass" | "needs-improvement" | "missing";
 
+export type FindingConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export type FindingEvidence = {
+  /**
+   * Deterministic checks performed (what we looked for).
+   * Example: ["<title> tag present", "Length between 20–60 characters"]
+   */
+  checked?: string[];
+  /**
+   * Deterministic observations from the provided HTML/content (what we saw).
+   * Example: ["Title length: 42 characters", "Found city keyword: Ocala"]
+   */
+  observed?: string[];
+  /**
+   * Optional notes/limitations (e.g., dynamic themes may inject tags via JS).
+   */
+  notes?: string;
+};
+
 export interface AuditCategoryResult {
+  findingId?: string;
   key: string;
   label: string;
   pointsEarned: number;
@@ -28,6 +48,8 @@ export interface AuditCategoryResult {
   status: CategoryStatus;
   shortExplanation: string;
   fixRecommendation: string;
+  evidence?: FindingEvidence;
+  confidence?: FindingConfidence;
 }
 
 export interface RoadmapItem {
@@ -40,6 +62,8 @@ export interface RoadmapItem {
   nextSteps: string[];
   estimatedEffort: "Low" | "Medium" | "High";
   pointsAvailable: number;
+  dependsOnFindingIds?: string[];
+  dependsOnRoadmapIds?: string[];
   relatedApp?: {
     name: string;
     href: string;

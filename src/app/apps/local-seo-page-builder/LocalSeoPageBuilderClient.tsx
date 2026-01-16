@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -28,6 +29,13 @@ import { recordExport, recordGeneration } from "@/lib/bdw/local-analytics";
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import SeoAuditApplyToInputsModal from "@/components/obd/SeoAuditApplyToInputsModal";
+import {
+  clearSeoAuditRoadmapApplyToInputsHandoff,
+  readSeoAuditRoadmapApplyToInputsHandoff,
+  type SeoAuditRoadmapApplyToInputsPayload,
+} from "@/lib/apps/seo-audit-roadmap/apply-to-inputs-handoff";
 import { type BrandProfile } from "@/lib/bdw";
 import LocalSeoAccordionSection from "./components/LocalSeoAccordionSection";
 import LocalSeoExportCenterPanel from "./components/LocalSeoExportCenterPanel";
@@ -80,6 +88,8 @@ export default function LocalSeoPageBuilderClient({
 }: {
   initialDefaults?: LocalSEOPageBuilderRequest;
 }) {
+  const searchParams = useSearchParams();
+  const currentBusinessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
@@ -116,6 +126,11 @@ export default function LocalSeoPageBuilderClient({
   const loading = draft.status === "generating";
   const error = draft.error;
   const lastPayload = draft.sourceInputs.lastPayload;
+
+  // Tier 5C+ (SEO Audit & Roadmap): apply-to-inputs receiver (sessionStorage + TTL, explicit apply/dismiss)
+  const [seoAuditApplyPayload, setSeoAuditApplyPayload] =
+    useState<SeoAuditRoadmapApplyToInputsPayload | null>(null);
+  const [showSeoAuditApplyModal, setShowSeoAuditApplyModal] = useState(false);
 
   const activeSeoPack = useMemo(() => getActiveSeoPack(draft), [draft]);
   const activePageCopy = useMemo(() => getActivePageCopy(draft), [draft]);
@@ -358,6 +373,62 @@ export default function LocalSeoPageBuilderClient({
       console.error("Failed to save form to localStorage:", err);
     }
   }, [form]);
+
+  // Tier 5C+ receiver: read SEO Audit & Roadmap apply-to-inputs handoff from sessionStorage (no auto-apply)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const payload = readSeoAuditRoadmapApplyToInputsHandoff("local-seo-page-builder");
+    if (!payload) return;
+
+    // Tenant safety: require current business context and strict match
+    if (!currentBusinessId || payload.businessId !== currentBusinessId) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("local-seo-page-builder");
+      return;
+    }
+
+    const hasInputs =
+      (payload.suggestedInputs.serviceArea || "").trim().length > 0 ||
+      (payload.suggestedInputs.contentGap || "").trim().length > 0;
+    if (!hasInputs) {
+      clearSeoAuditRoadmapApplyToInputsHandoff("local-seo-page-builder");
+      return;
+    }
+
+    setSeoAuditApplyPayload(payload);
+    setShowSeoAuditApplyModal(true);
+  }, [currentBusinessId]);
+
+  const dismissSeoAuditApply = () => {
+    clearSeoAuditRoadmapApplyToInputsHandoff("local-seo-page-builder");
+    setShowSeoAuditApplyModal(false);
+    setSeoAuditApplyPayload(null);
+  };
+
+  const applySeoAuditApply = () => {
+    if (!seoAuditApplyPayload) return dismissSeoAuditApply();
+    if (!currentBusinessId || seoAuditApplyPayload.businessId !== currentBusinessId) {
+      return dismissSeoAuditApply();
+    }
+
+    const nextForm: LocalSEOPageBuilderRequest = { ...form };
+
+    // NOTE: sender stores primaryService suggestion in suggestedInputs.contentGap for this app (intent-only).
+    const primaryServiceSuggestion = (seoAuditApplyPayload.suggestedInputs.contentGap || "").trim();
+    if (primaryServiceSuggestion) {
+      nextForm.primaryService = primaryServiceSuggestion;
+    }
+
+    const serviceArea = (seoAuditApplyPayload.suggestedInputs.serviceArea || "").trim();
+    if (serviceArea) {
+      const parsed = parseServiceArea(serviceArea);
+      if (parsed.city) nextForm.city = parsed.city;
+      if (parsed.state) nextForm.state = parsed.state;
+    }
+
+    dispatch({ type: "INIT_FROM_FORM", form: nextForm });
+    dismissSeoAuditApply();
+  };
 
   const handleFieldChange = <K extends keyof LocalSEOPageBuilderRequest>(
     key: K,
@@ -774,6 +845,23 @@ export default function LocalSeoPageBuilderClient({
       tagline="Generate a complete local landing page pack for a service + city."
       titleRight={titleStatusChip}
     >
+      {showSeoAuditApplyModal && seoAuditApplyPayload && (
+        <SeoAuditApplyToInputsModal
+          isDark={isDark}
+          payload={seoAuditApplyPayload}
+          blockedReason={null}
+          fields={[
+            ...(seoAuditApplyPayload.suggestedInputs.contentGap
+              ? [{ label: "Primary service", preview: seoAuditApplyPayload.suggestedInputs.contentGap }]
+              : []),
+            ...(seoAuditApplyPayload.suggestedInputs.serviceArea
+              ? [{ label: "Service area", preview: seoAuditApplyPayload.suggestedInputs.serviceArea }]
+              : []),
+          ]}
+          onDismiss={dismissSeoAuditApply}
+          onApply={applySeoAuditApply}
+        />
+      )}
       {/* Toast Feedback */}
       {actionToast && (
         <div
@@ -1939,6 +2027,32 @@ export default function LocalSeoPageBuilderClient({
       ) : null}
     </OBDPageContainer>
   );
+}
+
+function parseServiceArea(value: string): { city: string; state: string } {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return { city: "", state: "" };
+
+  // Prefer "City, State" form
+  if (trimmed.includes(",")) {
+    const parts = trimmed
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const city = parts[0] || "";
+    const state = parts.slice(1).join(", ").trim();
+    return { city, state };
+  }
+
+  // Fallback: try last token as state
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const state = parts[parts.length - 1];
+    const city = parts.slice(0, -1).join(" ");
+    return { city, state };
+  }
+
+  return { city: trimmed, state: "" };
 }
 
 

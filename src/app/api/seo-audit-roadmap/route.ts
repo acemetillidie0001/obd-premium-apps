@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import {
   SEOAuditRoadmapRequest,
@@ -8,6 +9,10 @@ import {
   RoadmapItem,
   CategoryStatus,
 } from "@/app/apps/seo-audit-roadmap/types";
+import { isDemoRequest } from "@/lib/demo/assert-not-demo";
+import { cookies } from "next/headers";
+import { resolveBusinessIdServer } from "@/lib/utils/resolve-business-id.server";
+import type { SeoAuditReport, SeoAuditReportStatus } from "@prisma/client";
 
 /**
  * FIXTURE TEST HELPER
@@ -60,6 +65,28 @@ const seoAuditRoadmapRequestSchema = z.object({
 // Generate request ID
 function generateRequestId(): string {
   return `seo-audit-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function buildAuditFromReport(report: SeoAuditReport): SEOAuditRoadmapResponse | null {
+  if (!report || report.status !== "COMPLETED") return null;
+
+  const findings = report.findings as any;
+  const roadmap = report.roadmap as any;
+
+  if (!findings || typeof findings !== "object") return null;
+
+  return {
+    score: typeof findings.score === "number" ? findings.score : 0,
+    band: typeof findings.band === "string" ? findings.band : "Unknown",
+    summary: typeof findings.summary === "string" ? findings.summary : "",
+    auditedUrl: typeof findings.auditedUrl === "string" ? findings.auditedUrl : undefined,
+    categoryResults: Array.isArray(findings.categoryResults) ? findings.categoryResults : [],
+    roadmap: Array.isArray(roadmap) ? roadmap : [],
+    meta: {
+      requestId: report.id,
+      auditedAtISO: (report.completedAt ?? report.updatedAt).toISOString(),
+    },
+  };
 }
 
 // Fetch page content from URL with security hardening
@@ -219,6 +246,209 @@ interface ExtractedData {
   images: Array<{ hasAlt: boolean }>;
   links: Array<{ href: string; isInternal: boolean }>;
   viewportMeta: string | null;
+}
+
+function truncateForEvidence(value: string, maxLen: number): string {
+  const s = (value || "").trim().replace(/\s+/g, " ");
+  if (s.length <= maxLen) return s;
+  return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function buildEvidenceAndConfidence(args: {
+  category: AuditCategoryResult;
+  data: ExtractedData;
+  context: SEOAuditRoadmapRequest;
+  auditedUrl?: string;
+}): Pick<AuditCategoryResult, "evidence" | "confidence"> {
+  const { category, data, context, auditedUrl } = args;
+  const checked: string[] = [];
+  const observed: string[] = [];
+
+  const hasUrl = !!(auditedUrl && auditedUrl.trim());
+  const sourceNote = hasUrl ? "Input source: page URL fetch" : "Input source: pasted page content";
+
+  const city = context.city?.trim() || "";
+  const state = context.state?.trim() || "";
+  const service = context.primaryService?.trim() || "";
+
+  // Default: if we can't confidently produce evidence, omit evidence and set LOW.
+  // In this implementation, we can deterministically derive evidence for all categories from extracted HTML.
+  let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
+  let notes: string | undefined = undefined;
+
+  switch (category.key) {
+    case "title-tag": {
+      checked.push("<title> tag present");
+      checked.push("Length between 20–60 characters");
+      checked.push("Contains city or primary service keyword");
+      observed.push(`Title present: ${data.title ? "Yes" : "No"}`);
+      if (data.title) {
+        observed.push(`Title length: ${data.title.length} characters`);
+        observed.push(`Title text: "${truncateForEvidence(data.title, 90)}"`);
+      }
+      confidence = "HIGH";
+      break;
+    }
+    case "meta-description": {
+      checked.push('<meta name="description" ...> present');
+      checked.push("Length between 70–160 characters");
+      checked.push("Contains city or primary service keyword");
+      observed.push(`Meta description present: ${data.metaDescription ? "Yes" : "No"}`);
+      if (data.metaDescription) {
+        observed.push(`Meta description length: ${data.metaDescription.length} characters`);
+        observed.push(`Meta description: "${truncateForEvidence(data.metaDescription, 120)}"`);
+      }
+      confidence = "HIGH";
+      break;
+    }
+    case "h1-tag": {
+      checked.push("<h1> tags count (exactly one recommended)");
+      checked.push("H1 contains primary service and city");
+      observed.push(`H1 count: ${data.h1Texts.length}`);
+      if (data.h1Texts.length > 0) {
+        observed.push(`H1 text: "${truncateForEvidence(data.h1Texts[0] || "", 90)}"`);
+      }
+      notes =
+        "Some themes inject H1 tags dynamically via JavaScript; this audit is based on the provided static HTML/content.";
+      confidence = "HIGH";
+      break;
+    }
+    case "heading-structure": {
+      checked.push("At least one H2 heading");
+      checked.push("H2/H3 hierarchy present (if using H3, prefer H2 first)");
+      observed.push(`H2 count: ${data.h2Count}`);
+      observed.push(`H3 count: ${data.h3Count}`);
+      confidence = "HIGH";
+      break;
+    }
+    case "content-length": {
+      checked.push("Body text extracted (scripts/styles removed)");
+      checked.push("Word count threshold (400 minimum, 600+ recommended)");
+      observed.push(`Word count (approx): ${data.wordCount}`);
+      confidence = "HIGH";
+      break;
+    }
+    case "images-alt": {
+      checked.push("<img> tags detected");
+      checked.push("Alt attribute coverage (aim for 80%+)");
+      const total = data.images.length;
+      const withAlt = data.images.filter((img) => img.hasAlt).length;
+      const missing = Math.max(0, total - withAlt);
+      observed.push(`Images found: ${total}`);
+      observed.push(`Images with alt text: ${withAlt}`);
+      observed.push(`Images missing alt text: ${missing}`);
+      confidence = "HIGH";
+      break;
+    }
+    case "internal-links": {
+      checked.push("Internal links count (3+ recommended)");
+      checked.push("Internal link classification using page hostname when available");
+      const internal = data.links.filter((l) => l.isInternal).length;
+      observed.push(`Internal links found: ${internal}`);
+      if (!hasUrl) {
+        notes =
+          "Internal link classification is less precise when auditing pasted content without a page URL (no hostname context).";
+        confidence = "MEDIUM";
+      } else {
+        confidence = "HIGH";
+      }
+      break;
+    }
+    case "local-keywords": {
+      checked.push(`Mentions city keyword ("${city}") in body text`);
+      checked.push(`Mentions state keyword ("${state}") in body text`);
+      checked.push(`Mentions primary service keyword ("${service}") in body text`);
+      // Note: runAudit already uses regex counting; we don't repeat counts here to avoid duplicate logic,
+      // but we can deterministically re-check simple includes to provide verifiable evidence.
+      const bodyLower = data.bodyText.toLowerCase();
+      observed.push(`City found in body: ${city ? (bodyLower.includes(city.toLowerCase()) ? "Yes" : "No") : "Unknown"}`);
+      observed.push(
+        `State found in body: ${state ? (bodyLower.includes(state.toLowerCase()) ? "Yes" : "No") : "Unknown"}`
+      );
+      observed.push(
+        `Primary service found in body: ${service ? (bodyLower.includes(service.toLowerCase()) ? "Yes" : "No") : "Unknown"}`
+      );
+      notes = "Keyword detection is based on the extracted text from the provided HTML/content (not a live crawl).";
+      confidence = "MEDIUM";
+      break;
+    }
+    case "mobile-friendly": {
+      checked.push('<meta name="viewport" ...> present');
+      checked.push('Viewport contains "width=device-width"');
+      observed.push(`Viewport meta present: ${data.viewportMeta ? "Yes" : "No"}`);
+      if (data.viewportMeta) {
+        observed.push(`Viewport content: "${truncateForEvidence(data.viewportMeta, 90)}"`);
+      }
+      confidence = "HIGH";
+      break;
+    }
+    case "conversion-signals": {
+      checked.push("CTA keywords present (call/book/request/quote/schedule/contact)");
+      checked.push("Contact method present (tel:/mailto: link or /contact link)");
+      const bodyLower = data.bodyText.toLowerCase();
+      const ctaKeywords = ["call", "book", "request", "quote", "schedule", "contact"];
+      const matched = ctaKeywords.filter((k) => bodyLower.includes(k));
+      const hasPhoneLink = data.links.some((l) => l.href.toLowerCase().startsWith("tel:"));
+      const hasEmailLink = data.links.some((l) => l.href.toLowerCase().startsWith("mailto:"));
+      const hasContactLink = data.links.some((l) => l.href.toLowerCase().includes("/contact"));
+      observed.push(`CTA keywords found: ${matched.length ? matched.join(", ") : "None"}`);
+      observed.push(`Phone link (tel:) present: ${hasPhoneLink ? "Yes" : "No"}`);
+      observed.push(`Email link (mailto:) present: ${hasEmailLink ? "Yes" : "No"}`);
+      observed.push(`Contact page link (/contact) present: ${hasContactLink ? "Yes" : "No"}`);
+      notes = "Conversion signals are heuristic (keyword + link presence) and may not capture all CTA patterns.";
+      confidence = "MEDIUM";
+      break;
+    }
+    default: {
+      confidence = "LOW";
+      notes = sourceNote;
+      break;
+    }
+  }
+
+  // Always include source note (keeps evidence honest without becoming a crawler).
+  if (notes) {
+    notes = `${sourceNote}${notes ? ` · ${notes}` : ""}`;
+  } else {
+    notes = sourceNote;
+  }
+
+  // If nothing meaningful was observed, omit evidence and keep LOW per spec.
+  const hasMeaningfulEvidence = checked.length > 0 || observed.length > 0 || (notes?.trim().length ?? 0) > 0;
+  if (!hasMeaningfulEvidence) {
+    return { confidence: "LOW" };
+  }
+
+  return {
+    evidence: {
+      checked: checked.length ? checked : undefined,
+      observed: observed.length ? observed : undefined,
+      notes: notes?.trim() || undefined,
+    },
+    confidence,
+  };
+}
+
+function attachEvidenceAndConfidence(args: {
+  categoryResults: AuditCategoryResult[];
+  data: ExtractedData;
+  context: SEOAuditRoadmapRequest;
+  auditedUrl?: string;
+}): AuditCategoryResult[] {
+  return args.categoryResults.map((cat) => ({
+    ...cat,
+    ...buildEvidenceAndConfidence({
+      category: cat,
+      data: args.data,
+      context: args.context,
+      auditedUrl: args.auditedUrl,
+    }),
+    // Stable id for compare (Tier 5B+). Backwards compatible: optional field.
+    findingId:
+      typeof cat.findingId === "string" && cat.findingId.trim().length > 0
+        ? cat.findingId
+        : `seo-finding:${cat.key}`,
+  }));
 }
 
 function extractHTMLData(html: string, baseUrl?: string): ExtractedData {
@@ -911,7 +1141,93 @@ function generateRoadmap(
     return aStructural - bStructural;
   });
 
-  return roadmap;
+  // Tier 5B+: simple deterministic dependency model + stable topological ordering
+  const categoryToId = new Map<string, string>();
+  for (const item of roadmap) categoryToId.set(item.category, item.id);
+
+  const getPrerequisiteCategories = (categoryKey: string): string[] => {
+    switch (categoryKey) {
+      case "meta-description":
+        return ["title-tag"];
+      case "heading-structure":
+        return ["h1-tag"];
+      case "content-length":
+        return ["heading-structure"];
+      case "local-keywords":
+        return ["content-length"];
+      case "internal-links":
+        return ["content-length"];
+      case "conversion-signals":
+        return ["content-length"];
+      default:
+        return [];
+    }
+  };
+
+  const enriched = roadmap.map((item) => {
+    const prereqCats = getPrerequisiteCategories(item.category).filter((c) => c !== item.category);
+    const dependsOnRoadmapIds = prereqCats
+      .map((c) => categoryToId.get(c))
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    const dependsOnFindingIds = prereqCats.map((c) => `seo-finding:${c}`);
+
+    return {
+      ...item,
+      ...(dependsOnFindingIds.length ? { dependsOnFindingIds } : {}),
+      ...(dependsOnRoadmapIds.length ? { dependsOnRoadmapIds } : {}),
+    };
+  });
+
+  const baseRank = new Map<string, number>();
+  enriched.forEach((item, idx) => baseRank.set(item.id, idx));
+
+  // Stable Kahn topo sort using baseRank as tie-breaker
+  const byId = new Map<string, RoadmapItem>(enriched.map((i) => [i.id, i]));
+  const inDegree = new Map<string, number>();
+  const outgoing = new Map<string, string[]>();
+
+  for (const item of enriched) {
+    inDegree.set(item.id, 0);
+    outgoing.set(item.id, []);
+  }
+
+  for (const item of enriched) {
+    const deps = item.dependsOnRoadmapIds ?? [];
+    for (const depId of deps) {
+      if (!byId.has(depId)) continue;
+      outgoing.get(depId)!.push(item.id);
+      inDegree.set(item.id, (inDegree.get(item.id) ?? 0) + 1);
+    }
+  }
+
+  const available: string[] = [];
+  for (const [id, deg] of inDegree.entries()) {
+    if (deg === 0) available.push(id);
+  }
+  available.sort((a, b) => (baseRank.get(a)! - baseRank.get(b)!));
+
+  const sorted: RoadmapItem[] = [];
+  while (available.length > 0) {
+    const id = available.shift()!;
+    const item = byId.get(id);
+    if (item) sorted.push(item);
+
+    for (const nextId of outgoing.get(id) ?? []) {
+      const nextDeg = (inDegree.get(nextId) ?? 0) - 1;
+      inDegree.set(nextId, nextDeg);
+      if (nextDeg === 0) {
+        available.push(nextId);
+        available.sort((a, b) => (baseRank.get(a)! - baseRank.get(b)!));
+      }
+    }
+  }
+
+  // If a cycle is introduced, fail safely by returning the base sorted ordering.
+  if (sorted.length !== enriched.length) {
+    return enriched;
+  }
+
+  return sorted;
 }
 
 // Calculate score and band
@@ -946,7 +1262,7 @@ export async function POST(request: NextRequest) {
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
 
-  const requestId = generateRequestId();
+  let requestId = generateRequestId();
 
   try {
     // Authentication check
@@ -959,6 +1275,26 @@ export async function POST(request: NextRequest) {
           requestId,
         },
         { status: 401 }
+      );
+    }
+
+    // Resolve tenant (businessId) with demo-cookie safety; default to session user id.
+    const cookieStore = await cookies();
+    const resolvedBusinessId = await resolveBusinessIdServer(
+      cookieStore,
+      request.nextUrl?.searchParams ?? null
+    );
+    const businessId = resolvedBusinessId ?? session.user.id;
+
+    // Tenant safety: never allow URL businessId to access other tenants (except demo mode, which is blocked above anyway).
+    if (!isDemoRequest(request) && businessId !== session.user.id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { message: "Tenant mismatch. Invalid business context." },
+          requestId,
+        },
+        { status: 403 }
       );
     }
 
@@ -999,6 +1335,20 @@ export async function POST(request: NextRequest) {
 
     const formValues = parsed.data;
 
+    // Tier 5B: create draft report row BEFORE generation (never overwrite on rerun)
+    const draft = await prisma.seoAuditReport.create({
+      data: {
+        businessId,
+        status: "DRAFT",
+        sourceInput: formValues as any,
+        findings: {},
+        roadmap: [],
+      },
+    });
+
+    // Use report id as canonical request id (stable snapshot)
+    requestId = draft.id;
+
     // Get page content
     let html = "";
     let textContent = "";
@@ -1010,6 +1360,19 @@ export async function POST(request: NextRequest) {
         html = await fetchPageContent(formValues.pageUrl);
         textContent = extractTextFromHTML(html);
       } catch (error) {
+        // Keep draft as-is (not completed). Store the error for later debugging.
+        try {
+          await prisma.seoAuditReport.update({
+            where: { id: draft.id },
+            data: {
+              findings: {
+                error: error instanceof Error ? error.message : "Failed to fetch page content",
+              } as any,
+            },
+          });
+        } catch {
+          // ignore
+        }
         return NextResponse.json(
           {
             ok: false,
@@ -1027,6 +1390,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (textContent.length === 0) {
+      try {
+        await prisma.seoAuditReport.update({
+          where: { id: draft.id },
+          data: {
+            findings: {
+              error: "No content found to audit. Please provide valid page content.",
+            } as any,
+          },
+        });
+      } catch {
+        // ignore
+      }
       return NextResponse.json(
         {
           ok: false,
@@ -1043,11 +1418,42 @@ export async function POST(request: NextRequest) {
     const extractedData = extractHTMLData(html, formValues.pageUrl);
 
     // Run audit
-    const categoryResults = runAudit(extractedData, formValues);
+    const baseCategoryResults = runAudit(extractedData, formValues);
+    const categoryResults = attachEvidenceAndConfidence({
+      categoryResults: baseCategoryResults,
+      data: extractedData,
+      context: formValues,
+      auditedUrl,
+    });
     const { score, band, summary } = calculateScoreAndBand(categoryResults);
     const roadmap = generateRoadmap(categoryResults, formValues);
 
-    // Build response
+    const completedAt = new Date();
+
+    // Persist canonical snapshot and mark completed
+    await prisma.seoAuditReport.update({
+      where: { id: draft.id },
+      data: {
+        status: "COMPLETED",
+        findings: {
+          score,
+          band,
+          summary,
+          auditedUrl,
+          categoryResults,
+        } as any,
+        roadmap: roadmap as any,
+        completedAt,
+      },
+    });
+
+    // Optional metadata for exports (does not affect audit snapshot integrity)
+    const profile = await prisma.brandProfile.findUnique({
+      where: { userId: businessId },
+      select: { businessName: true },
+    });
+
+    // Build response (from snapshot)
     const response: SEOAuditRoadmapResponse = {
       score,
       band,
@@ -1056,17 +1462,110 @@ export async function POST(request: NextRequest) {
       categoryResults,
       roadmap,
       meta: {
-        requestId,
-        auditedAtISO: new Date().toISOString(),
+        requestId: draft.id,
+        auditedAtISO: completedAt.toISOString(),
       },
     };
 
     return NextResponse.json({
       ok: true,
-      data: response,
+      data: {
+        audit: response,
+        sourceInput: formValues,
+        businessName: profile?.businessName ?? null,
+      },
     });
   } catch (error) {
     console.error("SEO Audit Error:", error);
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { message: errorMessage },
+        requestId,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const requestId = generateRequestId();
+
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { message: "Authentication required. Please log in to use this tool." },
+          requestId,
+        },
+        { status: 401 }
+      );
+    }
+
+    const cookieStore = await cookies();
+    const resolvedBusinessId = await resolveBusinessIdServer(
+      cookieStore,
+      request.nextUrl?.searchParams ?? null
+    );
+    const businessId = resolvedBusinessId ?? session.user.id;
+
+    // Tenant safety: never allow URL businessId to access other tenants.
+    if (!isDemoRequest(request) && businessId !== session.user.id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { message: "Tenant mismatch. Invalid business context." },
+          requestId,
+        },
+        { status: 403 }
+      );
+    }
+
+    const latestTwo = await prisma.seoAuditReport.findMany({
+      where: {
+        businessId,
+        status: "COMPLETED" as SeoAuditReportStatus,
+      },
+      orderBy: [
+        { completedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+      take: 2,
+    });
+
+    const active = latestTwo[0] ?? null;
+    const previous = latestTwo[1] ?? null;
+
+    if (!active) {
+      return NextResponse.json({ ok: true, data: null });
+    }
+
+    const audit = buildAuditFromReport(active);
+    if (!audit) {
+      return NextResponse.json({ ok: true, data: null });
+    }
+
+    const previousAudit = previous ? buildAuditFromReport(previous) : null;
+
+    const profile = await prisma.brandProfile.findUnique({
+      where: { userId: businessId },
+      select: { businessName: true },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        audit,
+        previousAudit,
+        sourceInput: active.sourceInput,
+        businessName: profile?.businessName ?? null,
+      },
+    });
+  } catch (error) {
+    console.error("SEO Audit GET Error:", error);
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
     return NextResponse.json(
       {

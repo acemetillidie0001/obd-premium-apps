@@ -39,6 +39,8 @@
     "migrate:deploy": "tsx scripts/validate-db-url.ts && prisma generate && prisma migrate deploy && prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:status": "prisma migrate status",
+    "prisma:migrate:safe": "node tools/prisma-migrate-safe.cjs",
     "deploy:migrate": "pnpm run migrate:deploy",
     "db:resolve:all": "node tools/resolve-all-failed-migrations.cjs",
     "db:resolve-failed-migrations": "node tools/resolve-all-failed-migrations.cjs",

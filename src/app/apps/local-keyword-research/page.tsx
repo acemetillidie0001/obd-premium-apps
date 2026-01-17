@@ -13,13 +13,6 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { LocalKeywordLegend } from "@/components/obd/LocalKeywordLegend";
-import {
-  generateKeywordsCsv,
-  generateFullReportTxt,
-  getCsvFilename,
-  getTxtFilename,
-  downloadBlob,
-} from "@/lib/exports/local-keyword-exports";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
@@ -32,6 +25,7 @@ import type {
 import { getActiveKeywordResults } from "@/lib/apps/local-keyword-research/getActiveKeywordResults";
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
 import { getHandoffHash } from "@/lib/utils/handoff-guard";
+import LKRTExportCenterPanel from "./components/LKRTExportCenterPanel";
 import {
   LKRT_HANDOFF_TTL_MS,
   buildLkrtToContentWriterSeedsHandoffV1,
@@ -155,6 +149,7 @@ export default function LocalKeywordResearchPage() {
 
   // Ref for scrolling to results
   const resultsRef = useRef<HTMLDivElement>(null);
+  const exportCenterRef = useRef<HTMLDivElement>(null);
 
   // Rank check state
   const [rankKeyword, setRankKeyword] = useState("");
@@ -483,40 +478,8 @@ export default function LocalKeywordResearchPage() {
     }
   };
 
-  const handleExportCsv = () => {
-    if (!filteredAndSortedKeywords.length) return;
-    const meta = {
-      businessName: form.businessName || undefined,
-      city: form.city || undefined,
-      state: form.state || undefined,
-      goal: form.primaryGoal || undefined,
-      generatedAt: new Date(),
-    };
-    const csv = generateKeywordsCsv(filteredAndSortedKeywords, meta);
-    const filename = getCsvFilename(form.businessName);
-    downloadBlob(csv, filename, "text/csv");
-  };
-
-  const handleExportTxt = () => {
-    if (!activeResult) return;
-    const meta = {
-      businessName: form.businessName || undefined,
-      city: form.city || undefined,
-      state: form.state || undefined,
-      goal: form.primaryGoal || undefined,
-      generatedAt: new Date(),
-    };
-    const settings = {
-      maxKeywords: form.maxKeywords,
-      nearMe: form.includeNearMeVariants,
-      radiusMiles: form.radiusMiles,
-      neighborhoods: form.includeNeighborhoods,
-      zipCodes: form.includeZipCodes,
-      language: form.language,
-    };
-    const txt = generateFullReportTxt(activeResult, meta, settings);
-    const filename = getTxtFilename(form.businessName);
-    downloadBlob(txt, filename, "text/plain");
+  const handleOpenExportCenter = () => {
+    exportCenterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // Determine metrics mode
@@ -711,28 +674,6 @@ export default function LocalKeywordResearchPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={handleExportCsv}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Export CSV (Top Keywords)
-              </button>
-              <button
-                type="button"
-                onClick={handleExportTxt}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Export TXT (Full Report)
-              </button>
-              <button
-                type="button"
                 onClick={() => sendHandoff("local-seo")}
                 disabled={!canSendHandoff}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
@@ -756,26 +697,6 @@ export default function LocalKeywordResearchPage() {
                 title={!businessId ? "Business context required (missing businessId)." : "Send draft seeds to AI Content Writer"}
               >
                 Send → Content Writer
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  handleCopyText(
-                    visibleKeywords
-                      .map(
-                        (k) =>
-                          `${k.keyword} — ${k.intent} — ${k.suggestedPageType} — ${k.difficultyLabel} — Score: ${k.opportunityScore}${hasVolume && typeof k.monthlySearchesExact === "number" ? ` — Volume: ${k.monthlySearchesExact}` : ""}${hasCpc && typeof k.cpcUsd === "number" ? ` — CPC: $${k.cpcUsd.toFixed(2)}` : ""}`
-                      )
-                      .join("\n")
-                  )
-                }
-                className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors ${
-                  isDark
-                    ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                Copy All
               </button>
             </div>
           </div>
@@ -2012,6 +1933,24 @@ export default function LocalKeywordResearchPage() {
           </div>
         )}
 
+        {/* Tier 5A parity: Unified Export Center (single authoritative export UI) */}
+        <div ref={exportCenterRef} />
+        <OBDPanel isDark={isDark} className="mt-6">
+          <OBDHeading level={2} isDark={isDark}>
+            Export Center
+          </OBDHeading>
+          <div className="mt-3">
+            <LKRTExportCenterPanel
+              isDark={isDark}
+              isLoading={isLoading}
+              activeResult={activeResult}
+              allKeywords={activeResult?.topPriorityKeywords ?? []}
+              visibleKeywords={filteredAndSortedKeywords}
+              form={form}
+            />
+          </div>
+        </OBDPanel>
+
         {/* Empty results education (before first run) */}
         {!activeResult && !error && (
           <OBDPanel isDark={isDark} className="mt-6">
@@ -2042,10 +1981,10 @@ export default function LocalKeywordResearchPage() {
         </button>
         <button
           type="button"
-          onClick={handleExportTxt}
+          onClick={handleOpenExportCenter}
           disabled={!canExport}
           className={`${secondaryActionButtonClasses} ${!canExport ? "opacity-50 cursor-not-allowed" : ""}`}
-          title={!activeResult ? "Generate results first to enable export." : (isLoading ? "Please wait…" : "Export full report (.txt)")}
+          title={!activeResult ? "Generate results first to enable export." : (isLoading ? "Please wait…" : "Open Export Center")}
         >
           Export
         </button>

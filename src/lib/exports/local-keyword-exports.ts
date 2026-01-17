@@ -62,6 +62,7 @@ export interface ExportMeta {
   state?: string;
   goal?: string;
   generatedAt?: Date;
+  nearMe?: boolean;
 }
 
 /**
@@ -83,56 +84,65 @@ export function generateKeywordsCsv(
   keywords: LocalKeywordIdea[],
   meta?: ExportMeta
 ): string {
-  const hasVolume = keywords.some(
-    (k) => typeof k.monthlySearchesExact === "number"
-  );
-  const hasCpc = keywords.some((k) => typeof k.cpcUsd === "number");
+  /**
+   * LKRT CSV Fixed Schema (deterministic; parser-safe)
+   *
+   * Column order MUST remain stable across exports:
+   * keyword, location, nearMe, dataSource, avgMonthlySearches, competition, lowTopOfPageBid, highTopOfPageBid, notes
+   *
+   * Notes:
+   * - No metadata comment lines are included in the CSV body.
+   * - When Google Ads metrics are null/absent, cells are exported as empty (columns are NOT dropped).
+   */
+  const headers = [
+    "keyword",
+    "location",
+    "nearMe",
+    "dataSource",
+    "avgMonthlySearches",
+    "competition",
+    "lowTopOfPageBid",
+    "highTopOfPageBid",
+    "notes",
+  ] as const;
+
+  const location =
+    meta?.city || meta?.state
+      ? `${meta?.city ? String(meta.city) : ""}${meta?.city && meta?.state ? ", " : ""}${meta?.state ? String(meta.state) : ""}`
+      : "";
+  const nearMe =
+    typeof meta?.nearMe === "boolean" ? (meta.nearMe ? "true" : "false") : "";
 
   const lines: string[] = [];
-
-  // Metadata header block
-  if (meta) {
-    const now = meta.generatedAt || new Date();
-    const isoDate = now.toISOString();
-    const readableDate = now.toLocaleString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-
-    lines.push("# OBD Local Keyword Research Export");
-    lines.push(`# Business: ${escapeCsvField(meta.businessName || "Unknown Business")}`);
-    lines.push(`# Location: ${escapeCsvField(meta.city || "Ocala")}, ${escapeCsvField(meta.state || "FL")}`);
-    lines.push(`# Goal: ${escapeCsvField(meta.goal || "General keyword research")}`);
-    lines.push(`# Generated: ${escapeCsvField(isoDate)} (${escapeCsvField(readableDate)})`);
-    lines.push("#");
-  }
-
-  // Header row
-  const headers = [
-    "Keyword",
-    "Intent",
-    "Difficulty",
-    "OpportunityScore",
-    ...(hasVolume ? ["MonthlySearchesExact"] : []),
-    ...(hasCpc ? ["CPC"] : []),
-  ];
-
-  const rows = keywords.map((k) => [
-    escapeCsvField(k.keyword),
-    escapeCsvField(k.intent),
-    escapeCsvField(k.difficultyLabel),
-    escapeCsvField(k.opportunityScore),
-    ...(hasVolume
-      ? [escapeCsvField(k.monthlySearchesExact ?? null)]
-      : []),
-    ...(hasCpc ? [escapeCsvField(k.cpcUsd ?? null)] : []),
-  ]);
-
   lines.push(headers.join(","));
-  rows.forEach((row) => {
+
+  const assertRowLenDevOnly = (row: string[], idx: number) => {
+    if (process.env.NODE_ENV === "production") return;
+    // "Unit-style" self-check: header/data column counts must match exactly.
+    if (row.length !== headers.length) {
+      // eslint-disable-next-line no-console
+      console.warn("[LKRT CSV] schema mismatch", {
+        expected: headers.length,
+        actual: row.length,
+        rowIndex: idx,
+      });
+    }
+  };
+
+  keywords.forEach((k, idx) => {
+    // LKRT only has a single CPC field today; "top of page bid" columns are intentionally left blank.
+    const row = [
+      escapeCsvField(k.keyword),
+      escapeCsvField(location),
+      escapeCsvField(nearMe),
+      escapeCsvField(k.dataSource ?? ""),
+      escapeCsvField(k.monthlySearchesExact ?? null),
+      escapeCsvField(k.adsCompetitionIndex ?? null),
+      escapeCsvField(null),
+      escapeCsvField(null),
+      escapeCsvField(k.notes ?? ""),
+    ];
+    assertRowLenDevOnly(row, idx);
     lines.push(row.join(","));
   });
 

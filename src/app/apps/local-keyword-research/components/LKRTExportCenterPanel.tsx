@@ -92,6 +92,7 @@ export default function LKRTExportCenterPanel({
       state: form.state || undefined,
       goal: form.primaryGoal || undefined,
       generatedAt: new Date(),
+      nearMe: form.includeNearMeVariants,
     };
     const csv = generateKeywordsCsv(visibleKeywords, meta);
     const filename = getCsvFilename(form.businessName);

@@ -36,21 +36,6 @@ This document reflects **current shipped behavior** (code-truth), including Tier
     - `src/lib/local-keyword-metrics.ts` required env list + missing-vars fallback, ~L126–L144
     - `src/lib/local-keyword-metrics.ts` credential check + warn + fallback, ~L211–L227
 
-#### Required env vars (Google Ads Keyword Planner)
-
-To enable Keyword Planner historical metrics, set:
-
-- `LOCAL_KEYWORD_METRICS_SOURCE=google-ads`
-- `GOOGLE_ADS_DEVELOPER_TOKEN`
-- `GOOGLE_ADS_CLIENT_ID`
-- `GOOGLE_ADS_CLIENT_SECRET`
-- `GOOGLE_ADS_REFRESH_TOKEN`
-- `GOOGLE_ADS_CLIENT_CUSTOMER_ID` (numbers only; the account being queried)
-- `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (optional; numbers only; MCC/manager account ID used for `login-customer-id` header)
-
-Notes:
-- A helper script exists to obtain `GOOGLE_ADS_REFRESH_TOKEN`: `scripts/get-google-ads-refresh-token.js`
-
 #### What “Google Ads” currently means (production-truth)
 
 - If `LOCAL_KEYWORD_METRICS_SOURCE="google-ads"` and credentials are present, LKRT will fetch **Google Ads Keyword Planner historical metrics** (best-effort).
@@ -343,3 +328,108 @@ This list is mandatory and must be treated as hard constraints:
   - Evidence: `src/app/api/local-keyword-research/route.ts` OpenAI calls; `src/lib/openai-timeout.ts`, ~L25–L51.
 
 
+---
+
+## Environment & Diagnostics (production-truth)
+
+### Required env vars (Google Ads Keyword Planner historical metrics)
+
+- `LOCAL_KEYWORD_METRICS_SOURCE=google-ads`
+- `GOOGLE_ADS_DEVELOPER_TOKEN`
+- `GOOGLE_ADS_CLIENT_CUSTOMER_ID` (numbers only; the **account being queried**)
+- `GOOGLE_ADS_CLIENT_ID`
+- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_REFRESH_TOKEN`
+
+Helper:
+- A helper script exists to obtain `GOOGLE_ADS_REFRESH_TOKEN`: `scripts/get-google-ads-refresh-token.js`
+
+### Optional MCC (Manager account support)
+
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (numbers only; **MCC/manager** account ID)
+
+Meaning:
+- `GOOGLE_ADS_CLIENT_CUSTOMER_ID` = the **client** account you want metrics for.
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID` = the **manager/MCC** account used for access (sent as the `login-customer-id` header).
+
+### Fallback + failure behavior
+
+- **Creds missing / invalid**: LKRT falls back to **mock** metrics (no crash).
+- **Timeouts / 429 / partial failures**:
+  - LKRT uses **best-effort** Keyword Planner calls.
+  - Metrics may be `null` for some/all keywords, but **keywords are not dropped**.
+  - A user-visible metrics notice is surfaced via `overviewNotes` when relevant.
+- **Exports**:
+  - CSV schema stays fixed; missing metrics export as **empty cells** (no comment lines).
+
+### Confirming mode in the UI + exports
+
+- **UI badge**:
+  - “Live Google Ads” only when numeric metrics exist for at least some keywords.
+  - “Google Ads (Connected — Metrics Pending)” when Google Ads is selected but no numeric metrics were returned.
+  - “Mock Data” when mock metrics are in use.
+- **CSV export**:
+  - `dataSource` column reflects `"google-ads"` vs `"mock"`.
+  - Metric columns (`avgMonthlySearches`, `competition`, `lowTopOfPageBid`, `highTopOfPageBid`) will be blank when not available.
+
+### Troubleshooting (quick)
+
+- **Badge shows “Google Ads (Connected — Metrics Pending)”**
+  - Common causes: keywords have no available data for the current targeting, upstream partial failures/timeouts, or access limitations.
+  - Check for a metrics notice in `overviewNotes`.
+- **401 / 403 errors (common causes)**
+  - Invalid/expired refresh token, incorrect OAuth client id/secret, missing/invalid developer token, or account permission issues.
+  - If using an MCC, verify `GOOGLE_ADS_LOGIN_CUSTOMER_ID` and `GOOGLE_ADS_CLIENT_CUSTOMER_ID` are correct and numbers-only.
+- **429 rate limiting**
+  - LKRT performs a single deterministic retry for transient failures.
+  - If still rate-limited, metrics may remain null for some/all keywords in that run (rows retained).
+
+---
+
+## Golden Flow Verification Checklist (Operator Ready, <5 minutes)
+
+### 1) Mock mode run (no Google Ads env vars)
+
+- Ensure `LOCAL_KEYWORD_METRICS_SOURCE` is unset or set to `mock`, and no `GOOGLE_ADS_*` vars are present.
+- Run LKRT once with normal inputs.
+- Verify:
+  - Metrics badge shows **Mock Data** (or non–Google Ads mode), and the app does not crash.
+  - Results render (top keywords + clusters).
+  - Export Center: TXT and CSV buttons are present and disabled-not-hidden before results exist.
+
+### 2) Google Ads mode run (env vars configured)
+
+- Set `LOCAL_KEYWORD_METRICS_SOURCE=google-ads` and configure required env vars (`GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ADS_CLIENT_CUSTOMER_ID`).
+  - Optional (MCC): `GOOGLE_ADS_LOGIN_CUSTOMER_ID`.
+- Run LKRT once.
+- Verify:
+  - At least some keywords show numeric metrics (volume/competition/bids where available).
+  - Metrics badge shows **Live Google Ads** only when numeric Google Ads metrics are present.
+
+### 3) Partial failure simulation (must be null-safe; no row drops)
+
+- Simulate a transient/targeting failure:
+  - Set `GOOGLE_ADS_LOGIN_CUSTOMER_ID` to an invalid value (or use a deliberately nonsensical location input in the LKRT form).
+- Run LKRT once.
+- Verify:
+  - App still returns results (no crash).
+  - Keywords remain present; metrics may be empty for some/all keywords but **rows are not dropped**.
+  - A clear metrics notice surfaces in the UI (via `overviewNotes`) when partial failures/timeouts occur.
+
+### 4) Export Center checks (TXT + CSV)
+
+- Export TXT and CSV from the Export Center.
+- Verify CSV is parser-safe:
+  - First line is the header row with fixed columns (no `#` comment lines anywhere):
+    - `keyword,location,nearMe,dataSource,avgMonthlySearches,competition,lowTopOfPageBid,highTopOfPageBid,notes`
+  - When metrics are missing, cells are empty (columns still present).
+
+### 5) Tier 5C handoff checks (Apply/Dismiss + tenant safety + TTL)
+
+- From LKRT, send to:
+  - **Local SEO Page Builder** → Apply is **additive-only** (fill empty + append; never overwrite).
+  - **AI Content Writer** → Apply is **additive-only** (fill empty + append; never overwrite; no auto-generation).
+- Tenant mismatch:
+  - Open receiver under a different `businessId` and confirm **Apply is blocked** with a clear warning.
+- TTL expiry:
+  - Wait past TTL (or simulate by adjusting `createdAt/expiresAt`) and confirm payload is cleared and user sees an expired/cleared behavior.

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Local Keyword Research Tool — Reference Quality (Tier 6)**
+  - Tier 5A UX consistency: canonical `getActiveKeywordResults()`, sticky action bar, accordion inputs, truthful metrics badge semantics, and strong empty/loading/error states.
+  - Tier 5C safe handoffs (draft-only): LKRT → Local SEO + LKRT → Content Writer with TTL, tenant-safe guards, Apply/Dismiss, additive-only applies.
+  - Exports: unified Export Center + deterministic CSV schema (fixed columns; no comment lines) + stable TXT report export.
+  - Metrics: real Google Ads Keyword Planner historical metrics (Basic Access) with timeouts + safe fallback (no breaking changes).
+  - Status: LOCKED (maintenance-mode safe; no background jobs; draft-only applies).
+
 - **Local SEO Page Builder — Tier 5C (2026-01-15)**
   - Draft-only Next Steps handoffs (with confirmation) to AI Content Writer, AI FAQ Generator, and AI Help Desk.
   - SessionStorage handoff transport using per-destination keys (`obd:handoff:local-seo-page-builder:<app>:v1`) with TTL enforced via `createdAt/expiresAt` + `store*/read*/clear*` helpers.

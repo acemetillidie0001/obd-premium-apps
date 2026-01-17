@@ -1,144 +1,96 @@
 ### LOCAL_KEYWORD_RESEARCH_TIER_AUDIT (LKRT)
 
-Scope: **analysis and documentation only** (no runtime changes, no API changes, no new dependencies).
+Scope: **final evidence-based audit** of LKRT as shipped (Tier 5A / 5C / Tier 6 readiness).
 
 This audit compares LKRT against established Tier 5C / Tier 6 patterns already present in the OBD Premium Apps monorepo.
 
 ---
 
-## PASS / PARTIAL / MISSING scorecard
+## Final Tier 6 audit scorecard (PASS / FAIL)
 
-### A) Determinism & State
-
-- **Single canonical active-results selector equivalent**: ✅ PASS
-- **Regenerate results stable**: ⚠️ PARTIAL (shape stable; content not guaranteed stable)
-- **Edited state protected**: ✅ PASS (not applicable; LKRT does not support edits)
-
-### B) UX Consistency (Tier 5A)
-
-- **Accordion input parity**: ✅ PASS
-- **Canonical sticky action bar**: ✅ PASS
-- **Disabled-not-hidden actions**: ✅ PASS
-- **Error/loading/empty states**: ✅ PASS
-- **Badge semantics (Live vs Mock)**: ✅ PASS
-
-### C) Export Integrity
-
-- **Single authoritative Export Center**: ✅ PASS
-- **Snapshot-only export**: ⚠️ PARTIAL (exports reflect current UI filters/sort at click time)
-- **CSV safety & schema stability**: ✅ PASS
-
-### D) Ecosystem Awareness (Tier 5C)
-
-- **Safe handoff to Local SEO Page Builder**: ✅ PASS
-- **Safe handoff to AI Content Writer**: ✅ PASS
-- **Safe handoff to SEO Audit & Roadmap**: ❌ MISSING
-- **Tenant-safe + TTL-protected + additive-only**: ✅ PASS
-
-### E) Trust & Guardrails
-
-- **Clear “no automation” messaging**: ❌ MISSING
-- **Clear “ad data ≠ ranking guarantee” disclaimer**: ⚠️ PARTIAL
-- **No background jobs**: ✅ PASS
-- **No silent API calls**: ✅ PASS
+| Section | Status | Notes |
+|---|---:|---|
+| **A) Determinism & canonical selector** | **PASS** | Canonical `getActiveKeywordResults()` used for active results; no recompute/mutation. |
+| **B) Tier 5A UX consistency** | **PASS** | Accordion inputs, sticky action bar, disabled-not-hidden, truthful metrics badge semantics, explicit empty/loading/error states. |
+| **C) Export integrity** | **PASS** | Unified Export Center; deterministic CSV schema (no comment lines); TXT report format stable. |
+| **D) Tier 5C ecosystem handoffs** | **PASS** | TTL’d + tenant-safe + Apply/Dismiss + additive-only to Local SEO + Content Writer. |
+| **E) Trust & guardrails** | **PASS** | Explicit “no automation”; explicit “ads competition ≠ organic ranking guarantee”; no silent background calls. |
+| **F) Google Ads metrics correctness** | **PASS** | Real Keyword Planner historical metrics; null-safe; best-effort targeting; no false “Live” without numeric metrics. |
+| **G) Reliability & safety** | **PASS** | Hard per-batch timeouts + deterministic single retry; partial failures handled without dropping rows; user-visible notice. |
 
 ---
 
-## Evidence-based findings (code-truth)
+## Evidence notes (brief, code-truth)
 
-### Versioning
+### A) Determinism & canonical selector — PASS
 
-- LKRT exports are version-stamped **v3.1** in filenames.
-  - Evidence:
-    - `src/lib/exports/local-keyword-exports.ts` (`getCsvFilename`, ~L145–L149)
-    - `src/lib/exports/local-keyword-exports.ts` (`getTxtFilename`, ~L327–L331)
+- Canonical selector: `src/lib/apps/local-keyword-research/getActiveKeywordResults.ts`
+- LKRT uses selector for render/export/handoff decisions: `src/app/apps/local-keyword-research/page.tsx`
 
-### Metrics source selection & fallback
+### B) Tier 5A UX consistency — PASS
 
-- Dispatcher uses `LOCAL_KEYWORD_METRICS_SOURCE` defaulting to `"mock"`.
-  - Evidence: `src/lib/local-keyword-metrics.ts` `fetchKeywordMetrics`, ~L204–L232.
-- If `LOCAL_KEYWORD_METRICS_SOURCE="google-ads"` but required env vars are missing, it falls back to mock.
-  - Evidence: `src/lib/local-keyword-metrics.ts`, ~L126–L144 and ~L211–L227.
+- Accordion input parity: `src/app/apps/local-keyword-research/page.tsx` (`AccordionSection` + section state)
+- Sticky action bar + disabled-not-hidden actions: `src/app/apps/local-keyword-research/page.tsx` + `src/components/obd/OBDStickyActionBar.tsx`
+- Badge truthfulness (“Live” only when numeric Google Ads metrics exist): `src/app/apps/local-keyword-research/page.tsx` (`getMetricsMode`)
+- Empty/loading/error states: `src/app/apps/local-keyword-research/page.tsx`
 
-### Google Ads metrics status (implementation state)
+### C) Export integrity — PASS
 
-- “Google Ads” metrics fetcher is currently a stub returning `null` metrics while labeling `dataSource: "google-ads"`.
-  - Evidence: `src/lib/local-keyword-metrics.ts`, `fetchKeywordMetricsGoogleAds`, ~L117–L190.
+- Unified Export Center: `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` + `src/app/apps/local-keyword-research/page.tsx` (“Export Center” panel)
+- Deterministic CSV schema (fixed columns; no comment lines; empty cells for missing metrics): `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv`)
+- TXT report format stability (structured sections; timestamped): `src/lib/exports/local-keyword-exports.ts` (`generateFullReportTxt`)
 
-### API envelope and deterministic output shape
+### D) Tier 5C ecosystem handoffs — PASS
 
-- API envelope standard is `{ ok: true, data }` / `{ ok: false, error, code }`.
-  - Evidence: `src/lib/api/errorHandler.ts`, ~L78–L165.
-- LKRT route normalizes/clamps the parsed model response into a stable shape.
-  - Evidence: `src/app/api/local-keyword-research/route.ts`, ~L479–L558.
-- Client is backward-compatible with both wrapped and direct response formats.
-  - Evidence: `src/app/apps/local-keyword-research/page.tsx`, response extraction, ~L122–L127.
+- TTL + tenant safety + Apply/Dismiss + additive-only payloads: `src/lib/apps/local-keyword-research/handoff.ts`
+- Receiver (Local SEO Page Builder): `src/app/apps/local-seo-page-builder/LocalSeoPageBuilderClient.tsx` + `src/app/apps/local-seo-page-builder/components/LKRTImportBanner.tsx`
+- Receiver (AI Content Writer): `src/app/apps/content-writer/page.tsx`
 
-### Timeout protections
+### E) Trust & guardrails — PASS
 
-- Rank check endpoint has explicit timeout protection (15s) and returns TIMEOUT (504).
-  - Evidence: `src/app/api/local-keyword-research/rank-check/route.ts`, ~L221–L253.
-- Main LKRT generation endpoint does not use the repo’s OpenAI timeout wrapper.
-  - Evidence:
-    - `src/app/api/local-keyword-research/route.ts` OpenAI calls are direct (no `withOpenAITimeout`)
-    - `src/lib/openai-timeout.ts` exists as a standard wrapper (~L25–L51)
+- “No automation” statement: `src/app/apps/local-keyword-research/page.tsx` (education copy)
+- “Ads competition ≠ organic ranking guarantee” disclaimers: `src/app/apps/local-keyword-research/page.tsx` (education + post-results reminder)
+- No silent background calls: LKRT API calls are user-triggered (`src/app/apps/local-keyword-research/page.tsx`)
 
-### Tier 5C reference patterns (what “good” looks like in this repo)
+### F) Google Ads metrics correctness — PASS
 
-- Local SEO Page Builder Tier 5C foundations:
-  - TTL + versioned storage keys + “active content only” payload semantics.
-  - Evidence: `src/app/apps/local-seo-page-builder/handoffs/builders.ts`, header comments + TTL/keys near top (~L11–L29).
-- Canonical selector pattern exists in suite (edited-over-generated).
-  - Evidence: `src/lib/apps/event-campaign-builder/getActiveCampaign.ts`, ~L22–L27.
+- Metrics dispatcher + safe fallbacks + diagnostics: `src/lib/local-keyword-metrics.ts` (`fetchKeywordMetricsWithDiagnostics`)
+- Google Ads REST wrapper + MCC `login-customer-id` header support: `src/lib/google-ads/googleAdsRest.ts`
+- Keyword Planner historical metrics ingestion + mapping (avg monthly searches, competition index, bid ranges): `src/lib/google-ads/keywordPlanner.ts`
+- LKRT API merges authoritative metrics into final response (avoids relying on model echo): `src/app/api/local-keyword-research/route.ts`
 
-### Tier 5C implementation (LKRT handoffs)
+### G) Reliability & safety — PASS
 
-- **Payloads + TTL + sessionStorage keys**
-  - Evidence: `src/lib/apps/local-keyword-research/handoff.ts`
-    - `lkrt:local-seo-suggestions:v1`
-    - `lkrt:content-seeds:v1`
-    - TTL via `createdAt/expiresAt` and automatic clear-on-expiry
-- **Receivers**
-  - Local SEO Page Builder receiver shows an import panel with Apply/Dismiss; apply is additive-only.
-    - Evidence: `src/app/apps/local-seo-page-builder/LocalSeoPageBuilderClient.tsx` + `components/LKRTImportBanner.tsx`
-  - AI Content Writer receiver shows an import panel with Apply/Dismiss; apply is additive-only and does not auto-generate.
-    - Evidence: `src/app/apps/content-writer/page.tsx`
-- **Guardrails**
-  - Tenant mismatch disables Apply and shows: “This handoff was created for a different business.”
-  - TTL expiry clears payload and shows “Expired” toast
-  - Cleanup guaranteed on Dismiss / successful Apply / TTL expiry
+- Hard per-request timeout + stable timeout code: `src/lib/google-ads/googleAdsRest.ts`
+- Deterministic single retry for transient failures + no row dropping: `src/lib/google-ads/keywordPlanner.ts`
+- User-visible notice via `overviewNotes` on partial failures/timeouts: `src/app/api/local-keyword-research/route.ts`
 
 ---
 
-## Risk assessment (production-grade, conservative)
+## Known Constraints (production-truth)
 
-### Overall risk: **Low-to-Moderate**
-
-- **Low** in terms of external-integration blast radius:
-  - Google Ads and SerpAPI “real” paths are not implemented (reduces risk of quota burn / external coupling).
-- **Moderate** in terms of user trust + operational behavior:
-  - **Metrics labeling risk**: UI can present “Live Google Ads” mode while metrics are null (because `dataSource` can be `"google-ads"` even when data isn’t populated).
-    - Risk: user misinterpretation; support burden; trust erosion.
-  - **Timeout risk**: main generation route lacks explicit OpenAI timeout handling; could hang under upstream slowness.
-    - Risk: perceived outages; request pileups; poor UX.
-  - **Export risk**: CSV contains comment metadata lines and conditional columns; can break strict CSV consumers and downstream automation expectations.
-  - Status: ✅ Addressed (CSV schema is now deterministic and parser-safe; no comment lines; null metrics export as empty cells).
-  - Evidence:
-    - `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv` fixed schema)
-    - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` (routes CSV export through Export Center)
-    - `src/app/apps/local-keyword-research/page.tsx` (single “Export Center” UI; sticky Export scrolls to it)
+- **Geo targeting is best-effort**:
+  - City/state are resolved via Google Ads geo target suggestions when possible; otherwise LKRT falls back to **United States** targeting.
+  - Some locations may resolve ambiguously or not at all, which can affect metric availability and precision.
+- **Google Ads “Basic Access” limitations / availability**:
+  - Keyword Planner fields may be restricted, quota-limited, or partially missing depending on account status and Google Ads data availability.
+- **Metrics can be null even with `google-ads` enabled**:
+  - Low-volume/rare keywords, upstream coverage gaps, or partial failures (timeouts/429/5xx) can yield missing metrics for some or all keywords.
+  - LKRT preserves all keywords and exports empty metric cells rather than dropping rows.
+- **Core strategy text remains LLM-generated**:
+  - LKRT normalizes output shape, but regenerated content is not guaranteed to be identical between runs.
 
 ---
 
-## Hard guardrails (explicit non-goals)
+## Maintenance Mode Guarantees (stable contract)
 
-These must NOT be built as part of Tier upgrades:
-
-- **❌ Rank tracking** (no persisted rank history; no longitudinal tracking)
-- **❌ SERP scraping** (no headless scraping, no custom scrapers)
-- **❌ Keyword difficulty scores that imply ranking certainty** (no predictive guarantees)
-- **❌ Auto-publishing / auto-application** (no automatic pushes into other apps; Apply/Dismiss only)
-- **❌ Scheduled re-pulling of Ads data** (no cron/background jobs; user-triggered only)
-- **❌ Cross-tenant sharing** (no shared payloads/caches across tenants)
+- **Draft-only ecosystem integration**:
+  - Handoffs are Apply/Dismiss only; additive-only; never overwrite; TTL’d; tenant-safe.
+- **No background jobs / no scheduled pulls**:
+  - Keyword metrics and generation are user-triggered only.
+- **No auto-publish / no auto-apply**:
+  - LKRT never publishes/schedules/changes anything automatically.
+- **Deterministic, parser-safe exports**:
+  - CSV schema is fixed; missing metrics export as empty cells; TXT report remains structured and readable.
 
 

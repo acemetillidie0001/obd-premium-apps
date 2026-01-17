@@ -30,8 +30,19 @@ export interface RawKeywordMetric {
   monthlySearchesExact?: number | null;
   cpcUsd?: number | null;
   adsCompetitionIndex?: number | null; // 0–1 range if using Google Ads
+  lowTopOfPageBidUsd?: number | null;
+  highTopOfPageBidUsd?: number | null;
   dataSource?: "ai" | "google-ads" | "mock" | "mixed";
 }
+
+export type KeywordMetricsDiagnostics = {
+  ok: boolean;
+  source: "mock" | "google-ads";
+  code?: string;
+  message?: string;
+  fallbackUsed?: boolean;
+  partialFailures?: number;
+};
 
 /**
  * Mock metrics implementation for testing and development.
@@ -140,53 +151,98 @@ export async function fetchKeywordMetricsGoogleAds(
     console.error(
       `Missing required Google Ads env vars: ${missingVars.join(", ")}. Falling back to mock metrics.`
     );
-    return fetchKeywordMetricsMock(keywords, city, state);
+    return fetchKeywordMetricsMock(unique, city, state);
   }
 
-  // TODO: Initialize Google Ads API client
-  // const client = new GoogleAdsApi({ ... });
-  // const customer = client.Customer({ ... });
+  // Real implementation via Google Ads REST + OAuth (no new dependencies).
+  // Best-effort: partial failures return null metrics for affected keywords; never drop rows.
+  try {
+    const { fetchKeywordHistoricalMetricsGoogleAds } = await import("./google-ads/keywordPlanner");
+    const { metrics, diagnostics } = await fetchKeywordHistoricalMetricsGoogleAds({
+      keywords: unique,
+      city,
+      state,
+      language: "English",
+    });
 
-  // TODO: Build location targeting
-  // Use GeoTargetConstantService to find location IDs for city/state
-  // const locationTargets = [/* location IDs */];
+    if (!diagnostics.ok) {
+      console.warn("[LKRT][GoogleAds] metrics diagnostics", diagnostics);
+    }
 
-  // TODO: Build keyword plan request
-  // const request = {
-  //   customer_id: process.env.GOOGLE_ADS_CLIENT_CUSTOMER_ID!,
-  //   keyword_plan_network: KeywordPlanNetwork.GOOGLE_SEARCH,
-  //   geo_target_constants: locationTargets,
-  //   keyword_seed: {
-  //     keywords: unique,
-  //   },
-  // };
+    return metrics.map((m) => {
+      const low = m.lowTopOfPageBidUsd;
+      const high = m.highTopOfPageBidUsd;
+      const avgCpc = m.averageCpcUsd ?? (typeof low === "number" && typeof high === "number" ? (low + high) / 2 : null);
+      return {
+        keyword: m.keyword,
+        monthlySearchesExact: m.avgMonthlySearches,
+        cpcUsd: avgCpc,
+        adsCompetitionIndex: m.competitionIndex01,
+        lowTopOfPageBidUsd: m.lowTopOfPageBidUsd,
+        highTopOfPageBidUsd: m.highTopOfPageBidUsd,
+        dataSource: "google-ads" as const,
+      };
+    });
+  } catch (err) {
+    console.warn(
+      "[LKRT][GoogleAds] Failed to fetch Keyword Planner metrics; falling back to mock.",
+      err
+    );
+    return fetchKeywordMetricsMock(unique, city, state);
+  }
+}
 
-  // TODO: Call Google Ads API
-  // const response = await customer.keywordPlanIdeas.generateKeywordIdeas(request);
+export async function fetchKeywordMetricsWithDiagnostics(
+  keywords: string[],
+  city: string,
+  state: string
+): Promise<{ metrics: RawKeywordMetric[]; diagnostics: KeywordMetricsDiagnostics }> {
+  const source = process.env.LOCAL_KEYWORD_METRICS_SOURCE || "mock";
 
-  // TODO: Map response to RawKeywordMetric[]
-  // const metrics: RawKeywordMetric[] = unique.map((keyword) => {
-  //   const idea = response.find((item) => item.text === keyword);
-  //   return {
-  //     keyword,
-  //     monthlySearchesExact: idea?.keyword_idea_metrics?.avg_monthly_searches ?? null,
-  //     cpcUsd: idea?.keyword_idea_metrics?.low_top_of_page_bid_micros
-  //       ? idea.keyword_idea_metrics.low_top_of_page_bid_micros / 1_000_000
-  //       : null,
-  //     adsCompetitionIndex: idea?.keyword_idea_metrics?.competition ?? null,
-  //     dataSource: "google-ads",
-  //   };
-  // });
+  if (source !== "google-ads") {
+    return {
+      metrics: await fetchKeywordMetricsMock(keywords, city, state),
+      diagnostics: { ok: true, source: "mock" },
+    };
+  }
 
-  // For now, return empty metrics (will be filled in when Google Ads is implemented)
-  // This ensures the code compiles and the structure is clear
-  return unique.map((keyword) => ({
-    keyword,
-    monthlySearchesExact: null,
-    cpcUsd: null,
-    adsCompetitionIndex: null,
-    dataSource: "google-ads" as const,
-  }));
+  const hasCredentials =
+    process.env.GOOGLE_ADS_DEVELOPER_TOKEN &&
+    process.env.GOOGLE_ADS_CLIENT_CUSTOMER_ID &&
+    process.env.GOOGLE_ADS_CLIENT_ID &&
+    process.env.GOOGLE_ADS_CLIENT_SECRET &&
+    process.env.GOOGLE_ADS_REFRESH_TOKEN;
+
+  if (!hasCredentials) {
+    return {
+      metrics: await fetchKeywordMetricsMock(keywords, city, state),
+      diagnostics: {
+        ok: false,
+        source: "google-ads",
+        code: "LKRT_GOOGLE_ADS_CONFIG_MISSING",
+        message: "Google Ads source selected but required credentials are missing; using mock metrics.",
+        fallbackUsed: true,
+      },
+    };
+  }
+
+  // If Google Ads call fails unexpectedly, fetchKeywordMetricsGoogleAds will fall back to mock.
+  // We detect fallback by checking dataSource on returned metrics.
+  const metrics = await fetchKeywordMetricsGoogleAds(keywords, city, state);
+  const usedMockFallback = metrics.some((m) => m.dataSource === "mock");
+
+  return {
+    metrics,
+    diagnostics: usedMockFallback
+      ? {
+          ok: false,
+          source: "google-ads",
+          code: "LKRT_GOOGLE_ADS_REQUEST_FAILED",
+          message: "Google Ads Keyword Planner request failed; using mock metrics fallback.",
+          fallbackUsed: true,
+        }
+      : { ok: true, source: "google-ads" },
+  };
 }
 
 /**
@@ -206,28 +262,7 @@ export async function fetchKeywordMetrics(
   city: string,
   state: string
 ): Promise<RawKeywordMetric[]> {
-  const source = process.env.LOCAL_KEYWORD_METRICS_SOURCE || "mock";
-
-  if (source === "google-ads") {
-    // Check if Google Ads credentials are present
-    const hasCredentials =
-      process.env.GOOGLE_ADS_DEVELOPER_TOKEN &&
-      process.env.GOOGLE_ADS_CLIENT_CUSTOMER_ID &&
-      process.env.GOOGLE_ADS_CLIENT_ID &&
-      process.env.GOOGLE_ADS_CLIENT_SECRET &&
-      process.env.GOOGLE_ADS_REFRESH_TOKEN;
-
-    if (hasCredentials) {
-      return fetchKeywordMetricsGoogleAds(keywords, city, state);
-    } else {
-      console.warn(
-        "LOCAL_KEYWORD_METRICS_SOURCE is set to 'google-ads' but credentials are missing. Falling back to mock metrics."
-      );
-      return fetchKeywordMetricsMock(keywords, city, state);
-    }
-  }
-
-  // Default to mock
-  return fetchKeywordMetricsMock(keywords, city, state);
+  const { metrics } = await fetchKeywordMetricsWithDiagnostics(keywords, city, state);
+  return metrics;
 }
 

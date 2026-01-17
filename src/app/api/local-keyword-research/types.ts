@@ -51,6 +51,8 @@ export interface LocalKeywordIdea {
   monthlySearchesExact?: number | null;   // e.g. 320
   cpcUsd?: number | null;                 // e.g. 4.50
   adsCompetitionIndex?: number | null;    // 0–1 if from Google Ads
+  lowTopOfPageBidUsd?: number | null;     // USD, from Google Ads micros
+  highTopOfPageBidUsd?: number | null;    // USD, from Google Ads micros
   dataSource?: "ai" | "google-ads" | "mock" | "mixed";
 }
 

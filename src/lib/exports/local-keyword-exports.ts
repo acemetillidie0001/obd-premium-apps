@@ -138,8 +138,8 @@ export function generateKeywordsCsv(
       escapeCsvField(k.dataSource ?? ""),
       escapeCsvField(k.monthlySearchesExact ?? null),
       escapeCsvField(k.adsCompetitionIndex ?? null),
-      escapeCsvField(null),
-      escapeCsvField(null),
+      escapeCsvField(k.lowTopOfPageBidUsd ?? null),
+      escapeCsvField(k.highTopOfPageBidUsd ?? null),
       escapeCsvField(k.notes ?? ""),
     ];
     assertRowLenDevOnly(row, idx);

@@ -9,7 +9,7 @@ import type {
   LocalKeywordIdea,
   LocalKeywordIntent,
 } from "./types";
-import { fetchKeywordMetrics } from "@/lib/local-keyword-metrics";
+import { fetchKeywordMetricsWithDiagnostics } from "@/lib/local-keyword-metrics";
 
 // Simple in-memory rate limiter (per-IP)
 interface RateLimitEntry {
@@ -442,7 +442,7 @@ export async function POST(req: NextRequest) {
     }
 
     // -------- STEP 2: fetch metrics (mock or Google Ads based on env) --------
-    const metrics = await fetchKeywordMetrics(
+    const { metrics, diagnostics: metricsDiagnostics } = await fetchKeywordMetricsWithDiagnostics(
       rawKeywords,
       requestData.city,
       requestData.state
@@ -526,6 +526,8 @@ export async function POST(req: NextRequest) {
         const monthlySearchesExact = typeof kw.monthlySearchesExact === "number" ? kw.monthlySearchesExact : (kw.monthlySearchesExact === null ? null : undefined);
         const cpcUsd = typeof kw.cpcUsd === "number" ? kw.cpcUsd : (kw.cpcUsd === null ? null : undefined);
         const adsCompetitionIndex = typeof kw.adsCompetitionIndex === "number" ? kw.adsCompetitionIndex : (kw.adsCompetitionIndex === null ? null : undefined);
+        const lowTopOfPageBidUsd = typeof kw.lowTopOfPageBidUsd === "number" ? kw.lowTopOfPageBidUsd : (kw.lowTopOfPageBidUsd === null ? null : undefined);
+        const highTopOfPageBidUsd = typeof kw.highTopOfPageBidUsd === "number" ? kw.highTopOfPageBidUsd : (kw.highTopOfPageBidUsd === null ? null : undefined);
         
         // Explicitly return only known LocalKeywordIdea fields
         return {
@@ -538,6 +540,8 @@ export async function POST(req: NextRequest) {
           monthlySearchesExact,
           cpcUsd,
           adsCompetitionIndex,
+          lowTopOfPageBidUsd,
+          highTopOfPageBidUsd,
           dataSource,
         };
       };
@@ -556,6 +560,50 @@ export async function POST(req: NextRequest) {
         recommendedUse: cluster.recommendedUse || "",
         keywords: ((cluster.keywords || []) as unknown[]).map(normalizeKeyword) as LocalKeywordIdea[],
       }));
+
+      // Merge authoritative metrics from fetchKeywordMetrics* into parsed output (non-breaking; optional fields).
+      // This avoids relying on the LLM to echo metrics correctly and keeps UI/export deterministic.
+      const metricMap = new Map<string, { monthlySearchesExact?: number | null; cpcUsd?: number | null; adsCompetitionIndex?: number | null; lowTopOfPageBidUsd?: number | null; highTopOfPageBidUsd?: number | null; dataSource?: "ai" | "google-ads" | "mock" | "mixed" }>();
+      metrics.forEach((m) => {
+        const key = (m.keyword || "").toLowerCase().trim();
+        if (!key) return;
+        metricMap.set(key, {
+          monthlySearchesExact: m.monthlySearchesExact ?? null,
+          cpcUsd: m.cpcUsd ?? null,
+          adsCompetitionIndex: m.adsCompetitionIndex ?? null,
+          lowTopOfPageBidUsd: m.lowTopOfPageBidUsd ?? null,
+          highTopOfPageBidUsd: m.highTopOfPageBidUsd ?? null,
+          dataSource: m.dataSource,
+        });
+      });
+
+      const applyMetrics = (k: LocalKeywordIdea): LocalKeywordIdea => {
+        const key = (k.keyword || "").toLowerCase().trim();
+        const mm = metricMap.get(key);
+        if (!mm) return k;
+        return {
+          ...k,
+          monthlySearchesExact: mm.monthlySearchesExact,
+          cpcUsd: mm.cpcUsd,
+          adsCompetitionIndex: mm.adsCompetitionIndex,
+          lowTopOfPageBidUsd: mm.lowTopOfPageBidUsd,
+          highTopOfPageBidUsd: mm.highTopOfPageBidUsd,
+          dataSource: mm.dataSource ?? k.dataSource,
+        };
+      };
+
+      parsed.topPriorityKeywords = parsed.topPriorityKeywords.map(applyMetrics);
+      parsed.keywordClusters = parsed.keywordClusters.map((c) => ({
+        ...c,
+        keywords: c.keywords.map(applyMetrics),
+      }));
+
+      // Surface Google Ads errors in a stable, user-visible way (non-breaking: overviewNotes is already rendered).
+      if (metricsDiagnostics && metricsDiagnostics.ok === false) {
+        const code = metricsDiagnostics.code || "LKRT_METRICS_WARNING";
+        const msg = metricsDiagnostics.message || "Metrics source warning.";
+        parsed.overviewNotes = [`Metrics notice (${code}): ${msg}`, ...(parsed.overviewNotes || [])];
+      }
     } catch (err) {
       console.error("Failed to parse final JSON from model:", err, finalContent);
       return apiErrorResponse(

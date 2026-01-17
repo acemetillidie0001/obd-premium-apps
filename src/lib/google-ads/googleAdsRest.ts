@@ -18,7 +18,8 @@ export type GoogleAdsRequestConfig = {
 export type GoogleAdsRequestErrorCode =
   | "LKRT_GOOGLE_ADS_AUTH_FAILED"
   | "LKRT_GOOGLE_ADS_REQUEST_FAILED"
-  | "LKRT_GOOGLE_ADS_RESPONSE_INVALID";
+  | "LKRT_GOOGLE_ADS_RESPONSE_INVALID"
+  | "LKRT_GOOGLE_ADS_TIMEOUT";
 
 export class GoogleAdsRequestError extends Error {
   code: GoogleAdsRequestErrorCode;
@@ -97,6 +98,7 @@ export async function googleAdsFetchJson<T>(
     req: GoogleAdsRequestConfig;
     path: string; // must start with "/"
     body: unknown;
+    timeoutMs?: number;
   }
 ): Promise<T> {
   const apiVersion = args.req.apiVersion || "v20";
@@ -113,11 +115,39 @@ export async function googleAdsFetchJson<T>(
     headers["login-customer-id"] = args.req.loginCustomerId;
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(args.body),
-  });
+  const controller = new AbortController();
+  const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : 15_000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(args.body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const msg = err instanceof Error ? err.message : String(err);
+    const isAbort =
+      (err instanceof DOMException && err.name === "AbortError") ||
+      msg.toLowerCase().includes("abort");
+    if (isAbort) {
+      throw new GoogleAdsRequestError({
+        code: "LKRT_GOOGLE_ADS_TIMEOUT",
+        message: `Google Ads API request timed out after ${timeoutMs}ms for ${args.path}`,
+        details: err,
+      });
+    }
+    throw new GoogleAdsRequestError({
+      code: "LKRT_GOOGLE_ADS_REQUEST_FAILED",
+      message: `Google Ads API request failed (network) for ${args.path}`,
+      details: err,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   let json: unknown = null;
   try {

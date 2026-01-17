@@ -74,6 +74,7 @@ async function suggestGeoTargetConstants(args: {
       countryCode: "US",
       locationNames: { names: [args.locationText] },
     },
+    timeoutMs: 8_000,
   });
 
   const suggestions = resp.geoTargetConstantSuggestions || [];
@@ -82,6 +83,21 @@ async function suggestGeoTargetConstants(args: {
     .filter((v): v is string => typeof v === "string" && v.length > 0);
 
   return Array.from(new Set(resourceNames));
+}
+
+function shouldRetryGoogleAdsError(err: unknown): boolean {
+  if (err instanceof GoogleAdsRequestError) {
+    if (err.code === "LKRT_GOOGLE_ADS_TIMEOUT") return true;
+    if (err.code === "LKRT_GOOGLE_ADS_REQUEST_FAILED") {
+      const s = err.httpStatus;
+      if (s === 408 || s === 429) return true;
+      if (typeof s === "number" && s >= 500) return true;
+    }
+    return false;
+  }
+  // Network-ish errors (best-effort)
+  const msg = err instanceof Error ? err.message : String(err);
+  return /network|fetch|timeout|econn|socket|abort/i.test(msg);
 }
 
 export async function fetchKeywordHistoricalMetricsGoogleAds(args: {
@@ -155,21 +171,38 @@ export async function fetchKeywordHistoricalMetricsGoogleAds(args: {
 
   const outMap = new Map<string, KeywordPlannerHistoricalMetric>();
   let partialFailures = 0;
+  let timeouts = 0;
+  let retriedBatches = 0;
 
   for (let i = 0; i < unique.length; i += batchSize) {
     const batch = unique.slice(i, i + batchSize);
     try {
-      const resp = await googleAdsFetchJson<HistResp>({
-        accessToken,
-        req: reqConfig,
-        path: `/customers/${reqConfig.clientCustomerId}:generateKeywordHistoricalMetrics`,
-        body: {
-          keywords: batch,
-          geoTargetConstants: geoTargets,
-          language: langConst,
-          keywordPlanNetwork: "GOOGLE_SEARCH",
-        },
-      });
+      const makeRequest = () =>
+        googleAdsFetchJson<HistResp>({
+          accessToken,
+          req: reqConfig,
+          path: `/customers/${reqConfig.clientCustomerId}:generateKeywordHistoricalMetrics`,
+          body: {
+            keywords: batch,
+            geoTargetConstants: geoTargets,
+            language: langConst,
+            keywordPlanNetwork: "GOOGLE_SEARCH",
+          },
+          timeoutMs: 15_000,
+        });
+
+      let resp: HistResp;
+      try {
+        resp = await makeRequest();
+      } catch (err) {
+        if (err instanceof GoogleAdsRequestError && err.code === "LKRT_GOOGLE_ADS_TIMEOUT") timeouts += 1;
+        if (shouldRetryGoogleAdsError(err)) {
+          retriedBatches += 1;
+          resp = await makeRequest(); // single deterministic retry
+        } else {
+          throw err;
+        }
+      }
 
       const results = resp.results || [];
       results.forEach((r) => {
@@ -234,8 +267,11 @@ export async function fetchKeywordHistoricalMetricsGoogleAds(args: {
       ? { ok: true, attempted: unique.length, partialFailures: 0 }
       : {
           ok: false,
-          code: "LKRT_GOOGLE_ADS_REQUEST_FAILED",
-          message: "One or more Google Ads Keyword Planner batches failed.",
+          code: timeouts > 0 ? "LKRT_GOOGLE_ADS_TIMEOUT" : "LKRT_GOOGLE_ADS_REQUEST_FAILED",
+          message:
+            timeouts > 0
+              ? `One or more Google Ads Keyword Planner batches timed out (retried ${retriedBatches} batch${retriedBatches === 1 ? "" : "es"}).`
+              : `One or more Google Ads Keyword Planner batches failed (retried ${retriedBatches} batch${retriedBatches === 1 ? "" : "es"}).`,
           attempted: unique.length,
           partialFailures,
         },

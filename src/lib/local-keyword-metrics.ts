@@ -226,23 +226,58 @@ export async function fetchKeywordMetricsWithDiagnostics(
     };
   }
 
-  // If Google Ads call fails unexpectedly, fetchKeywordMetricsGoogleAds will fall back to mock.
-  // We detect fallback by checking dataSource on returned metrics.
-  const metrics = await fetchKeywordMetricsGoogleAds(keywords, city, state);
-  const usedMockFallback = metrics.some((m) => m.dataSource === "mock");
+  // Primary path: use Keyword Planner historical metrics (best-effort).
+  // Partial failures should surface as a metrics notice in the UI (via diagnostics), but MUST NOT drop rows.
+  try {
+    const { fetchKeywordHistoricalMetricsGoogleAds } = await import("./google-ads/keywordPlanner");
+    const { metrics: plannerMetrics, diagnostics } = await fetchKeywordHistoricalMetricsGoogleAds({
+      keywords,
+      city,
+      state,
+      language: "English",
+    });
 
-  return {
-    metrics,
-    diagnostics: usedMockFallback
-      ? {
-          ok: false,
-          source: "google-ads",
-          code: "LKRT_GOOGLE_ADS_REQUEST_FAILED",
-          message: "Google Ads Keyword Planner request failed; using mock metrics fallback.",
-          fallbackUsed: true,
-        }
-      : { ok: true, source: "google-ads" },
-  };
+    const mapped: RawKeywordMetric[] = plannerMetrics.map((m) => {
+      const low = m.lowTopOfPageBidUsd;
+      const high = m.highTopOfPageBidUsd;
+      const avgCpc = m.averageCpcUsd ?? (typeof low === "number" && typeof high === "number" ? (low + high) / 2 : null);
+      return {
+        keyword: m.keyword,
+        monthlySearchesExact: m.avgMonthlySearches,
+        cpcUsd: avgCpc,
+        adsCompetitionIndex: m.competitionIndex01,
+        lowTopOfPageBidUsd: m.lowTopOfPageBidUsd,
+        highTopOfPageBidUsd: m.highTopOfPageBidUsd,
+        dataSource: "google-ads",
+      };
+    });
+
+    return {
+      metrics: mapped,
+      diagnostics: diagnostics.ok
+        ? { ok: true, source: "google-ads" }
+        : {
+            ok: false,
+            source: "google-ads",
+            code: diagnostics.code || "LKRT_GOOGLE_ADS_REQUEST_FAILED",
+            message: diagnostics.message || "Google Ads Keyword Planner returned partial or failed results.",
+            fallbackUsed: false,
+            partialFailures: diagnostics.partialFailures,
+          },
+    };
+  } catch (err) {
+    // Total failure: fall back to mock (preserve existing safety policy).
+    return {
+      metrics: await fetchKeywordMetricsMock(keywords, city, state),
+      diagnostics: {
+        ok: false,
+        source: "google-ads",
+        code: "LKRT_GOOGLE_ADS_REQUEST_FAILED",
+        message: "Google Ads Keyword Planner request failed; using mock metrics fallback.",
+        fallbackUsed: true,
+      },
+    };
+  }
 }
 
 /**

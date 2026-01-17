@@ -24,9 +24,9 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 
 ### C) Export Integrity
 
-- **Single authoritative Export Center**: ❌ MISSING
-- **Snapshot-only export**: ⚠️ PARTIAL
-- **CSV safety & schema stability**: ⚠️ PARTIAL
+- **Single authoritative Export Center**: ✅ PASS
+- **Snapshot-only export**: ⚠️ PARTIAL (exports reflect current UI filters/sort at click time)
+- **CSV safety & schema stability**: ✅ PASS
 
 ### D) Ecosystem Awareness (Tier 5C)
 
@@ -122,6 +122,11 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
   - **Timeout risk**: main generation route lacks explicit OpenAI timeout handling; could hang under upstream slowness.
     - Risk: perceived outages; request pileups; poor UX.
   - **Export risk**: CSV contains comment metadata lines and conditional columns; can break strict CSV consumers and downstream automation expectations.
+  - Status: ✅ Addressed (CSV schema is now deterministic and parser-safe; no comment lines; null metrics export as empty cells).
+  - Evidence:
+    - `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv` fixed schema)
+    - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` (routes CSV export through Export Center)
+    - `src/app/apps/local-keyword-research/page.tsx` (single “Export Center” UI; sticky Export scrolls to it)
 
 ---
 

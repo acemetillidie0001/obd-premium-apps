@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Local Keyword Research Tool — Tier 5C Safe Handoffs (2026-01-16)**
   - Canonical results selector: `getActiveKeywordResults()` (edited wins over generated).
   - Tier 5A UX upgrades (UI-only): sticky action bar, accordion inputs with summaries, deterministic refresh UX, corrected metrics badge semantics, and empty-state education copy.
+  - LKRT exports:
+    - Unified **Export Center** panel (single authoritative export UI; disabled-not-hidden).
+    - CSV export schema stabilized (deterministic fixed columns; no comment lines; null metrics export as empty cells).
   - Tier 5C safe handoffs (draft-only, TTL’d, tenant-safe, Apply/Dismiss only):
     - LKRT → Local SEO Page Builder: additive-only Apply (fill-empty + append; never overwrite).
     - LKRT → AI Content Writer: additive-only Apply (fill-empty + append; never overwrite); no auto-generation.

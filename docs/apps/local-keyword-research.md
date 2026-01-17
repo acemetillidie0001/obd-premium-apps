@@ -93,6 +93,38 @@ This document reflects **current shipped behavior** (code-truth), including Tier
   - “Metrics: Live Google Ads / Estimated / Estimates” determined from `dataSource` + presence of numeric metrics.
   - Evidence: `src/app/apps/local-keyword-research/page.tsx`, `getMetricsMode`, ~L217–L239; badge rendering ~L363–L371.
 
+### Export Center (Tier 5A parity)
+
+- LKRT now exposes a **single authoritative Export Center** panel (instead of scattered export buttons).
+  - Evidence:
+    - `src/app/apps/local-keyword-research/page.tsx` (renders “Export Center” panel)
+    - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` (export UI + actions)
+- Export actions are **disabled-not-hidden** when results are unavailable.
+  - Evidence: `src/app/apps/local-keyword-research/page.tsx` (sticky bar “Export” disabled when no active results)
+- **Active results semantics**:
+  - Exports operate from LKRT’s canonical selector `getActiveKeywordResults()` (edited wins over generated).
+  - Evidence: `src/lib/apps/local-keyword-research/getActiveKeywordResults.ts`
+
+### CSV export schema (deterministic + parser-safe)
+
+LKRT CSV exports are **schema-stable**:
+
+- **No comment lines**: CSV output contains only a header row + data rows (no `# ...` metadata block).
+- **Fixed column order** (always present, always in this order):
+  1. `keyword`
+  2. `location`
+  3. `nearMe`
+  4. `dataSource`
+  5. `avgMonthlySearches`
+  6. `competition`
+  7. `lowTopOfPageBid`
+  8. `highTopOfPageBid`
+  9. `notes`
+- **Null metrics behavior**:
+  - When Google Ads metrics are `null` (or metrics are absent), the CSV exports **empty cells** for metric columns (columns are never dropped).
+
+Evidence: `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv` fixed-schema implementation and inline schema comment).
+
 ---
 
 ## Tier gap analysis (Tier 5C / Tier 6 reference parity)
@@ -121,13 +153,15 @@ This document reflects **current shipped behavior** (code-truth), including Tier
 
 ### C) Export Integrity — ⚠️ PARTIAL
 
-- **Single authoritative Export Center**: ❌ MISSING
-  - Tier reference: `LocalSeoExportCenterPanel` centralizes exports with blockers/warnings and “Active Content” semantics.
-  - LKRT exports are embedded as buttons inside the results panel.
+- **Single authoritative Export Center**: ✅ PASS
+  - Evidence:
+    - `src/app/apps/local-keyword-research/page.tsx` (Export Center panel)
+    - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx`
 - **Snapshot-only exports**: ⚠️ PARTIAL
   - LKRT exports reflect current UI-derived arrays at click time (e.g., filtered/sorted).
-- **CSV safety & schema stability**: ⚠️ PARTIAL
-  - LKRT CSV includes a metadata header block (`# ...`) and conditionally includes columns, which can reduce importer compatibility and schema stability.
+- **CSV safety & schema stability**: ✅ PASS
+  - Deterministic fixed CSV columns; no comment lines; null metrics export as empty cells.
+  - Evidence: `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv`)
 
 ### D) Ecosystem Awareness (Tier 5C) — ✅ PASS
 

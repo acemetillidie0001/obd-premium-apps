@@ -26,10 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Receiver guardrails: Apply blocked on tenant mismatch with strong warning; payload clears on Dismiss / Apply / TTL expiry.
 
 - **Local Keyword Research Tool — Live Google Ads Keyword Planner historical metrics (Basic Access)**
+  - Implemented real Google Ads **Keyword Planner historical metrics** (avg monthly searches, competition index, and top-of-page bid ranges where available).
   - Env-var–gated dispatcher (`LOCAL_KEYWORD_METRICS_SOURCE=google-ads`) with automatic mock fallback when creds are missing or calls fail (default-safe).
-  - Per-chunk timeout protection (batched requests with timeout guard).
+  - Per-batch hard timeout (~15s) + a single deterministic retry for transient failures (timeout/network/429/5xx). No background jobs.
   - MCC-compatible configuration via optional `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (manager ID) + `GOOGLE_ADS_CLIENT_CUSTOMER_ID` (account being queried), both numbers only.
-  - No breaking changes; mock metrics remain the default.
+  - No breaking changes; LKRT response shape preserved; deterministic CSV schema preserved (empty cells for missing metrics).
 
 - **Local Hiring Assistant — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-01-14)**
   - **Tier 5B — Canonical + Determinism**

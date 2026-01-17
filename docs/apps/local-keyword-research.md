@@ -36,13 +36,52 @@ This document reflects **current shipped behavior** (code-truth), including Tier
     - `src/lib/local-keyword-metrics.ts` required env list + missing-vars fallback, ~L126–L144
     - `src/lib/local-keyword-metrics.ts` credential check + warn + fallback, ~L211–L227
 
-#### What “Google Ads” currently means (important)
+#### Required env vars (Google Ads Keyword Planner)
 
-- The `fetchKeywordMetricsGoogleAds` implementation is currently a **stub**:
-  - It returns `dataSource: "google-ads"` but all metrics fields are `null`.
-  - Evidence: `src/lib/local-keyword-metrics.ts` `fetchKeywordMetricsGoogleAds`, ~L117–L190.
+To enable Keyword Planner historical metrics, set:
 
-**Implication**: “Live Google Ads Keyword Planner metrics” are **not currently implemented** in the codebase, even if env vars are present.
+- `LOCAL_KEYWORD_METRICS_SOURCE=google-ads`
+- `GOOGLE_ADS_DEVELOPER_TOKEN`
+- `GOOGLE_ADS_CLIENT_ID`
+- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_REFRESH_TOKEN`
+- `GOOGLE_ADS_CLIENT_CUSTOMER_ID` (numbers only; the account being queried)
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (optional; numbers only; MCC/manager account ID used for `login-customer-id` header)
+
+Notes:
+- A helper script exists to obtain `GOOGLE_ADS_REFRESH_TOKEN`: `scripts/get-google-ads-refresh-token.js`
+
+#### What “Google Ads” currently means (production-truth)
+
+- If `LOCAL_KEYWORD_METRICS_SOURCE="google-ads"` and credentials are present, LKRT will fetch **Google Ads Keyword Planner historical metrics** (best-effort).
+  - Evidence:
+    - `src/lib/local-keyword-metrics.ts` (`fetchKeywordMetricsWithDiagnostics` + `fetchKeywordMetricsGoogleAds`)
+    - `src/lib/google-ads/keywordPlanner.ts` (`fetchKeywordHistoricalMetricsGoogleAds`)
+- Safety model is preserved:
+  - Missing/invalid creds → falls back to **mock** metrics (no crash).
+  - Request failures/timeouts → best-effort partial results (null metrics for affected keywords) and/or safe fallback to mock, with a user-visible notice in `overviewNotes`.
+
+##### Metrics fields (exact)
+
+When Google Ads metrics are available, LKRT normalizes into these existing keyword fields:
+
+- `monthlySearchesExact`: from Keyword Planner **avg monthly searches** (historical)
+- `adsCompetitionIndex`: normalized competition index (0–1)
+- `lowTopOfPageBidUsd`: low top-of-page bid (USD, from micros)
+- `highTopOfPageBidUsd`: high top-of-page bid (USD, from micros)
+- `cpcUsd`: derived from average CPC when available; otherwise a conservative midpoint of low/high top-of-page bids when both exist
+- `dataSource`: `"google-ads"` for Google Ads sourced metrics; `"mock"` when mock fallback is used
+
+##### Targeting + network (production-truth)
+
+- **Network**: Google Search
+- **Language**: defaults to English
+- **Geo targeting**: best-effort City/State resolution; falls back to **United States** targeting when geo suggestions fail
+
+##### Timeouts + retries (safety)
+
+- Each Keyword Planner batch request uses a **hard timeout (~15s)**.
+- A single deterministic retry is attempted for transient failures (timeout/network/429/5xx). No infinite retries.
 
 ### API behavior (generation)
 
@@ -187,7 +226,7 @@ Guardrails enforced in receivers:
 
 ### E) Trust & Guardrails — ⚠️ PARTIAL
 
-- **Clear “no automation” messaging**: ❌ MISSING (LKRT does not explicitly state no publishing/automation).
+- **Clear “no automation” messaging**: ✅ PASS (LKRT explicitly states nothing is published/scheduled automatically).
 - **Clear “ad data ≠ ranking guarantee” disclaimer**: ⚠️ PARTIAL (some “estimates” messaging exists, but not a strong disclaimer).
 - **No background jobs**: ✅ PASS (user-triggered only).
 - **No silent API calls**: ✅ PASS (explicit user actions initiate requests).
@@ -214,8 +253,7 @@ Guardrails enforced in receivers:
   - Split form into accordion sections with summary lines (business/location/targeting/strategy/voice/extras).
 
 - **Badge semantics tightening**
-  - Only label “Live” when numeric metrics are present; otherwise label as “Mock” or “No metrics”.
-  - Avoid implying Google Ads live metrics while the source is stubbed.
+  - Only label “Live” when numeric Google Ads Keyword Planner metrics are present; otherwise label as “Google Ads (Connected — Metrics Pending)”, “Mock Data”, or “No metrics”.
 
 ### Tier 5C — Ecosystem Integration (Draft-only, explicit Apply/Dismiss)
 
@@ -297,10 +335,10 @@ This list is mandatory and must be treated as hard constraints:
 
 ---
 
-## Red flags (code-truth mismatches to intended claims)
+## Red flags (production-truth)
 
-- **Google Ads “live metrics” are not implemented** (Google Ads path returns null metrics; UI can still show a “Live Google Ads” mode based on `dataSource`).
-  - Evidence: `src/lib/local-keyword-metrics.ts`, ~L117–L190; `src/app/apps/local-keyword-research/page.tsx`, `getMetricsMode`, ~L217–L239.
+- Google Ads Keyword Planner metrics are **best-effort** and can be partially missing (per-keyword) due to upstream data availability, targeting constraints, or transient API failures.
+  - LKRT preserves shape and does not drop keywords; missing metrics export as empty cells.
 - **Main generation API has no explicit timeout wrapper**, unlike other routes that use `withOpenAITimeout` patterns or explicit timeouts.
   - Evidence: `src/app/api/local-keyword-research/route.ts` OpenAI calls; `src/lib/openai-timeout.ts`, ~L25–L51.
 

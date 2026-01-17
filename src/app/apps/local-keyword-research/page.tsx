@@ -510,13 +510,15 @@ export default function LocalKeywordResearchPage() {
       if (hasNumericGoogleAdsMetrics) {
         return {
           mode: "Live Google Ads",
-          helperText: "Numeric metrics are available from Google Ads for at least some keywords.",
+          helperText:
+            "Keyword Planner historical metrics are available from Google Ads for at least some keywords (avg monthly searches, competition, and top-of-page bid ranges where available).",
         };
       }
 
       return {
         mode: "Google Ads (Connected — Metrics Pending)",
-        helperText: "Google Ads source is selected, but numeric metrics are not available yet.",
+        helperText:
+          "Google Ads source is selected, but no numeric Keyword Planner historical metrics were returned for this run.",
       };
     }
 
@@ -1111,7 +1113,7 @@ export default function LocalKeywordResearchPage() {
               ? "bg-slate-800/50 border-slate-600 text-slate-300"
               : "bg-slate-100 border-slate-300 text-slate-700"
           }`}>
-            Status: Production Ready (Pre-Google Ads Live Metrics)
+            Status: Production Ready (Google Ads Keyword Planner metrics supported)
           </span>
         </div>
         {/* Form */}
@@ -1146,8 +1148,12 @@ export default function LocalKeywordResearchPage() {
                     rankings, leads, or results. Use this as planning input—not a promise of performance.
                   </li>
                   <li>
+                    <span className="font-medium">Metrics (optional):</span>{" "}
+                    when enabled, keyword metrics come from Google Ads Keyword Planner historical metrics (best-effort; some keywords may have missing values).
+                  </li>
+                  <li>
                     <span className="font-medium">Important:</span>{" "}
-                    Ads competition ≠ organic ranking certainty.
+                    Keyword Planner ads competition ≠ organic ranking guarantee.
                   </li>
                   <li>
                     <span className="font-medium">No automation:</span>{" "}

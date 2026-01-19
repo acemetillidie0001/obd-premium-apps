@@ -42,7 +42,11 @@ OBD CRM requires a PostgreSQL database connection. To set up local development:
 OBD CRM is the customer relationship management hub within the Ocala Business Directory (OBD) Business Suite. It provides local businesses with a unified system to manage customer contacts, track interactions through notes and activities, set follow-up reminders, and seamlessly integrate with other OBD premium applications. Built specifically for small to medium-sized local businesses, OBD CRM focuses on simplicity, speed, and context preservation across the entire OBD ecosystem.
 
 **Version:** V3.1  
-**Status:** ✅ Production Ready
+**Status:** **LOCKED (Maintenance Mode)**
+
+Maintenance mode means:
+- Only critical bug fixes / security / tenant-safety / shared utility inheritance
+- No new features unless a new tier is intentionally opened
 
 ---
 

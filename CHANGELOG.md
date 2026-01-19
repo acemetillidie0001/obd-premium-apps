@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Optional 3: CRM Health Snapshot (advisory-only; selector-derived metrics; no actions; hidden when there are 0 total contacts)
     - Optional 4: CSV Import UX micro-polish (UI-only; clearer preview/confirm/success)
   - Audit: `docs/deployments/OBD_CRM_LOCK_AUDIT_REPORT.md`
+  - Marked **LOCKED** after lock audit pass: `docs/deployments/OBD_CRM_LOCK_AUDIT.md`
   - Explicit: no schema changes, no automation scheduling; Optional 1–4 add no cross-app writes.
 
 - **Reputation Dashboard — Tier 5A + Tier 5B + Tier 5C (2026-01-19)**

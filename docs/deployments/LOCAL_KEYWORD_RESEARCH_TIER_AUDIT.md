@@ -1,5 +1,8 @@
 ### LOCAL_KEYWORD_RESEARCH_TIER_AUDIT (LKRT)
 
+Status: **LOCKED**  
+Validated on `main` @ **38b3bf0**
+
 Scope: **final evidence-based audit** of LKRT as shipped (Tier 5A / 5C / Tier 6 readiness).
 
 This audit compares LKRT against established Tier 5C / Tier 6 patterns already present in the OBD Premium Apps monorepo.

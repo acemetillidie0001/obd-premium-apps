@@ -7,12 +7,38 @@ This document reflects **current shipped behavior** (code-truth), including Tier
 ## Status
 
 - **Status: LOCKED (maintenance-mode safe)**
+- **Last lock verification**: validated on `main` @ **38b3bf0**
+- Advisory-only keyword research snapshots + safe draft handoffs. **No automation.**
 - **Maintenance Mode Guarantees**
   - **Tenant-safe**: API routes require authentication and are scoped to the active `businessId` (override attempts rejected).
   - **No background jobs**: all generation/metrics/rank-check calls are user-triggered only.
   - **Draft-only applies**: cross-app handoffs are Apply/Dismiss, additive-only, TTL’d, tenant-checked.
   - **Deterministic exports**: CSV schema is fixed; TXT is deterministic by default (timestamps are opt-in).
   - **Safe fallbacks**: Google Ads metrics are best-effort with timeouts/retry; missing/invalid creds fall back to mock metrics without crashing.
+
+## What LKRT is / What LKRT is NOT
+
+- **What LKRT is**
+  - A **snapshot** of keyword ideas + clustering + scoring for a given business + location.
+  - A best-effort metrics enrichment pipeline (mock by default; optional Google Ads Keyword Planner metrics when configured).
+  - A Tier 5C **draft-only** handoff source for downstream apps (Apply/Dismiss; additive-only; TTL’d; tenant-safe).
+
+- **What LKRT is NOT**
+  - **No rank tracking**
+  - **No SERP scraping by default** (no first-party SERP scraper)
+  - **No keyword difficulty that implies ranking certainty**
+  - **No background jobs**
+  - **No auto-publish**
+  - **No scheduled Ads repulls**
+  - **No cross-tenant sharing**
+
+## Suite Reference Links (Tier 5C handoffs)
+
+LKRT can feed other suite apps via **Tier 5C draft-only handoffs** (no automatic Apply):
+
+- `docs/apps/local-seo-page-builder.md`
+- `docs/apps/ai-content-writer.md`
+- `docs/apps/seo-audit-roadmap.md`
 
 ## Current behavior (authoritative, code-truth)
 
@@ -113,10 +139,10 @@ When Google Ads metrics are available, LKRT normalizes into these existing keywo
 
 - **Rank check** route has an explicit 15s timeout using `Promise.race`, returning a 504 TIMEOUT error code.
   - Evidence: `src/app/api/local-keyword-research/rank-check/route.ts`, ~L221–L253.
-- **Main keyword generation** route does **not** use the repo’s `withOpenAITimeout` wrapper and does not implement per-chunk timeouts.
+- **Main keyword generation** route uses the repo’s `withOpenAITimeout` wrapper (hard cap) and returns a 504 TIMEOUT error code on AbortError.
   - Evidence:
-    - `src/app/api/local-keyword-research/route.ts` calls `openai.chat.completions.create(...)` directly (no timeout wrapper).
-    - `src/lib/openai-timeout.ts` exists as a pattern (30s AbortController wrapper), ~L25–L51.
+    - `src/app/api/local-keyword-research/route.ts` wraps both OpenAI calls with `withOpenAITimeout` (ideas + final).
+    - `src/lib/openai-timeout.ts` provides the shared AbortController timeout wrapper.
 
 ### UI semantics
 
@@ -185,14 +211,14 @@ Evidence: `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv` fixe
 - **Badge semantics (Live vs Mock)**: ✅ PASS
   - “Live” only when numeric metrics exist; otherwise “Google Ads (Connected — Metrics Pending)” or “Mock Data”.
 
-### C) Export Integrity — ⚠️ PARTIAL
+### C) Export Integrity — ✅ PASS
 
 - **Single authoritative Export Center**: ✅ PASS
   - Evidence:
     - `src/app/apps/local-keyword-research/page.tsx` (Export Center panel)
     - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx`
-- **Snapshot-only exports**: ⚠️ PARTIAL
-  - LKRT exports reflect current UI-derived arrays at click time (e.g., filtered/sorted).
+- **Snapshot-only exports**: ✅ PASS
+  - LKRT exports are explicit snapshots taken at click time (e.g., filtered/sorted), and are deterministic where claimed (CSV fixed schema; TXT deterministic by default with opt-in timestamps).
 - **CSV safety & schema stability**: ✅ PASS
   - Deterministic fixed CSV columns; no comment lines; null metrics export as empty cells.
   - Evidence: `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv`)

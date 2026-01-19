@@ -1,5 +1,8 @@
 ### LOCAL_KEYWORD_RESEARCH_LOCK_AUDIT (LKRT) — FINAL (after fixes 7A–7E)
 
+Status: **LOCKED**  
+Validated on `main` @ **38b3bf0**
+
 Scope: **code-truth audit only** (no runtime changes, no dependency changes, no API/DB changes in this prompt).
 
 Repo: OBD Premium Apps monorepo  

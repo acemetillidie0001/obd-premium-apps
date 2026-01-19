@@ -77,6 +77,14 @@ export interface ExportSettings {
   language?: string;
 }
 
+export interface TxtExportOptions {
+  /**
+   * When true, include generated timestamps in the TXT header.
+   * Default false to keep TXT output deterministic across downloads.
+   */
+  includeTimestamps?: boolean;
+}
+
 /**
  * Generate CSV content for top keywords table
  */
@@ -164,17 +172,21 @@ export function getCsvFilename(businessName?: string): string {
 export function generateFullReportTxt(
   response: LocalKeywordResponse,
   meta?: ExportMeta,
-  settings?: ExportSettings
+  settings?: ExportSettings,
+  options?: TxtExportOptions
 ): string {
-  const now = meta?.generatedAt || new Date();
-  const isoDate = now.toISOString();
-  const dateTime = now.toLocaleString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const includeTimestamps = options?.includeTimestamps === true;
+  const now = includeTimestamps ? (meta?.generatedAt || new Date()) : undefined;
+  const isoDate = now ? now.toISOString() : undefined;
+  const dateTime = now
+    ? now.toLocaleString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : undefined;
 
   const businessName = meta?.businessName || "Unknown Business";
   const city = meta?.city || "Ocala";
@@ -188,8 +200,10 @@ export function generateFullReportTxt(
   lines.push("OBD LOCAL KEYWORD RESEARCH REPORT");
   lines.push("=".repeat(70));
   lines.push("");
-  lines.push(`Generated: ${dateTime}`);
-  lines.push(`Generated (ISO): ${isoDate}`);
+  if (includeTimestamps && dateTime && isoDate) {
+    lines.push(`Generated: ${dateTime}`);
+    lines.push(`Generated (ISO): ${isoDate}`);
+  }
   lines.push(`Business: ${businessName}`);
   lines.push(`Location: ${city}, ${state}`);
   lines.push(`Primary Goal: ${goal}`);

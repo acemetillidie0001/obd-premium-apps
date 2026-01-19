@@ -427,6 +427,9 @@ Meaning:
 ### 4) Export Center checks (TXT + CSV)
 
 - Export TXT and CSV from the Export Center.
+- Verify TXT determinism expectations:
+  - **Default TXT is deterministic** (no timestamps in the file body/header).
+  - Optional: enable “Include timestamps in TXT header” and confirm the TXT output now includes `Generated:` and will differ per download.
 - Verify CSV is parser-safe:
   - First line is the header row with fixed columns (no `#` comment lines anywhere):
     - `keyword,location,nearMe,dataSource,avgMonthlySearches,competition,lowTopOfPageBid,highTopOfPageBid,notes`

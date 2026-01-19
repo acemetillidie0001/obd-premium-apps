@@ -30,6 +30,7 @@ export default function LKRTExportCenterPanel({
   form: LocalKeywordRequest;
 }) {
   const [copiedTopKeywords, setCopiedTopKeywords] = useState(false);
+  const [includeTxtTimestamps, setIncludeTxtTimestamps] = useState(false);
 
   const hasVolume = useMemo(
     () => allKeywords.some((k) => typeof k.monthlySearchesExact === "number"),
@@ -106,7 +107,7 @@ export default function LKRTExportCenterPanel({
       city: form.city || undefined,
       state: form.state || undefined,
       goal: form.primaryGoal || undefined,
-      generatedAt: new Date(),
+      generatedAt: includeTxtTimestamps ? new Date() : undefined,
     };
     const settings = {
       maxKeywords: form.maxKeywords,
@@ -116,7 +117,9 @@ export default function LKRTExportCenterPanel({
       zipCodes: form.includeZipCodes,
       language: form.language,
     };
-    const txt = generateFullReportTxt(activeResult, meta, settings);
+    const txt = generateFullReportTxt(activeResult, meta, settings, {
+      includeTimestamps: includeTxtTimestamps,
+    });
     const filename = getTxtFilename(form.businessName);
     downloadBlob(txt, filename, "text/plain");
   };
@@ -140,6 +143,21 @@ export default function LKRTExportCenterPanel({
         <p className={`text-xs mb-3 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
           Export uses the current active results (edited &gt; generated). CSV + Copy reflect your current filters/sort.
         </p>
+        <div className="mb-3 flex items-center gap-2">
+          <input
+            id="lkrt-include-txt-timestamps"
+            type="checkbox"
+            checked={includeTxtTimestamps}
+            onChange={(e) => setIncludeTxtTimestamps(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <label
+            htmlFor="lkrt-include-txt-timestamps"
+            className={`text-xs ${isDark ? "text-slate-300" : "text-slate-600"}`}
+          >
+            Include timestamps in TXT header (off by default for deterministic exports)
+          </label>
+        </div>
         <div className="flex flex-wrap gap-3">
           <button
             type="button"

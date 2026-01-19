@@ -23,6 +23,23 @@ const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX_REQUESTS = 20; // per window per IP
 
+function generateRequestId(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).slice(2, 8);
+  return `lkrt-${timestamp}-${random}`;
+}
+
+function safeErrorSummary(err: unknown): { name?: string; message?: string } {
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: (err.message || "").slice(0, 200),
+    };
+  }
+  const msg = String(err);
+  return { message: msg.slice(0, 200) };
+}
+
 /**
  * Get client IP from request headers
  */
@@ -313,6 +330,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const businessId = session.userId;
+  const requestId = generateRequestId();
 
   // Reject attempts to override business/tenant scope via query params
   const urlBusinessId = (req.nextUrl?.searchParams?.get("businessId") || "").trim();
@@ -471,7 +489,12 @@ export async function POST(req: NextRequest) {
     try {
       ideasJson = JSON.parse(ideasContent);
     } catch (err) {
-      console.error("Failed to parse ideas JSON:", err, ideasContent);
+      console.error("[LKRT] ideas JSON parse failed", {
+        requestId,
+        businessId,
+        ideasChars: ideasContent.length,
+        error: safeErrorSummary(err),
+      });
       return apiErrorResponse(
         "The keyword idea engine returned an invalid response. Please try again.",
         "UNKNOWN_ERROR",
@@ -655,7 +678,14 @@ export async function POST(req: NextRequest) {
         parsed.overviewNotes = [`Metrics notice (${code}): ${msg}`, ...(parsed.overviewNotes || [])];
       }
     } catch (err) {
-      console.error("Failed to parse final JSON from model:", err, finalContent);
+      console.error("[LKRT] final JSON parse failed", {
+        requestId,
+        businessId,
+        finalChars: finalContent.length,
+        rawKeywordsCount: rawKeywords.length,
+        metricsCount: metrics.length,
+        error: safeErrorSummary(err),
+      });
       return apiErrorResponse(
         "The keyword strategy engine returned an invalid response. Please try again.",
         "UNKNOWN_ERROR",
@@ -669,7 +699,11 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
-    console.error("Local keyword research API error:", err);
+    console.error("[LKRT] API error", {
+      requestId: typeof requestId === "string" ? requestId : "lkrt-unknown",
+      businessId: typeof businessId === "string" ? businessId : "unknown",
+      error: safeErrorSummary(err),
+    });
     return apiErrorResponse(
       "Something went wrong while generating your local keyword strategy. Please try again.",
       "UNKNOWN_ERROR",

@@ -80,9 +80,80 @@ These upgrades make CRM more trustworthy and “hub-like” without changing its
 
 **Guarantees (Tier 5C safety):**
 - No schema changes
-- No automation
-- No cross-app mutation
+- No background jobs added by CRM UI/API
+- No cross-app mutation added by the Tier 5C read-only Signals/Timeline features
 - No background jobs
+
+---
+
+## Optional CRM Upgrades 1–4 (2026-01-19)
+
+These are **additive** upgrades focused on clarity and context. They do not introduce “CRM brain,” scheduling, or inference.
+
+### Optional 1 — Activity Timeline (Read-only)
+
+Contact detail now includes a **Timeline** section that shows explicit events only (newest → oldest), with label + timestamp + source.
+
+**Sources (existing data only):**
+- **CRM**: Notes (`/api/obd-crm/contacts/[id]/notes`) and Activities (`/api/obd-crm/contacts/[id]/activities`)
+- **Scheduler**: Booking completion awareness via tenant-scoped requests (`/api/obd-scheduler/requests`) and **exact email match**
+- **Reviews**: Canonical CRM notes written by the Reviews system (no fuzzy parsing)
+
+**Not included:**
+- No inference / summarization
+- No automation
+- No cross-app writes
+
+### Optional 2 — Saved Views (Light presets; no rules)
+
+CRM supports **Saved Views** as **filter + sort presets only**.
+
+**What is stored:**
+- Current filters (search/status/tag/follow-up/notes filter)
+- Current sort (field + direction)
+
+**What it is NOT:**
+- No saved results
+- No saved counts
+- No background refresh logic
+- No “rules engine”
+
+**Storage:**
+- Per-business localStorage key: `obd:crm:<businessId>:savedViews:v1`
+
+### Optional 3 — CRM Health Snapshot (Advisory only)
+
+The CRM list page shows a small, calm **CRM Health Snapshot** panel, e.g.:
+- “3 contacts need follow-up”
+- “5 contacts have no notes”
+
+**Guarantees:**
+- Advisory tone only
+- No urgency coloring
+- No “You should” language
+- No actions inside the panel (optional Dismiss only)
+- Metrics come only from canonical selector outputs
+
+### Optional 4 — CSV Import UX Micro-Polish (UI-only)
+
+CSV import now provides clearer confidence cues without CRM import backend changes:
+- Pre-import summary (total rows detected; estimated add vs skip)
+- Clear column mapping recap
+- Explicit confirmation copy and button
+- Post-import success includes a clear “View contacts” next step
+
+**Intentional non-changes:**
+- No parsing logic changes (`src/lib/utils/csvParser.ts` remains the single CSV parser utility)
+- No new CSV import validation rules (still requires header row; name required; max 1000 rows)
+- Import remains **create-only** (duplicates are skipped; no updates to existing contacts)
+- Export endpoint was tightened to match the UI’s canonical view more precisely (notes filter + follow-up day-boundary alignment + safe `lastTouchAt` sort)
+
+### Explicit guarantees for Optional 1–4
+
+- No pipelines / deal stages added
+- No automation rules engine added
+- No cross-app mutation added by these features
+- Tenant-safe behavior remains business-scoped
 
 ## Who It's For
 

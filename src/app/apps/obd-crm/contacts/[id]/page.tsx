@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
@@ -16,6 +16,12 @@ import type {
   CrmTag,
   CrmContactStatus,
 } from "@/lib/apps/obd-crm/types";
+import type { BookingRequest } from "@/lib/apps/obd-scheduler/types";
+import {
+  buildContactTimeline,
+  detectReviewSignalsFromNotes,
+  type CrmNonNoteActivity,
+} from "@/lib/apps/obd-crm/timeline";
 
 export default function ContactDetailPage() {
   const { theme, isDark, setTheme } = useOBDTheme();
@@ -26,6 +32,7 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<CrmContact | null>(null);
   const [notes, setNotes] = useState<CrmContactActivity[]>([]);
+  const [activities, setActivities] = useState<CrmNonNoteActivity[]>([]);
   const [tags, setTags] = useState<CrmTag[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +65,7 @@ export default function ContactDetailPage() {
     matchedCount: 0,
     error: null,
   });
+  const [schedulerRequests, setSchedulerRequests] = useState<BookingRequest[]>([]);
 
   const resetEditFormToContact = (c: CrmContact) => {
     setEditForm({
@@ -104,6 +112,7 @@ export default function ContactDetailPage() {
     if (contactId) {
       loadContact();
       loadNotes();
+      loadActivities();
       loadTags();
     }
   }, [contactId]);
@@ -122,6 +131,7 @@ export default function ContactDetailPage() {
           matchedCount: 0,
           error: null,
         });
+        setSchedulerRequests([]);
         return;
       }
 
@@ -133,17 +143,13 @@ export default function ContactDetailPage() {
           { cache: "no-store" }
         );
         const json = await res.json().catch(() => null);
-        const requests: Array<{
-          id: string;
-          customerEmail: string;
-          status: string;
-          preferredStart: string | null;
-          proposedStart: string | null;
-        }> = (json?.data?.requests || json?.requests || []) as any;
+        const requests: BookingRequest[] = (json?.data?.requests || json?.requests || []) as any;
 
         const exact = Array.isArray(requests)
           ? requests.filter((r) => (r.customerEmail || "").trim().toLowerCase() === email)
           : [];
+
+        setSchedulerRequests(exact);
 
         const now = Date.now();
         const hasBookedBefore = exact.some((r) => r.status === "COMPLETED");
@@ -177,6 +183,7 @@ export default function ContactDetailPage() {
           matchedCount: 0,
           error: e instanceof Error ? e.message : "Failed to check Scheduler signals",
         });
+        setSchedulerRequests([]);
       }
     };
 
@@ -215,6 +222,19 @@ export default function ContactDetailPage() {
       }
     } catch (err) {
       console.error("Error loading notes:", err);
+    }
+  };
+
+  const loadActivities = async () => {
+    try {
+      const res = await fetch(`/api/obd-crm/contacts/${contactId}/activities`);
+      const json = await res.json();
+
+      if (res.ok && json.ok) {
+        setActivities(json.data.activities || []);
+      }
+    } catch (err) {
+      console.error("Error loading activities:", err);
     }
   };
 
@@ -299,7 +319,7 @@ export default function ContactDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: noteContent.trim(),
+          body: noteContent.trim(),
         }),
       });
 
@@ -331,12 +351,17 @@ export default function ContactDetailPage() {
     }
   };
 
-  const hasReviewRequestSent = notes.some((n) =>
-    (n.content || "").toLowerCase().includes("review request sent")
-  );
-  const hasReviewReceived = notes.some((n) =>
-    (n.content || "").toLowerCase().includes("review received")
-  );
+  const { hasReviewRequestSent, hasReviewReceived } = detectReviewSignalsFromNotes(notes);
+
+  const timelineEntries = useMemo(() => {
+    if (!contact) return [];
+    return buildContactTimeline({
+      contact,
+      notes,
+      activities,
+      schedulerRequests,
+    });
+  }, [contact, notes, activities, schedulerRequests]);
 
   const handleCopy = async (text: string, field: string) => {
     if (!text) return;
@@ -857,6 +882,33 @@ export default function ContactDetailPage() {
             </div>
           )}
         </div>
+      </OBDPanel>
+
+      {/* Timeline (read-only) */}
+      <OBDPanel isDark={isDark} className="mt-6">
+        <OBDHeading level={2} isDark={isDark} className="mb-4">
+          Timeline
+        </OBDHeading>
+
+        {timelineEntries.length === 0 ? (
+          <div className={`text-center py-8 ${themeClasses.mutedText}`}>No activity yet.</div>
+        ) : (
+          <div className="space-y-3">
+            {timelineEntries.map((e) => (
+              <div
+                key={e.id}
+                className={`pb-3 border-b last:border-b-0 last:pb-0 ${
+                  isDark ? "border-slate-700" : "border-slate-200"
+                }`}
+              >
+                <div className={`text-sm font-medium ${themeClasses.headingText}`}>{e.label}</div>
+                <div className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                  {formatDate(e.at)} · {e.source}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </OBDPanel>
 
       {/* Notes Section */}

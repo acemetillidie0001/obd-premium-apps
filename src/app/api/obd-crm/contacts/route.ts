@@ -124,10 +124,17 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || undefined;
-    const status = searchParams.get("status") as CrmContactStatus | null;
+    const statusRaw = searchParams.get("status");
+    const status: CrmContactStatus | null =
+      statusRaw === "Lead" || statusRaw === "Active" || statusRaw === "Past" || statusRaw === "DoNotContact"
+        ? statusRaw
+        : null;
     const tagId = searchParams.get("tagId") || undefined;
-    const sort = searchParams.get("sort") || "updatedAt";
-    const order = searchParams.get("order") || "desc";
+    const sortRaw = searchParams.get("sort") || "updatedAt";
+    const sort: "updatedAt" | "createdAt" | "name" | "nextFollowUpAt" =
+      sortRaw === "createdAt" || sortRaw === "name" || sortRaw === "nextFollowUpAt" ? sortRaw : "updatedAt";
+    const orderRaw = searchParams.get("order") || "desc";
+    const order: "asc" | "desc" = orderRaw === "asc" ? "asc" : "desc";
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100);
 

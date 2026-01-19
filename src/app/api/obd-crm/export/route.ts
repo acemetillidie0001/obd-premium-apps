@@ -26,9 +26,59 @@ const exportRequestSchema = z.object({
   status: z.enum(["Lead", "Active", "Past", "DoNotContact"]).optional(),
   tagId: z.string().optional(),
   followUp: z.enum(["all", "overdue", "today", "upcoming", "none"]).optional(),
+  notes: z.enum(["all", "withNotes"]).optional(),
   sort: z.enum(["updatedAt", "createdAt", "name", "lastTouchAt", "nextFollowUpAt"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
+  // When followUp filter is used, client can pass a canonical "today" window (in absolute time)
+  // so export matches the UI's bucket boundaries regardless of server timezone.
+  todayWindow: z
+    .object({
+      startOfToday: z.string(),
+      endOfToday: z.string(),
+    })
+    .optional(),
 });
+
+function toTimeOrNull(v: unknown): number | null {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  const t = d.getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+function compareForExport(
+  a: { id: string; name: string; createdAt: Date; updatedAt: Date; nextFollowUpAt: Date | null; activities?: Array<{ createdAt: Date }> },
+  b: { id: string; name: string; createdAt: Date; updatedAt: Date; nextFollowUpAt: Date | null; activities?: Array<{ createdAt: Date }> },
+  key: "updatedAt" | "createdAt" | "name" | "lastTouchAt" | "nextFollowUpAt",
+  order: "asc" | "desc"
+): number {
+  const dir = order === "asc" ? 1 : -1;
+  const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+
+  if (key === "name") {
+    const cmp = collator.compare(a.name, b.name);
+    if (cmp !== 0) return cmp * dir;
+  } else if (key === "createdAt") {
+    const at = toTimeOrNull(a.createdAt) ?? 0;
+    const bt = toTimeOrNull(b.createdAt) ?? 0;
+    if (at !== bt) return (at - bt) * dir;
+  } else if (key === "updatedAt") {
+    const at = toTimeOrNull(a.updatedAt) ?? 0;
+    const bt = toTimeOrNull(b.updatedAt) ?? 0;
+    if (at !== bt) return (at - bt) * dir;
+  } else if (key === "lastTouchAt") {
+    const at = toTimeOrNull(a.activities?.[0]?.createdAt) ?? -Infinity;
+    const bt = toTimeOrNull(b.activities?.[0]?.createdAt) ?? -Infinity;
+    if (at !== bt) return (at - bt) * dir;
+  } else if (key === "nextFollowUpAt") {
+    const at = toTimeOrNull(a.nextFollowUpAt) ?? Infinity;
+    const bt = toTimeOrNull(b.nextFollowUpAt) ?? Infinity;
+    if (at !== bt) return (at - bt) * dir;
+  }
+
+  // Tie-breaker: stable by id
+  return a.id.localeCompare(b.id);
+}
 
 /**
  * Escape CSV field value.
@@ -102,7 +152,16 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { search, status, tagId, followUp = "all", sort = "updatedAt", order = "desc" } = validationResult.data;
+    const {
+      search,
+      status,
+      tagId,
+      followUp = "all",
+      notes = "all",
+      sort = "updatedAt",
+      order = "desc",
+      todayWindow,
+    } = validationResult.data;
 
     // Build where clause (same logic as GET /contacts)
     const where: any = {
@@ -133,6 +192,16 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // Notes filter (align with canonical selector)
+    // Selector treats "withNotes" as: has any CRM note (lastTouchAt/lastNote present).
+    if (notes === "withNotes") {
+      where.activities = {
+        some: {
+          type: "note",
+        },
+      };
+    }
+
     // Follow-up bucket filter (align with canonical selector)
     // Bucket rules:
     // - overdue: nextFollowUpAt < startOfToday
@@ -140,25 +209,41 @@ export async function POST(request: NextRequest) {
     // - upcoming: nextFollowUpAt > endOfToday
     // - none: nextFollowUpAt is null
     if (followUp && followUp !== "all") {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      // Prefer client-provided boundaries (absolute times) to avoid server-timezone drift
+      const startOfToday = todayWindow?.startOfToday ? new Date(todayWindow.startOfToday) : null;
+      const endOfToday = todayWindow?.endOfToday ? new Date(todayWindow.endOfToday) : null;
+      const fallbackNow = new Date();
+      const fallbackStartOfToday = new Date(
+        fallbackNow.getFullYear(),
+        fallbackNow.getMonth(),
+        fallbackNow.getDate(),
+        0,
+        0,
+        0,
+        0
+      );
+      const fallbackEndOfToday = new Date(
+        fallbackNow.getFullYear(),
+        fallbackNow.getMonth(),
+        fallbackNow.getDate(),
+        23,
+        59,
+        59,
+        999
+      );
+      const start = startOfToday && Number.isFinite(startOfToday.getTime()) ? startOfToday : fallbackStartOfToday;
+      const end = endOfToday && Number.isFinite(endOfToday.getTime()) ? endOfToday : fallbackEndOfToday;
 
       if (followUp === "none") {
         where.nextFollowUpAt = null;
       } else if (followUp === "overdue") {
-        where.nextFollowUpAt = { lt: startOfToday };
+        where.nextFollowUpAt = { lt: start };
       } else if (followUp === "today") {
-        where.nextFollowUpAt = { gte: startOfToday, lte: endOfToday };
+        where.nextFollowUpAt = { gte: start, lte: end };
       } else if (followUp === "upcoming") {
-        where.nextFollowUpAt = { gt: endOfToday };
+        where.nextFollowUpAt = { gt: end };
       }
     }
-
-    // Build orderBy (align with canonical selector)
-    const orderBy: any = {};
-    // For fields that can be null, Prisma sorts nulls first in asc; this matches the UI's deterministic ordering closely enough
-    orderBy[sort] = order;
 
     // Get all contacts matching filters (no pagination - export all matches)
     const contacts = await prisma.crmContact.findMany({
@@ -179,8 +264,31 @@ export async function POST(request: NextRequest) {
           take: 1, // Get most recent note for lastNote column
         },
       },
-      orderBy,
     });
+
+    // Sort in-process to match UI selector semantics (supports computed sort like lastTouchAt)
+    contacts.sort((a, b) =>
+      compareForExport(
+        {
+          id: a.id,
+          name: a.name,
+          createdAt: a.createdAt,
+          updatedAt: a.updatedAt,
+          nextFollowUpAt: (a as any).nextFollowUpAt ?? null,
+          activities: (a as any).activities ?? [],
+        },
+        {
+          id: b.id,
+          name: b.name,
+          createdAt: b.createdAt,
+          updatedAt: b.updatedAt,
+          nextFollowUpAt: (b as any).nextFollowUpAt ?? null,
+          activities: (b as any).activities ?? [],
+        },
+        sort,
+        order
+      )
+    );
 
     // Build CSV headers (in specified order)
     const headers = [

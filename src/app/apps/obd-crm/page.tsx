@@ -38,7 +38,7 @@ function Skeleton({ className, isDark }: { className?: string; isDark: boolean }
 }
 
 // Segment type definition
-type Segment = {
+type SavedView = {
   id: string;
   name: string;
   createdAt: string;
@@ -47,18 +47,24 @@ type Segment = {
     statusFilter: string;
     tagFilter: string;
     followUpFilter: "all" | "dueToday" | "overdue" | "upcoming";
-    followUpView?: "table" | "queue";
-    density?: "comfortable" | "compact";
+    notesFilter: "all" | "withNotes";
+  };
+  sort: {
+    key: "updatedAt" | "createdAt" | "name" | "lastTouchAt" | "nextFollowUpAt";
+    order: "asc" | "desc";
   };
 };
 
-// localStorage helpers for segments
-const SEGMENTS_STORAGE_KEY = "obd_crm_segments_v1";
+// localStorage helpers for saved views (tenant-scoped)
+const LEGACY_SEGMENTS_STORAGE_KEY = "obd_crm_segments_v1";
+function getSavedViewsStorageKey(businessId: string) {
+  return `obd:crm:${businessId}:savedViews:v1`;
+}
 
-function loadSegmentsFromStorage(): Segment[] {
+function loadSavedViewsFromStorage(businessId: string): SavedView[] {
   if (typeof window === "undefined") return [];
   try {
-    const stored = localStorage.getItem(SEGMENTS_STORAGE_KEY);
+    const stored = localStorage.getItem(getSavedViewsStorageKey(businessId));
     if (!stored) return [];
     const parsed = JSON.parse(stored);
     if (Array.isArray(parsed)) {
@@ -66,17 +72,17 @@ function loadSegmentsFromStorage(): Segment[] {
     }
     return [];
   } catch (error) {
-    console.error("Failed to load segments from localStorage:", error);
+    console.error("Failed to load saved views from localStorage:", error);
     return [];
   }
 }
 
-function saveSegmentsToStorage(segments: Segment[]): void {
+function saveSavedViewsToStorage(businessId: string, views: SavedView[]): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(SEGMENTS_STORAGE_KEY, JSON.stringify(segments));
+    localStorage.setItem(getSavedViewsStorageKey(businessId), JSON.stringify(views));
   } catch (error) {
-    console.error("Failed to save segments to localStorage:", error);
+    console.error("Failed to save saved views to localStorage:", error);
   }
 }
 
@@ -227,9 +233,16 @@ function OBDCRMPageContent() {
   const [statusFilter, setStatusFilter] = useState<CrmContactStatus | "">("");
   const [tagFilter, setTagFilter] = useState("");
   const [followUpFilter, setFollowUpFilter] = useState<"all" | "dueToday" | "overdue" | "upcoming">("all");
+  const [notesFilter, setNotesFilter] = useState<"all" | "withNotes">("all");
   const [isTagsFiltersOpen, setIsTagsFiltersOpen] = useState(false);
   const [isFollowUpFiltersOpen, setIsFollowUpFiltersOpen] = useState(false);
   const [isSegmentsFiltersOpen, setIsSegmentsFiltersOpen] = useState(false);
+
+  // Sort (canonical selector input)
+  const [sortKey, setSortKey] = useState<"updatedAt" | "createdAt" | "name" | "lastTouchAt" | "nextFollowUpAt">(
+    "updatedAt"
+  );
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   
   // Table density preference
   const [tableDensity, setTableDensity] = useState<"comfortable" | "compact">(() => {
@@ -285,29 +298,92 @@ function OBDCRMPageContent() {
     }
   }, [followUpView]);
 
-  // Segments state
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
-  const [showSaveSegmentModal, setShowSaveSegmentModal] = useState(false);
-  const [newSegmentName, setNewSegmentName] = useState("");
-  const [segmentSaveError, setSegmentSaveError] = useState<string | null>(null);
-  const [segmentToast, setSegmentToast] = useState<string | null>(null);
-  const [showManageSegmentsModal, setShowManageSegmentsModal] = useState(false);
-  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
-  const [editingSegmentName, setEditingSegmentName] = useState("");
-  const [editingSegmentError, setEditingSegmentError] = useState<string | null>(null);
-  const [deletingSegmentId, setDeletingSegmentId] = useState<string | null>(null);
+  // Saved Views state
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [showSaveViewModal, setShowSaveViewModal] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+  const [saveViewError, setSaveViewError] = useState<string | null>(null);
+  const [savedViewToast, setSavedViewToast] = useState<string | null>(null);
+  const [showManageViewsModal, setShowManageViewsModal] = useState(false);
+  const [editingViewId, setEditingViewId] = useState<string | null>(null);
+  const [editingViewName, setEditingViewName] = useState("");
+  const [editingViewError, setEditingViewError] = useState<string | null>(null);
+  const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
-  // Load segments from localStorage on mount
-  useEffect(() => {
-    const loadedSegments = loadSegmentsFromStorage();
-    setSegments(loadedSegments);
-  }, []);
+  // CRM Health Snapshot (advisory only; dismissible)
+  const [healthSnapshotDismissed, setHealthSnapshotDismissed] = useState(false);
 
-  // Save segments to localStorage whenever segments state changes
+  // Tenant-safe keying: derive businessId from loaded data (contacts/tags are tenant-scoped already)
+  const businessIdForStorage = React.useMemo(() => {
+    return contacts[0]?.businessId || tags[0]?.businessId || null;
+  }, [contacts, tags]);
+
+  const healthSnapshotStorageKey = React.useMemo(() => {
+    return businessIdForStorage ? `obd:crm:${businessIdForStorage}:healthSnapshotDismissed:v1` : null;
+  }, [businessIdForStorage]);
+
   useEffect(() => {
-    saveSegmentsToStorage(segments);
-  }, [segments]);
+    if (!healthSnapshotStorageKey) return;
+    try {
+      setHealthSnapshotDismissed(localStorage.getItem(healthSnapshotStorageKey) === "true");
+    } catch {
+      // ignore storage errors
+    }
+  }, [healthSnapshotStorageKey]);
+
+  // Load saved views once businessId is known; migrate legacy segments if present
+  useEffect(() => {
+    if (!businessIdForStorage) return;
+
+    const loaded = loadSavedViewsFromStorage(businessIdForStorage);
+    if (loaded.length > 0) {
+      setSavedViews(loaded);
+      return;
+    }
+
+    // Best-effort migration from legacy (non-tenant) key
+    try {
+      const legacyRaw = localStorage.getItem(LEGACY_SEGMENTS_STORAGE_KEY);
+      if (!legacyRaw) return;
+      const legacyParsed = JSON.parse(legacyRaw);
+      if (!Array.isArray(legacyParsed) || legacyParsed.length === 0) return;
+
+      const migrated: SavedView[] = legacyParsed
+        .map((s: any) => {
+          const f = s?.filters || {};
+          return {
+            id: String(s?.id || `${Date.now()}-${Math.random()}`),
+            name: String(s?.name || "Migrated view").slice(0, 60),
+            createdAt: String(s?.createdAt || new Date().toISOString()),
+            filters: {
+              searchQuery: String(f.searchQuery || ""),
+              statusFilter: String(f.statusFilter || ""),
+              tagFilter: String(f.tagFilter || ""),
+              followUpFilter:
+                f.followUpFilter === "dueToday" || f.followUpFilter === "overdue" || f.followUpFilter === "upcoming"
+                  ? f.followUpFilter
+                  : "all",
+              notesFilter: "all",
+            },
+            sort: { key: "updatedAt", order: "desc" },
+          } as SavedView;
+        })
+        .slice(0, 50);
+
+      if (migrated.length > 0) {
+        setSavedViews(migrated);
+      }
+    } catch {
+      // ignore migration errors
+    }
+  }, [businessIdForStorage]);
+
+  // Persist saved views when businessId is known
+  useEffect(() => {
+    if (!businessIdForStorage) return;
+    saveSavedViewsToStorage(businessIdForStorage, savedViews);
+  }, [businessIdForStorage, savedViews]);
 
   const selectedTagName = tagFilter ? tags.find((t) => t.id === tagFilter)?.name : null;
   const tagsSummary = selectedTagName ? `Tags: ${selectedTagName}` : "Tags: All";
@@ -319,59 +395,54 @@ function OBDCRMPageContent() {
       : followUpFilter === "dueToday"
       ? "Follow-ups: Today"
       : "Follow-ups: Upcoming";
-  const selectedSegmentName = selectedSegmentId
-    ? segments.find((s) => s.id === selectedSegmentId)?.name || "Selected"
+  const selectedViewName = selectedViewId
+    ? savedViews.find((v) => v.id === selectedViewId)?.name || "Selected"
     : null;
-  const segmentsSummary = selectedSegmentName ? `View: ${selectedSegmentName}` : "View: No segment";
+  const savedViewsSummary = selectedViewName ? `View: ${selectedViewName}` : "View: None";
 
-  // Handle segment selection
-  const handleSegmentSelect = (segmentId: string | null) => {
-    setSelectedSegmentId(segmentId);
-    
-    if (segmentId === null) {
-      // "No segment" selected - just clear selection, don't reset filters
+  // Handle saved view selection
+  const handleViewSelect = (viewId: string | null) => {
+    setSelectedViewId(viewId);
+
+    if (viewId === null) {
+      // "None" selected - just clear selection, don't reset filters
       return;
     }
 
-    const segment = segments.find((s) => s.id === segmentId);
-    if (!segment) return;
+    const view = savedViews.find((v) => v.id === viewId);
+    if (!view) return;
 
-    // Apply segment filters to current UI state
-    setSearch(segment.filters.searchQuery);
-    setStatusFilter(segment.filters.statusFilter as CrmContactStatus | "");
-    setTagFilter(segment.filters.tagFilter);
-    setFollowUpFilter(segment.filters.followUpFilter);
-    
-    if (segment.filters.followUpView) {
-      setFollowUpView(segment.filters.followUpView);
-    }
-    
-    if (segment.filters.density) {
-      setTableDensity(segment.filters.density);
-    }
+    // Apply view filters + sort to current UI state
+    setSearch(view.filters.searchQuery);
+    setStatusFilter(view.filters.statusFilter as CrmContactStatus | "");
+    setTagFilter(view.filters.tagFilter);
+    setFollowUpFilter(view.filters.followUpFilter);
+    setNotesFilter(view.filters.notesFilter);
+    setSortKey(view.sort.key);
+    setSortOrder(view.sort.order);
   };
 
-  // Handle saving a new segment
-  const handleSaveSegment = () => {
-    const trimmedName = newSegmentName.trim();
+  // Handle saving a new view
+  const handleSaveView = () => {
+    const trimmedName = newViewName.trim();
     if (!trimmedName) {
-      setSegmentSaveError("Segment name is required");
+      setSaveViewError("View name is required");
       return;
     }
     if (trimmedName.length > 60) {
-      setSegmentSaveError("Segment name must be 60 characters or less");
+      setSaveViewError("View name must be 60 characters or less");
       return;
     }
 
-    setSegmentSaveError(null);
+    setSaveViewError(null);
 
     // Generate ID
     const id = typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random()}`;
 
-    // Create new segment with current UI state snapshot
-    const newSegment: Segment = {
+    // Create new view with current UI state snapshot (filters + sort only)
+    const newView: SavedView = {
       id,
       name: trimmedName,
       createdAt: new Date().toISOString(),
@@ -380,81 +451,84 @@ function OBDCRMPageContent() {
         statusFilter: statusFilter,
         tagFilter: tagFilter,
         followUpFilter: followUpFilter,
-        followUpView: followUpView,
-        density: tableDensity,
+        notesFilter,
+      },
+      sort: {
+        key: sortKey,
+        order: sortOrder,
       },
     };
 
-    // Prepend to segments list (newest first)
-    setSegments((prev) => [newSegment, ...prev]);
-    setSelectedSegmentId(id);
+    // Prepend to saved views list (newest first)
+    setSavedViews((prev) => [newView, ...prev]);
+    setSelectedViewId(id);
     
     // Close modal and reset form
-    setShowSaveSegmentModal(false);
-    setNewSegmentName("");
-    setSegmentSaveError(null);
+    setShowSaveViewModal(false);
+    setNewViewName("");
+    setSaveViewError(null);
     
     // Show toast
-    setSegmentToast("Segment saved");
-    setTimeout(() => setSegmentToast(null), 2000);
+    setSavedViewToast("View saved");
+    setTimeout(() => setSavedViewToast(null), 2000);
   };
 
-  // Handle renaming a segment
-  const handleStartRename = (segmentId: string) => {
-    const segment = segments.find((s) => s.id === segmentId);
-    if (!segment) return;
-    setEditingSegmentId(segmentId);
-    setEditingSegmentName(segment.name);
-    setEditingSegmentError(null);
+  // Handle renaming a view
+  const handleStartRename = (viewId: string) => {
+    const view = savedViews.find((v) => v.id === viewId);
+    if (!view) return;
+    setEditingViewId(viewId);
+    setEditingViewName(view.name);
+    setEditingViewError(null);
   };
 
   const handleCancelRename = () => {
-    setEditingSegmentId(null);
-    setEditingSegmentName("");
-    setEditingSegmentError(null);
+    setEditingViewId(null);
+    setEditingViewName("");
+    setEditingViewError(null);
   };
 
-  const handleSaveRename = (segmentId: string) => {
-    const trimmedName = editingSegmentName.trim();
+  const handleSaveRename = (viewId: string) => {
+    const trimmedName = editingViewName.trim();
     if (!trimmedName) {
-      setEditingSegmentError("Segment name is required");
+      setEditingViewError("View name is required");
       return;
     }
     if (trimmedName.length > 60) {
-      setEditingSegmentError("Segment name must be 60 characters or less");
+      setEditingViewError("View name must be 60 characters or less");
       return;
     }
 
-    setEditingSegmentError(null);
-    setSegments((prev) =>
-      prev.map((s) => (s.id === segmentId ? { ...s, name: trimmedName } : s))
+    setEditingViewError(null);
+    setSavedViews((prev) =>
+      prev.map((v) => (v.id === viewId ? { ...v, name: trimmedName } : v))
     );
-    setEditingSegmentId(null);
-    setEditingSegmentName("");
+    setEditingViewId(null);
+    setEditingViewName("");
     
     // Show toast
-    setSegmentToast("Segment renamed");
-    setTimeout(() => setSegmentToast(null), 2000);
+    setSavedViewToast("View renamed");
+    setTimeout(() => setSavedViewToast(null), 2000);
   };
 
-  // Handle deleting a segment
-  const handleConfirmDelete = (segmentId: string) => {
-    const segment = segments.find((s) => s.id === segmentId);
-    if (!segment) return;
+  // Handle deleting a view
+  const handleConfirmDelete = (viewId: string) => {
+    const view = savedViews.find((v) => v.id === viewId);
+    if (!view) return;
 
-    // Remove from segments
-    setSegments((prev) => prev.filter((s) => s.id !== segmentId));
+    // Remove from saved views
+    setSavedViews((prev) => prev.filter((v) => v.id !== viewId));
 
-    // If deleted segment was selected, clear selection (but don't reset filters)
-    if (selectedSegmentId === segmentId) {
-      setSelectedSegmentId(null);
+    // If deleted view was selected, clear selection (but don't reset filters)
+    if (selectedViewId === viewId) {
+      setSelectedViewId(null);
     }
 
-    setDeletingSegmentId(null);
+    setDeletingViewId(null);
     
     // Show toast
-    setSegmentToast("Segment deleted");
-    setTimeout(() => setSegmentToast(null), 2000);
+    setSavedViewToast("View deleted");
+    setTimeout(() => setSavedViewToast(null), 2000);
   };
   
   // Copy confirmation state (contactId -> "email" | "phone" | null)
@@ -606,11 +680,11 @@ function OBDCRMPageContent() {
 
       // Step 3: Show result and cleanup
       if (failCount > 0) {
-        setSegmentToast(`Tag '${trimmedName}' added to ${successCount} contacts. Some contacts could not be updated.`);
+        setSavedViewToast(`Tag '${trimmedName}' added to ${successCount} contacts. Some contacts could not be updated.`);
       } else {
-        setSegmentToast(`Tag '${trimmedName}' added to ${successCount} contacts`);
+        setSavedViewToast(`Tag '${trimmedName}' added to ${successCount} contacts`);
       }
-      setTimeout(() => setSegmentToast(null), 3000);
+      setTimeout(() => setSavedViewToast(null), 3000);
 
       // Close modal and clear selection
       setShowBulkAddTagModal(false);
@@ -694,11 +768,11 @@ function OBDCRMPageContent() {
 
       // Show result and cleanup
       if (failCount > 0) {
-        setSegmentToast(`Follow-up set for ${successCount} contacts. Some contacts could not be updated.`);
+        setSavedViewToast(`Follow-up set for ${successCount} contacts. Some contacts could not be updated.`);
       } else {
-        setSegmentToast(`Follow-up set for ${successCount} contacts`);
+        setSavedViewToast(`Follow-up set for ${successCount} contacts`);
       }
-      setTimeout(() => setSegmentToast(null), 3000);
+      setTimeout(() => setSavedViewToast(null), 3000);
 
       // Close modal and clear selection
       setShowBulkSetFollowUpModal(false);
@@ -787,18 +861,18 @@ function OBDCRMPageContent() {
 
       // Show result and cleanup
       if (failCount > 0) {
-        setSegmentToast(`Follow-up cleared for ${successCount} contacts. Some contacts could not be updated.`);
+        setSavedViewToast(`Follow-up cleared for ${successCount} contacts. Some contacts could not be updated.`);
       } else {
-        setSegmentToast(`Follow-up cleared for ${successCount} contacts`);
+        setSavedViewToast(`Follow-up cleared for ${successCount} contacts`);
       }
-      setTimeout(() => setSegmentToast(null), 3000);
+      setTimeout(() => setSavedViewToast(null), 3000);
 
       // Close confirmation and clear selection
       setShowBulkClearFollowUpConfirm(false);
       clearSelection();
     } catch (error) {
-      setSegmentToast("Failed to clear follow-up for some contacts");
-      setTimeout(() => setSegmentToast(null), 3000);
+      setSavedViewToast("Failed to clear follow-up for some contacts");
+      setTimeout(() => setSavedViewToast(null), 3000);
     } finally {
       setIsBulkClearingFollowUp(false);
     }
@@ -838,14 +912,15 @@ function OBDCRMPageContent() {
     statusFilter,
     tagFilter,
     followUpFilter,
+    notesFilter,
   ]);
 
   const sortInput: CrmContactsSortInput = React.useMemo(
     () => ({
-      key: "updatedAt",
-      order: "desc",
+      key: sortKey,
+      order: sortOrder,
     }),
-    []
+    [sortKey, sortOrder]
   );
 
   const selector = React.useMemo(() => {
@@ -856,11 +931,12 @@ function OBDCRMPageContent() {
         status: statusFilter,
         tagId: tagFilter,
         followUp: followUpFilter,
+        notes: notesFilter,
       },
       sort: sortInput,
       referenceTime: stableReferenceTime,
     });
-  }, [contacts, debouncedSearch, statusFilter, tagFilter, followUpFilter, sortInput, stableReferenceTime]);
+  }, [contacts, debouncedSearch, statusFilter, tagFilter, followUpFilter, notesFilter, sortInput, stableReferenceTime]);
 
   const activeContacts = selector.activeContacts;
 
@@ -1827,8 +1903,14 @@ function OBDCRMPageContent() {
           status: selector.normalizedFilters.status || undefined,
           tagId: selector.normalizedFilters.tagId || undefined,
           followUp: selector.normalizedFilters.followUp, // "all" | "overdue" | "today" | "upcoming" | "none"
+          notes: selector.normalizedFilters.notes, // "all" | "withNotes"
           sort: selector.normalizedSort.key,
           order: selector.normalizedSort.order,
+          // Send canonical today boundaries so server-side export matches the UI's follow-up buckets
+          todayWindow: {
+            startOfToday: selector.todayWindow.startOfToday.toISOString(),
+            endOfToday: selector.todayWindow.endOfToday.toISOString(),
+          },
         }),
       });
 
@@ -1876,6 +1958,84 @@ function OBDCRMPageContent() {
   };
 
   // CSV Import handlers
+  // Match import route behavior (contacts/import): email comparisons are exact-string (trimmed), not fuzzy/case-insensitive.
+  const normalizeEmailForImportMatch = (v: string | undefined) => (v || "").trim();
+  const normalizePhoneForImportMatch = (v: string | undefined) => (v || "").trim();
+
+  const importEstimate = React.useMemo(() => {
+    if (!csvData || !columnMapping.name) {
+      return null;
+    }
+
+    const nameIdx = csvData.headers.indexOf(columnMapping.name);
+    const emailIdx = columnMapping.email ? csvData.headers.indexOf(columnMapping.email) : -1;
+    const phoneIdx = columnMapping.phone ? csvData.headers.indexOf(columnMapping.phone) : -1;
+
+    const existingEmails = new Set(contacts.map((c) => (c.email ? c.email.trim() : "")).filter(Boolean));
+    const existingPhones = new Set(
+      contacts
+        .map((c) => (c.phone ? c.phone.trim() : ""))
+        .filter(Boolean)
+    );
+
+    const seenEmails = new Set<string>();
+    const seenPhones = new Set<string>();
+
+    let rowsMissingName = 0;
+    let rowsWithName = 0;
+    let willCreate = 0;
+    let willSkipExisting = 0;
+    let willSkipDuplicateInFile = 0;
+
+    for (const row of csvData.rows) {
+      const rawName = nameIdx >= 0 && row[nameIdx] ? row[nameIdx].trim() : "";
+      if (!rawName) {
+        rowsMissingName++;
+        continue;
+      }
+
+      rowsWithName++;
+
+      const email = emailIdx >= 0 && row[emailIdx] ? normalizeEmailForImportMatch(row[emailIdx]) : "";
+      const phone = phoneIdx >= 0 && row[phoneIdx] ? normalizePhoneForImportMatch(row[phoneIdx]) : "";
+
+      const hasIdentifier = !!email || !!phone;
+      const isExisting =
+        (email && existingEmails.has(email)) || (phone && existingPhones.has(phone));
+
+      if (hasIdentifier && isExisting) {
+        willSkipExisting++;
+        continue;
+      }
+
+      const isDupInFile = (email && seenEmails.has(email)) || (phone && seenPhones.has(phone));
+      if (hasIdentifier && isDupInFile) {
+        willSkipDuplicateInFile++;
+        continue;
+      }
+
+      willCreate++;
+      if (email) seenEmails.add(email);
+      if (phone) seenPhones.add(phone);
+    }
+
+    return {
+      totalRows: csvData.rows.length,
+      rowsWithName,
+      rowsMissingName,
+      willCreate,
+      willSkipExisting,
+      willSkipDuplicateInFile,
+      mapping: {
+        name: columnMapping.name || null,
+        email: columnMapping.email || null,
+        phone: columnMapping.phone || null,
+        status: columnMapping.status || null,
+        tags: columnMapping.tags || null,
+      },
+    };
+  }, [csvData, columnMapping, contacts, normalizeEmailForImportMatch, normalizePhoneForImportMatch]);
+
   const handleFileUpload = async (file: File) => {
     setCsvFile(file);
     const text = await file.text();
@@ -2067,7 +2227,7 @@ function OBDCRMPageContent() {
                 isOpen={isTagsFiltersOpen}
                 onToggle={() => setIsTagsFiltersOpen((v) => !v)}
               >
-                <div className="min-w-0">
+                <div className="space-y-3 min-w-0">
                   <select
                     value={tagFilter}
                     onChange={(e) => setTagFilter(e.target.value)}
@@ -2079,6 +2239,15 @@ function OBDCRMPageContent() {
                         {tag.name}
                       </option>
                     ))}
+                  </select>
+
+                  <select
+                    value={notesFilter}
+                    onChange={(e) => setNotesFilter(e.target.value as "all" | "withNotes")}
+                    className={getInputClasses(isDark)}
+                  >
+                    <option value="all">Notes: Any</option>
+                    <option value="withNotes">Notes: With notes</option>
                   </select>
                 </div>
               </LocalSeoAccordionSection>
@@ -2183,8 +2352,8 @@ function OBDCRMPageContent() {
 
               <LocalSeoAccordionSection
                 isDark={isDark}
-                title="Saved view"
-                summary={segmentsSummary}
+                title="Saved Views"
+                summary={savedViewsSummary}
                 isOpen={isSegmentsFiltersOpen}
                 onToggle={() => setIsSegmentsFiltersOpen((v) => !v)}
               >
@@ -2192,41 +2361,94 @@ function OBDCRMPageContent() {
                   <div className="flex items-center gap-2">
                     <div className="flex-1 min-w-0">
                       <select
-                        value={selectedSegmentId || ""}
-                        onChange={(e) => handleSegmentSelect(e.target.value || null)}
+                        value={selectedViewId || ""}
+                        onChange={(e) => handleViewSelect(e.target.value || null)}
                         className={`${getInputClasses(isDark)} ${
-                          selectedSegmentId ? (isDark ? "ring-1 ring-blue-500/50" : "ring-1 ring-blue-400/50") : ""
+                          selectedViewId ? (isDark ? "ring-1 ring-blue-500/50" : "ring-1 ring-blue-400/50") : ""
                         }`}
                       >
-                        <option value="">No segment</option>
-                        {segments.map((segment) => (
-                          <option key={segment.id} value={segment.id}>
-                            {segment.name}
+                        <option value="">No saved view</option>
+                        {savedViews.map((view) => (
+                          <option key={view.id} value={view.id}>
+                            {view.name}
                           </option>
                         ))}
                       </select>
                     </div>
-                    {segments.length > 0 && (
+                    {savedViews.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
-                          setShowManageSegmentsModal(true);
-                          setEditingSegmentId(null);
-                          setDeletingSegmentId(null);
+                          setShowManageViewsModal(true);
+                          setEditingViewId(null);
+                          setDeletingViewId(null);
                         }}
                         className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
                           isDark
                             ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
                             : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                         }`}
-                        title="Manage segments"
-                        aria-label="Manage segments"
+                        title="Manage saved views"
+                        aria-label="Manage saved views"
                       >
                         Manage
                       </button>
                     )}
                   </div>
-                  {segments.length === 0 && (
+
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className={`text-xs ${themeClasses.mutedText}`}>Suggestions:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedViewId(null);
+                        setFollowUpFilter("overdue");
+                        setNotesFilter("all");
+                        setStatusFilter("");
+                        setSortKey("nextFollowUpAt");
+                        setSortOrder("asc");
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      Overdue follow-ups
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedViewId(null);
+                        setNotesFilter("withNotes");
+                        setFollowUpFilter("all");
+                        setStatusFilter("");
+                        setSortKey("lastTouchAt");
+                        setSortOrder("desc");
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      Contacts with notes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedViewId(null);
+                        setStatusFilter("Past");
+                        setFollowUpFilter("all");
+                        setNotesFilter("all");
+                        setSortKey("lastTouchAt");
+                        setSortOrder("desc");
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      }`}
+                    >
+                      Past customers
+                    </button>
+                  </div>
+
+                  {savedViews.length === 0 && (
                     <div className={`text-xs ${themeClasses.mutedText}`}>
                       No saved views yet. Use “Save view” to create your first one.
                     </div>
@@ -2313,6 +2535,38 @@ function OBDCRMPageContent() {
                     </div>
                   </div>
                 )}
+
+                {/* Sort */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-sm ${themeClasses.mutedText} whitespace-nowrap`}>Sort:</span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={sortKey}
+                      onChange={(e) =>
+                        setSortKey(
+                          e.target.value as "updatedAt" | "createdAt" | "name" | "lastTouchAt" | "nextFollowUpAt"
+                        )
+                      }
+                      className={`${getInputClasses(isDark)} !py-1.5 !text-xs`}
+                      title="Sort field"
+                    >
+                      <option value="updatedAt">Updated</option>
+                      <option value="createdAt">Created</option>
+                      <option value="name">Name</option>
+                      <option value="lastTouchAt">Last touch</option>
+                      <option value="nextFollowUpAt">Next follow-up</option>
+                    </select>
+                    <select
+                      value={sortOrder}
+                      onChange={(e) => setSortOrder(e.target.value as "asc" | "desc")}
+                      className={`${getInputClasses(isDark)} !py-1.5 !text-xs`}
+                      title="Sort direction"
+                    >
+                      <option value="desc">Desc</option>
+                      <option value="asc">Asc</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               {/* Right: Action Buttons - All in one line, no wrapping */}
@@ -2358,9 +2612,9 @@ function OBDCRMPageContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowSaveSegmentModal(true);
-                    setNewSegmentName("");
-                    setSegmentSaveError(null);
+                    setShowSaveViewModal(true);
+                    setNewViewName("");
+                    setSaveViewError(null);
                   }}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
                     isDark
@@ -2484,6 +2738,62 @@ function OBDCRMPageContent() {
           </div>
         </OBDPanel>
       </OBDStickyToolbar>
+
+      {/* CRM Health Snapshot (advisory only) */}
+      {!healthSnapshotDismissed &&
+        !isLoading &&
+        (!doctorReport || doctorReport.verdict === "PASS") &&
+        !contactsError &&
+        !tagsError && (() => {
+          const needsFollowUpCount =
+            selector.counts.followUpBuckets.overdue + selector.counts.followUpBuckets.today;
+          const noNotesCount = selector.counts.notes.noNotes;
+
+          return (
+            <OBDPanel isDark={isDark} className="mt-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                    CRM Health Snapshot
+                  </div>
+                  <div className={`mt-2 text-sm ${themeClasses.mutedText} space-y-1`}>
+                    {needsFollowUpCount > 0 && (
+                      <div>{needsFollowUpCount} contacts need follow-up</div>
+                    )}
+                    {noNotesCount > 0 && (
+                      <div>{noNotesCount} contacts have no notes</div>
+                    )}
+                    {needsFollowUpCount === 0 && noNotesCount === 0 && (
+                      <div>No highlights right now.</div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHealthSnapshotDismissed(true);
+                    if (!healthSnapshotStorageKey) return;
+                    try {
+                      localStorage.setItem(healthSnapshotStorageKey, "true");
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                  className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors flex-shrink-0 ${
+                    isDark
+                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  aria-label="Dismiss CRM health snapshot"
+                  title="Dismiss"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </OBDPanel>
+          );
+        })()}
 
       {/* Error Display */}
       {/* Show DB Doctor report if verdict is FAIL */}
@@ -5871,8 +6181,8 @@ function OBDCRMPageContent() {
               </div>
               <div className="mt-2 text-sm text-gray-500">
                 {importStep === 1 && "Upload CSV file"}
-                {importStep === 2 && "Preview data"}
-                {importStep === 3 && "Map columns"}
+                {importStep === 2 && "Preview raw data"}
+                {importStep === 3 && "Map + confirm import"}
                 {importStep === 4 && "Import complete"}
               </div>
             </div>
@@ -6074,7 +6384,7 @@ function OBDCRMPageContent() {
               </div>
             )}
 
-            {/* Step 4: Confirm Import */}
+            {/* Step 4: Import Complete */}
             {importStep === 4 && importResult ? (
               <div className="space-y-4">
                 <div className={`p-4 rounded-lg ${
@@ -6124,14 +6434,55 @@ function OBDCRMPageContent() {
                   }}
                   className={SUBMIT_BUTTON_CLASSES + " w-full"}
                 >
-                  Close
+                  View contacts
                 </button>
               </div>
             ) : importStep === 3 && importPreview.length > 0 ? (
               <div className="space-y-4">
-                <p className={`text-sm ${themeClasses.headingText}`}>
-                  Preview of {importPreview.length} rows to import:
-                </p>
+                <div className="space-y-2">
+                  <p className={`text-sm ${themeClasses.headingText}`}>
+                    Import preview
+                  </p>
+
+                  {importEstimate && (
+                    <div className={`text-sm ${themeClasses.mutedText} space-y-1`}>
+                      <div>Total rows detected: <span className={themeClasses.headingText}>{importEstimate.totalRows}</span></div>
+                      <div>Estimated to add: <span className={themeClasses.headingText}>{importEstimate.willCreate}</span></div>
+                      <div>
+                        Estimated to skip: <span className={themeClasses.headingText}>{importEstimate.willSkipExisting + importEstimate.willSkipDuplicateInFile}</span>
+                        <span className="ml-1">({importEstimate.willSkipExisting} existing, {importEstimate.willSkipDuplicateInFile} duplicate in file)</span>
+                      </div>
+                      {importEstimate.rowsMissingName > 0 && (
+                        <div>Rows without a name: <span className={themeClasses.headingText}>{importEstimate.rowsMissingName}</span> (ignored)</div>
+                      )}
+                    </div>
+                  )}
+
+                  {importEstimate && (
+                    <div className={`mt-2 p-3 rounded-lg border ${isDark ? "border-slate-700 bg-slate-800/40" : "border-slate-200 bg-slate-50"}`}>
+                      <div className={`text-xs font-semibold mb-2 ${themeClasses.headingText}`}>Column mapping</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                        <div className={themeClasses.mutedText}>Name</div>
+                        <div className={themeClasses.headingText}>{importEstimate.mapping.name || "—"}</div>
+                        <div className={themeClasses.mutedText}>Email</div>
+                        <div className={themeClasses.headingText}>{importEstimate.mapping.email || "—"}</div>
+                        <div className={themeClasses.mutedText}>Phone</div>
+                        <div className={themeClasses.headingText}>{importEstimate.mapping.phone || "—"}</div>
+                        <div className={themeClasses.mutedText}>Status</div>
+                        <div className={themeClasses.headingText}>{importEstimate.mapping.status || "—"}</div>
+                        <div className={themeClasses.mutedText}>Tags</div>
+                        <div className={themeClasses.headingText}>{importEstimate.mapping.tags || "—"}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {importEstimate && (
+                    <div className={`text-sm ${themeClasses.mutedText}`}>
+                      This import will add <span className={themeClasses.headingText}>{importEstimate.willCreate}</span> contacts and skip{" "}
+                      <span className={themeClasses.headingText}>{importEstimate.willSkipExisting + importEstimate.willSkipDuplicateInFile}</span> existing/duplicate contacts.
+                    </div>
+                  )}
+                </div>
                 <div className="overflow-x-auto max-h-64 overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -6167,11 +6518,14 @@ function OBDCRMPageContent() {
                       isImporting ? "opacity-50 cursor-not-allowed" : ""
                     } ${SUBMIT_BUTTON_CLASSES}`}
                   >
-                    {isImporting ? "Importing..." : `Import ${csvData?.rows.length || 0} Contacts`}
+                    {isImporting ? "Importing..." : "Confirm import"}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setImportStep(3)}
+                    onClick={() => {
+                      // Return to mapping step by clearing preview rows
+                      setImportPreview([]);
+                    }}
                     disabled={isImporting}
                     className={`px-4 py-2 rounded-full font-medium ${
                       isDark
@@ -6254,20 +6608,20 @@ function OBDCRMPageContent() {
         </button>
       </div>
 
-      {/* Save Segment Modal */}
-      {showSaveSegmentModal && (
+      {/* Save View Modal */}
+      {showSaveViewModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <OBDPanel isDark={isDark} className="max-w-md w-full">
             <div className="flex items-center justify-between mb-6">
               <OBDHeading level={2} isDark={isDark}>
-                Save View as Segment
+                Save View
               </OBDHeading>
               <button
                 type="button"
                 onClick={() => {
-                  setShowSaveSegmentModal(false);
-                  setNewSegmentName("");
-                  setSegmentSaveError(null);
+                  setShowSaveViewModal(false);
+                  setNewViewName("");
+                  setSaveViewError(null);
                 }}
                 className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
               >
@@ -6275,28 +6629,28 @@ function OBDCRMPageContent() {
               </button>
             </div>
 
-            {segmentSaveError && (
+            {saveViewError && (
               <div className={getErrorPanelClasses(isDark) + " mb-4"}>
-                {segmentSaveError}
+                {saveViewError}
               </div>
             )}
 
             <div className="space-y-4">
               <div>
                 <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                  Segment Name <span className="text-red-500">*</span>
+                  View Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
-                  value={newSegmentName}
+                  value={newViewName}
                   onChange={(e) => {
-                    setNewSegmentName(e.target.value);
-                    setSegmentSaveError(null);
+                    setNewViewName(e.target.value);
+                    setSaveViewError(null);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      handleSaveSegment();
+                      handleSaveView();
                     }
                   }}
                   placeholder="e.g., Overdue Follow-Ups"
@@ -6305,7 +6659,7 @@ function OBDCRMPageContent() {
                   autoFocus
                 />
                 <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                  {newSegmentName.length}/60 characters
+                  {newViewName.length}/60 characters
                 </div>
               </div>
 
@@ -6313,9 +6667,9 @@ function OBDCRMPageContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowSaveSegmentModal(false);
-                    setNewSegmentName("");
-                    setSegmentSaveError(null);
+                    setShowSaveViewModal(false);
+                    setNewViewName("");
+                    setSaveViewError(null);
                   }}
                   className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     isDark
@@ -6327,7 +6681,7 @@ function OBDCRMPageContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveSegment}
+                  onClick={handleSaveView}
                   className={`flex-1 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     isDark
                       ? "bg-blue-700 text-white hover:bg-blue-600"
@@ -6342,20 +6696,20 @@ function OBDCRMPageContent() {
         </div>
       )}
 
-      {/* Manage Segments Modal */}
-      {showManageSegmentsModal && (
+      {/* Manage Saved Views Modal */}
+      {showManageViewsModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <OBDPanel isDark={isDark} className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <OBDHeading level={2} isDark={isDark}>
-                Manage Segments
+                Manage Saved Views
               </OBDHeading>
               <button
                 type="button"
                 onClick={() => {
-                  setShowManageSegmentsModal(false);
-                  setEditingSegmentId(null);
-                  setDeletingSegmentId(null);
+                  setShowManageViewsModal(false);
+                  setEditingViewId(null);
+                  setDeletingViewId(null);
                 }}
                 className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
                 aria-label="Close"
@@ -6364,13 +6718,13 @@ function OBDCRMPageContent() {
               </button>
             </div>
 
-            {segments.length === 0 ? (
+            {savedViews.length === 0 ? (
               <div className={`text-center py-8 ${themeClasses.mutedText}`}>
-                No segments saved yet. Use "Save view" to create your first segment.
+                No saved views yet. Use "Save view" to create your first one.
               </div>
             ) : (
               <div className="space-y-2">
-                {segments.map((segment) => (
+                {savedViews.map((segment) => (
                   <div
                     key={segment.id}
                     className={`p-4 rounded-lg border ${
@@ -6379,16 +6733,16 @@ function OBDCRMPageContent() {
                         : "bg-white border-slate-200"
                     }`}
                   >
-                    {editingSegmentId === segment.id ? (
+                    {editingViewId === segment.id ? (
                       // Edit mode
                       <div className="space-y-2">
                         <div>
                           <input
                             type="text"
-                            value={editingSegmentName}
+                            value={editingViewName}
                             onChange={(e) => {
-                              setEditingSegmentName(e.target.value);
-                              setEditingSegmentError(null);
+                              setEditingViewName(e.target.value);
+                              setEditingViewError(null);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -6403,13 +6757,13 @@ function OBDCRMPageContent() {
                             autoFocus
                             maxLength={60}
                           />
-                          {editingSegmentError && (
+                          {editingViewError && (
                             <div className={`text-xs mt-1 ${isDark ? "text-red-400" : "text-red-600"}`}>
-                              {editingSegmentError}
+                              {editingViewError}
                             </div>
                           )}
                           <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                            {editingSegmentName.length}/60 characters
+                            {editingViewName.length}/60 characters
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -6437,11 +6791,11 @@ function OBDCRMPageContent() {
                           </button>
                         </div>
                       </div>
-                    ) : deletingSegmentId === segment.id ? (
+                    ) : deletingViewId === segment.id ? (
                       // Delete confirmation
                       <div className="space-y-3">
                         <div className={`text-sm ${themeClasses.headingText}`}>
-                          Delete segment &quot;{segment.name}&quot;?
+                          Delete view &quot;{segment.name}&quot;?
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -6457,7 +6811,7 @@ function OBDCRMPageContent() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeletingSegmentId(null)}
+                            onClick={() => setDeletingViewId(null)}
                             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                               isDark
                                 ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
@@ -6488,21 +6842,21 @@ function OBDCRMPageContent() {
                                 ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
                                 : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                             }`}
-                            title="Rename segment"
-                            aria-label={`Rename segment ${segment.name}`}
+                            title="Rename view"
+                            aria-label={`Rename view ${segment.name}`}
                           >
                             Rename
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeletingSegmentId(segment.id)}
+                            onClick={() => setDeletingViewId(segment.id)}
                             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                               isDark
                                 ? "bg-red-700/80 text-white hover:bg-red-600"
                                 : "bg-red-100 text-red-700 hover:bg-red-200"
                             }`}
-                            title="Delete segment"
-                            aria-label={`Delete segment ${segment.name}`}
+                            title="Delete view"
+                            aria-label={`Delete view ${segment.name}`}
                           >
                             Delete
                           </button>
@@ -6518,9 +6872,9 @@ function OBDCRMPageContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowManageSegmentsModal(false);
-                  setEditingSegmentId(null);
-                  setDeletingSegmentId(null);
+                  setShowManageViewsModal(false);
+                  setEditingViewId(null);
+                  setDeletingViewId(null);
                 }}
                 className={`w-full px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                   isDark
@@ -6917,12 +7271,12 @@ function OBDCRMPageContent() {
         </div>
       )}
 
-      {/* Segment Toast */}
-      {segmentToast && (
+      {/* Saved View Toast */}
+      {savedViewToast && (
         <div className="fixed bottom-4 right-4 z-50">
           <OBDPanel isDark={isDark} className="px-4 py-2">
             <div className={`text-sm ${themeClasses.headingText}`}>
-              {segmentToast}
+              {savedViewToast}
             </div>
           </OBDPanel>
         </div>

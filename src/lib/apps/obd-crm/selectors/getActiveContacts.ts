@@ -11,6 +11,7 @@ export type CrmContactsFiltersInput = {
   status?: CrmContactStatus | "";
   tagId?: string;
   followUp?: "all" | "dueToday" | "overdue" | "upcoming" | "none";
+  notes?: "all" | "withNotes";
 };
 
 export type CrmContactsSortInput = {
@@ -23,6 +24,7 @@ export type CrmContactsNormalizedFilters = {
   status: CrmContactStatus | null;
   tagId: string | null;
   followUp: CrmFollowUpBucketFilter;
+  notes: "all" | "withNotes";
 };
 
 export type CrmContactsNormalizedSort = {
@@ -42,6 +44,10 @@ export type CrmContactsSelectorResult = {
     total: number; // raw contacts length
     filtered: number; // after applying filters (including follow-up filter)
     followUpBuckets: CrmFollowUpBucketCounts; // buckets computed AFTER base filters (search/status/tag), BEFORE follow-up filter
+    notes: {
+      withNotes: number; // based on lastTouchAt/lastNote presence within base filters
+      noNotes: number;
+    };
   };
   normalizedFilters: CrmContactsNormalizedFilters;
   normalizedSort: CrmContactsNormalizedSort;
@@ -69,6 +75,10 @@ function normalizeFollowUpFilter(input: unknown): CrmFollowUpBucketFilter {
   if (input === "dueToday") return "today";
   if (input === "overdue" || input === "today" || input === "upcoming" || input === "none") return input;
   return "all";
+}
+
+function normalizeNotesFilter(input: unknown): "all" | "withNotes" {
+  return input === "withNotes" ? "withNotes" : "all";
 }
 
 function normalizeSort(input: CrmContactsSortInput | undefined): CrmContactsNormalizedSort {
@@ -126,6 +136,7 @@ export function getActiveContacts({
     status: normalizeStatus(filters.status),
     tagId: normalizeTagId(filters.tagId),
     followUp: normalizeFollowUpFilter(filters.followUp),
+    notes: normalizeNotesFilter(filters.notes),
   };
 
   const normalizedSort = normalizeSort(sort);
@@ -155,6 +166,11 @@ export function getActiveContacts({
       if (!hasTag) return false;
     }
 
+    if (normalizedFilters.notes === "withNotes") {
+      const hasNotes = !!contact.lastTouchAt || !!contact.lastNote;
+      if (!hasNotes) return false;
+    }
+
     return true;
   });
 
@@ -166,7 +182,15 @@ export function getActiveContacts({
     none: [],
   };
 
+  // Notes counts (computed from baseFiltered only; used for snapshots)
+  let withNotes = 0;
+  let noNotes = 0;
+
   for (const c of baseFiltered) {
+    const hasNotes = !!c.lastTouchAt || !!c.lastNote;
+    if (hasNotes) withNotes++;
+    else noNotes++;
+
     const bucket = getFollowUpBucket(c.nextFollowUpAt, todayWindow);
     buckets[bucket].push(c);
   }
@@ -234,6 +258,7 @@ export function getActiveContacts({
       total: contacts.length,
       filtered: sorted.length,
       followUpBuckets,
+      notes: { withNotes, noNotes },
     },
     normalizedFilters,
     normalizedSort,

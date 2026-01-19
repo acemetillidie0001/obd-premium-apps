@@ -1664,7 +1664,7 @@ export default function LocalKeywordResearchPage() {
               Check Your Current Google Ranking
             </OBDHeading>
             <p className={`mt-2 text-sm ${themeClasses.mutedText}`}>
-              See where your business appears today for a specific keyword in Google's organic search results.
+              Run a one-time visibility check for a keyword + URL. This is not ongoing tracking and not a ranking guarantee. We do not run a first‑party SERP scraper; results may be mock data (default) or come from an approved third‑party SERP API if enabled in your environment.
             </p>
 
             <form
@@ -1967,7 +1967,7 @@ export default function LocalKeywordResearchPage() {
               A local keyword strategy: clusters, priority keywords, intent labels, and optional ideas (blog/FAQ/GBP posts).
             </p>
             <p className={`mt-2 text-xs ${themeClasses.mutedText}`}>
-              This tool does not track rankings, scrape Google results, or automatically publish anything.
+              This tool does not do ongoing rank tracking or automatically publish anything. If you use the optional Rank Check, it’s a one-time check (not tracking) and it does not use a first‑party SERP scraper.
             </p>
           </OBDPanel>
         )}

@@ -311,12 +311,20 @@ Design constraints:
 
 This list is mandatory and must be treated as hard constraints:
 
-- **❌ Rank tracking**
-- **❌ SERP scraping**
+- **❌ Ongoing rank tracking** (no background jobs; no history stored; no scheduled checks)
+- **❌ First‑party SERP scraping** (we do not operate our own scraper against Google)
 - **❌ Keyword difficulty scores that imply ranking certainty**
 - **❌ Auto-publishing / auto-application into other apps**
 - **❌ Scheduled/automatic re-pulling of Ads data**
 - **❌ Cross-tenant sharing**
+
+### Rank Check (what it actually is)
+
+LKRT includes an optional **Rank Check** panel for a **single, user-triggered** visibility check.
+
+- **Not tracking**: it does not store history or monitor rankings over time.
+- **Not a guarantee**: results are informational only and do not guarantee rankings, leads, or outcomes.
+- **No first‑party scraping**: LKRT does not run a first‑party SERP scraper. By default it returns mock data for UI/testing. If a third‑party SERP API is configured in the environment (e.g., via `LOCAL_RANK_PROVIDER`), results may come from that provider.
 
 ---
 

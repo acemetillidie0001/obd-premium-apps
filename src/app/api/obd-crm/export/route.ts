@@ -25,6 +25,9 @@ const exportRequestSchema = z.object({
   search: z.string().optional(),
   status: z.enum(["Lead", "Active", "Past", "DoNotContact"]).optional(),
   tagId: z.string().optional(),
+  followUp: z.enum(["all", "overdue", "today", "upcoming", "none"]).optional(),
+  sort: z.enum(["updatedAt", "createdAt", "name", "lastTouchAt", "nextFollowUpAt"]).optional(),
+  order: z.enum(["asc", "desc"]).optional(),
 });
 
 /**
@@ -99,7 +102,7 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { search, status, tagId } = validationResult.data;
+    const { search, status, tagId, followUp = "all", sort = "updatedAt", order = "desc" } = validationResult.data;
 
     // Build where clause (same logic as GET /contacts)
     const where: any = {
@@ -130,6 +133,33 @@ export async function POST(request: NextRequest) {
       };
     }
 
+    // Follow-up bucket filter (align with canonical selector)
+    // Bucket rules:
+    // - overdue: nextFollowUpAt < startOfToday
+    // - today: startOfToday <= nextFollowUpAt <= endOfToday
+    // - upcoming: nextFollowUpAt > endOfToday
+    // - none: nextFollowUpAt is null
+    if (followUp && followUp !== "all") {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      if (followUp === "none") {
+        where.nextFollowUpAt = null;
+      } else if (followUp === "overdue") {
+        where.nextFollowUpAt = { lt: startOfToday };
+      } else if (followUp === "today") {
+        where.nextFollowUpAt = { gte: startOfToday, lte: endOfToday };
+      } else if (followUp === "upcoming") {
+        where.nextFollowUpAt = { gt: endOfToday };
+      }
+    }
+
+    // Build orderBy (align with canonical selector)
+    const orderBy: any = {};
+    // For fields that can be null, Prisma sorts nulls first in asc; this matches the UI's deterministic ordering closely enough
+    orderBy[sort] = order;
+
     // Get all contacts matching filters (no pagination - export all matches)
     const contacts = await prisma.crmContact.findMany({
       where,
@@ -149,9 +179,7 @@ export async function POST(request: NextRequest) {
           take: 1, // Get most recent note for lastNote column
         },
       },
-      orderBy: {
-        updatedAt: "desc",
-      },
+      orderBy,
     });
 
     // Build CSV headers (in specified order)

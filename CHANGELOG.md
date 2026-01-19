@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OBD CRM — Tier 5A + Tier 5B + Tier 5C (2026-01-19)**
+  - Tier 5A UX parity: accordion filters, sticky bulk actions, improved empty/no-results states, and edit-mode sticky Save/Cancel (disabled-not-hidden).
+  - Tier 5B determinism: canonical contacts selector (single source of truth), deterministic follow-up buckets, and “Export reflects your current view (filters + sort)” alignment.
+  - Tier 5C ecosystem awareness: read-only Signals on contact detail (Scheduler awareness via tenant-safe exact email match when available, review-awareness derived from existing CRM notes, link-only Help Desk guidance).
+  - Explicit: no schema changes, no automation.
+
 - **Reputation Dashboard — Tier 5A + Tier 5B + Tier 5C (2026-01-19)**
   - Tier 5A UX parity: results accordions, sticky action bar, trust messaging, and disabled-not-hidden tooltips.
   - Tier 5B: immutable localStorage snapshots + snapshot picker + snapshot-bound exports/print view.

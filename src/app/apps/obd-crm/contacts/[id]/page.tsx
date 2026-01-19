@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyToolbar from "@/components/obd/OBDStickyToolbar";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
@@ -38,6 +40,66 @@ export default function ContactDetailPage() {
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
+  // Connected signals (read-only, tenant-safe)
+  const [schedulerSignals, setSchedulerSignals] = useState<{
+    checked: boolean;
+    hasAnyMatch: boolean;
+    hasBookedBefore: boolean;
+    hasUpcomingBooking: boolean;
+    upcomingBookingAt: string | null;
+    matchedCount: number;
+    error?: string | null;
+  }>({
+    checked: false,
+    hasAnyMatch: false,
+    hasBookedBefore: false,
+    hasUpcomingBooking: false,
+    upcomingBookingAt: null,
+    matchedCount: 0,
+    error: null,
+  });
+
+  const resetEditFormToContact = (c: CrmContact) => {
+    setEditForm({
+      name: c.name,
+      email: c.email || "",
+      phone: c.phone || "",
+      company: c.company || "",
+      address: c.address || "",
+      status: c.status,
+      tags: c.tags,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    if (!contact) return;
+    setIsEditing(false);
+    resetEditFormToContact(contact);
+  };
+
+  const normalizeText = (v: unknown) => String(v ?? "").trim();
+  const contactTagKey = contact ? contact.tags.map((t) => t.id).sort().join(",") : "";
+  const editTagKey = (editForm.tags || []).map((t: any) => t.id).sort().join(",");
+  const isDirty =
+    !!contact &&
+    isEditing &&
+    (normalizeText(editForm.name) !== normalizeText(contact.name) ||
+      normalizeText(editForm.email) !== normalizeText(contact.email) ||
+      normalizeText(editForm.phone) !== normalizeText(contact.phone) ||
+      normalizeText(editForm.company) !== normalizeText(contact.company) ||
+      normalizeText(editForm.address) !== normalizeText(contact.address) ||
+      (editForm.status || "Lead") !== contact.status ||
+      editTagKey !== contactTagKey);
+
+  const isValid = normalizeText(editForm.name).length >= 2;
+  const saveDisabledReason = !isDirty
+    ? "No changes to save"
+    : !isValid
+    ? "Name must be at least 2 characters"
+    : isSaving
+    ? "Saving…"
+    : null;
+
   useEffect(() => {
     if (contactId) {
       loadContact();
@@ -45,6 +107,81 @@ export default function ContactDetailPage() {
       loadTags();
     }
   }, [contactId]);
+
+  // Scheduler awareness (read-only): uses existing tenant-scoped Scheduler API.
+  // No fuzzy matching: only exact email match within returned results.
+  useEffect(() => {
+    const run = async () => {
+      if (!contact?.email || !contact.email.trim()) {
+        setSchedulerSignals({
+          checked: true,
+          hasAnyMatch: false,
+          hasBookedBefore: false,
+          hasUpcomingBooking: false,
+          upcomingBookingAt: null,
+          matchedCount: 0,
+          error: null,
+        });
+        return;
+      }
+
+      const email = contact.email.trim().toLowerCase();
+
+      try {
+        const res = await fetch(
+          `/api/obd-scheduler/requests?search=${encodeURIComponent(email)}&limit=100`,
+          { cache: "no-store" }
+        );
+        const json = await res.json().catch(() => null);
+        const requests: Array<{
+          id: string;
+          customerEmail: string;
+          status: string;
+          preferredStart: string | null;
+          proposedStart: string | null;
+        }> = (json?.data?.requests || json?.requests || []) as any;
+
+        const exact = Array.isArray(requests)
+          ? requests.filter((r) => (r.customerEmail || "").trim().toLowerCase() === email)
+          : [];
+
+        const now = Date.now();
+        const hasBookedBefore = exact.some((r) => r.status === "COMPLETED");
+        const upcomingCandidates = exact
+          .filter((r) => r.status === "APPROVED" || r.status === "PROPOSED_TIME")
+          .map((r) => r.proposedStart || r.preferredStart)
+          .filter((d): d is string => !!d)
+          .map((d) => new Date(d).getTime())
+          .filter((t) => Number.isFinite(t) && t > now)
+          .sort((a, b) => a - b);
+
+        const hasUpcomingBooking = upcomingCandidates.length > 0;
+        const upcomingBookingAt = hasUpcomingBooking ? new Date(upcomingCandidates[0]).toISOString() : null;
+
+        setSchedulerSignals({
+          checked: true,
+          hasAnyMatch: exact.length > 0,
+          hasBookedBefore,
+          hasUpcomingBooking,
+          upcomingBookingAt,
+          matchedCount: exact.length,
+          error: null,
+        });
+      } catch (e) {
+        setSchedulerSignals({
+          checked: true,
+          hasAnyMatch: false,
+          hasBookedBefore: false,
+          hasUpcomingBooking: false,
+          upcomingBookingAt: null,
+          matchedCount: 0,
+          error: e instanceof Error ? e.message : "Failed to check Scheduler signals",
+        });
+      }
+    };
+
+    run();
+  }, [contact?.email]);
 
   const loadContact = async () => {
     setIsLoading(true);
@@ -59,15 +196,7 @@ export default function ContactDetailPage() {
       }
 
       setContact(json.data);
-      setEditForm({
-        name: json.data.name,
-        email: json.data.email || "",
-        phone: json.data.phone || "",
-        company: json.data.company || "",
-        address: json.data.address || "",
-        status: json.data.status,
-        tags: json.data.tags,
-      });
+      resetEditFormToContact(json.data);
     } catch (err) {
       console.error("Error loading contact:", err);
       setError(err instanceof Error ? err.message : "Failed to load contact");
@@ -193,6 +322,22 @@ export default function ContactDetailPage() {
     return new Date(dateStr).toLocaleString();
   };
 
+  const formatShortDateTime = (dateStr: string | null) => {
+    if (!dateStr) return "—";
+    try {
+      return new Date(dateStr).toLocaleString();
+    } catch {
+      return "—";
+    }
+  };
+
+  const hasReviewRequestSent = notes.some((n) =>
+    (n.content || "").toLowerCase().includes("review request sent")
+  );
+  const hasReviewReceived = notes.some((n) =>
+    (n.content || "").toLowerCase().includes("review received")
+  );
+
   const handleCopy = async (text: string, field: string) => {
     if (!text) return;
     try {
@@ -268,6 +413,51 @@ export default function ContactDetailPage() {
         <div className={getErrorPanelClasses(isDark) + " mt-8"}>{error}</div>
       )}
 
+      {/* Sticky Edit Actions (Tier 5A parity) */}
+      {isEditing && (
+        <OBDStickyToolbar isDark={isDark} className="mt-6">
+          <OBDPanel
+            isDark={isDark}
+            variant="toolbar"
+            className="border-0 shadow-none rounded-none overflow-hidden py-2 md:py-2.5"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className={`text-sm font-medium ${themeClasses.headingText}`}>
+                {isDirty ? "You have unsaved changes" : "Editing — no changes yet"}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  title={isSaving ? "Wait for save to finish" : "Discard changes and revert to last saved"}
+                  className={`px-4 py-2 rounded-full font-medium transition-colors ${
+                    isSaving
+                      ? "opacity-50 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-white hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!!saveDisabledReason}
+                  title={saveDisabledReason || "Save changes"}
+                  className={`${SUBMIT_BUTTON_CLASSES} w-auto ${
+                    saveDisabledReason ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  {isSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </OBDPanel>
+        </OBDStickyToolbar>
+      )}
+
       {/* Contact Info */}
       <OBDPanel isDark={isDark} className="mt-8">
         <div className="flex items-center justify-between mb-6">
@@ -279,33 +469,13 @@ export default function ContactDetailPage() {
               <>
                 <button
                   type="button"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className={SUBMIT_BUTTON_CLASSES + " w-auto"}
-                >
-                  {isSaving ? "Saving..." : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditing(false);
-                    setEditForm({
-                      name: contact.name,
-                      email: contact.email || "",
-                      phone: contact.phone || "",
-                      company: contact.company || "",
-                      address: contact.address || "",
-                      status: contact.status,
-                      tags: contact.tags,
-                    });
-                  }}
-                  className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                    isDark
-                      ? "bg-slate-700 text-white hover:bg-slate-600"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  disabled={true}
+                  title="Use the sticky bar to Save or Cancel changes"
+                  className={`px-4 py-2 rounded-full font-medium transition-colors opacity-70 cursor-not-allowed ${
+                    isDark ? "bg-slate-800 text-slate-300" : "bg-slate-100 text-slate-600"
                   }`}
                 >
-                  Cancel
+                  Editing
                 </button>
               </>
             ) : (
@@ -557,6 +727,135 @@ export default function ContactDetailPage() {
               </div>
             )}
           </div>
+        </div>
+      </OBDPanel>
+
+      {/* Signals / Connected Activity (read-only) */}
+      <OBDPanel isDark={isDark} className="mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <OBDHeading level={2} isDark={isDark} className="!mb-0">
+            Signals
+          </OBDHeading>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/apps/obd-scheduler"
+              className={`text-sm font-medium transition-colors ${
+                isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"
+              }`}
+              title="Open Scheduler (read-only)"
+            >
+              View in Scheduler
+            </Link>
+            <span className={`${themeClasses.mutedText}`}>·</span>
+            <Link
+              href="/apps/reputation-dashboard"
+              className={`text-sm font-medium transition-colors ${
+                isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"
+              }`}
+              title="Open Reputation Dashboard (read-only)"
+            >
+              Open Reputation Dashboard
+            </Link>
+            <span className={`${themeClasses.mutedText}`}>·</span>
+            <Link
+              href="/apps/ai-help-desk"
+              className={`text-sm font-medium transition-colors ${
+                isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"
+              }`}
+              title="Open AI Help Desk (read-only)"
+            >
+              View Help Desk Insights
+            </Link>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Scheduler awareness */}
+          {schedulerSignals.checked && schedulerSignals.hasAnyMatch && (
+            <div>
+              <div className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>
+                Scheduler & Bookings
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                {schedulerSignals.hasBookedBefore && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+                      isDark
+                        ? "bg-green-900/30 text-green-400 border-green-700/30"
+                        : "bg-green-100 text-green-700 border-green-200"
+                    }`}
+                  >
+                    Has booked before
+                  </span>
+                )}
+                {schedulerSignals.hasUpcomingBooking && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+                      isDark
+                        ? "bg-blue-900/30 text-blue-400 border-blue-700/30"
+                        : "bg-blue-100 text-blue-700 border-blue-200"
+                    }`}
+                    title={schedulerSignals.upcomingBookingAt ? `Next: ${formatShortDateTime(schedulerSignals.upcomingBookingAt)}` : undefined}
+                  >
+                    Upcoming booking
+                  </span>
+                )}
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  Matched {schedulerSignals.matchedCount} request(s) by exact email
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Review request awareness (derived from CRM notes only) */}
+          {(hasReviewRequestSent || hasReviewReceived) && (
+            <div>
+              <div className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>
+                Reviews
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                {hasReviewRequestSent && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+                      isDark
+                        ? "bg-slate-800/50 text-slate-300 border-slate-700/30"
+                        : "bg-slate-100 text-slate-700 border-slate-300"
+                    }`}
+                  >
+                    Review request sent
+                  </span>
+                )}
+                {hasReviewReceived && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border ${
+                      isDark
+                        ? "bg-green-900/30 text-green-400 border-green-700/30"
+                        : "bg-green-100 text-green-700 border-green-200"
+                    }`}
+                  >
+                    Review received
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* AI Help Desk awareness (static, no data transfer) */}
+          <div>
+            <div className={`text-sm font-semibold mb-1 ${themeClasses.headingText}`}>
+              AI Help Desk
+            </div>
+            <div className={`text-sm ${themeClasses.mutedText}`}>
+              Customer questions can inform CRM notes.
+            </div>
+          </div>
+
+          {/* If nothing to show besides static help desk line, keep it quiet */}
+          {schedulerSignals.checked && !schedulerSignals.hasAnyMatch && !hasReviewRequestSent && !hasReviewReceived && (
+            <div className={`text-xs ${themeClasses.mutedText}`}>
+              No connected signals detected yet.
+            </div>
+          )}
         </div>
       </OBDPanel>
 

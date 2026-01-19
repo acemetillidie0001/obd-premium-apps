@@ -10,10 +10,15 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDTableWrapper from "@/components/obd/OBDTableWrapper";
 import OBDStickyToolbar from "@/components/obd/OBDStickyToolbar";
+import LocalSeoAccordionSection from "@/app/apps/local-seo-page-builder/components/LocalSeoAccordionSection";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import { parseCSV } from "@/lib/utils/csvParser";
+import {
+  getActiveContacts,
+  type CrmContactsSortInput,
+} from "@/lib/apps/obd-crm/selectors/getActiveContacts";
 import type {
   CrmContact,
   CrmTag,
@@ -222,6 +227,9 @@ function OBDCRMPageContent() {
   const [statusFilter, setStatusFilter] = useState<CrmContactStatus | "">("");
   const [tagFilter, setTagFilter] = useState("");
   const [followUpFilter, setFollowUpFilter] = useState<"all" | "dueToday" | "overdue" | "upcoming">("all");
+  const [isTagsFiltersOpen, setIsTagsFiltersOpen] = useState(false);
+  const [isFollowUpFiltersOpen, setIsFollowUpFiltersOpen] = useState(false);
+  const [isSegmentsFiltersOpen, setIsSegmentsFiltersOpen] = useState(false);
   
   // Table density preference
   const [tableDensity, setTableDensity] = useState<"comfortable" | "compact">(() => {
@@ -300,6 +308,21 @@ function OBDCRMPageContent() {
   useEffect(() => {
     saveSegmentsToStorage(segments);
   }, [segments]);
+
+  const selectedTagName = tagFilter ? tags.find((t) => t.id === tagFilter)?.name : null;
+  const tagsSummary = selectedTagName ? `Tags: ${selectedTagName}` : "Tags: All";
+  const followUpsSummary =
+    followUpFilter === "all"
+      ? "Follow-ups: All"
+      : followUpFilter === "overdue"
+      ? "Follow-ups: Overdue"
+      : followUpFilter === "dueToday"
+      ? "Follow-ups: Today"
+      : "Follow-ups: Upcoming";
+  const selectedSegmentName = selectedSegmentId
+    ? segments.find((s) => s.id === selectedSegmentId)?.name || "Selected"
+    : null;
+  const segmentsSummary = selectedSegmentName ? `View: ${selectedSegmentName}` : "View: No segment";
 
   // Handle segment selection
   const handleSegmentSelect = (segmentId: string | null) => {
@@ -808,6 +831,38 @@ function OBDCRMPageContent() {
 
     return () => clearTimeout(timer);
   }, [search]);
+
+  // Canonical selector (single source of truth for view: table, queue, counters, export)
+  const stableReferenceTime = React.useMemo(() => new Date(), [
+    debouncedSearch,
+    statusFilter,
+    tagFilter,
+    followUpFilter,
+  ]);
+
+  const sortInput: CrmContactsSortInput = React.useMemo(
+    () => ({
+      key: "updatedAt",
+      order: "desc",
+    }),
+    []
+  );
+
+  const selector = React.useMemo(() => {
+    return getActiveContacts({
+      contacts,
+      filters: {
+        search: debouncedSearch,
+        status: statusFilter,
+        tagId: tagFilter,
+        followUp: followUpFilter,
+      },
+      sort: sortInput,
+      referenceTime: stableReferenceTime,
+    });
+  }, [contacts, debouncedSearch, statusFilter, tagFilter, followUpFilter, sortInput, stableReferenceTime]);
+
+  const activeContacts = selector.activeContacts;
 
   // Safe fetch helper to prevent JSON parsing crashes
   const safeFetch = useCallback(async (url: string) => {
@@ -1378,38 +1433,12 @@ function OBDCRMPageContent() {
   // Get follow-up status classification
   const getFollowUpStatus = (dateStr: string | null | undefined): "OVERDUE" | "TODAY" | "UPCOMING" | "NONE" => {
     if (!dateStr) return "NONE";
-    try {
-      const date = new Date(dateStr);
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayEnd = new Date(todayStart);
-      todayEnd.setDate(todayEnd.getDate() + 1);
-      
-      if (date.getTime() < now.getTime()) return "OVERDUE";
-      if (date.getTime() >= todayStart.getTime() && date.getTime() < todayEnd.getTime()) return "TODAY";
-      return "UPCOMING";
-    } catch {
-      return "NONE";
-    }
-  };
-
-  // Classify follow-up with more granular categories for counting
-  const classifyFollowUp = (nextFollowUpAt: string | null | undefined, now: Date = new Date()): "NONE" | "OVERDUE" | "TODAY" | "UPCOMING_7D" | "LATER" => {
-    if (!nextFollowUpAt) return "NONE";
-    try {
-      const date = new Date(nextFollowUpAt);
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const todayEnd = new Date(todayStart);
-      todayEnd.setDate(todayEnd.getDate() + 1);
-      const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      
-      if (date.getTime() < now.getTime()) return "OVERDUE";
-      if (date.getTime() >= todayStart.getTime() && date.getTime() < todayEnd.getTime()) return "TODAY";
-      if (date.getTime() >= now.getTime() && date.getTime() <= sevenDaysFromNow.getTime()) return "UPCOMING_7D";
-      return "LATER";
-    } catch {
-      return "NONE";
-    }
+    // Deterministic bucketing: compare against start/end of today computed from stableReferenceTime
+    const t = new Date(dateStr).getTime();
+    if (!Number.isFinite(t)) return "NONE";
+    if (t < selector.todayWindow.startOfToday.getTime()) return "OVERDUE";
+    if (t <= selector.todayWindow.endOfToday.getTime()) return "TODAY";
+    return "UPCOMING";
   };
 
   // Handle saving follow-up
@@ -1794,9 +1823,12 @@ function OBDCRMPageContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          search: debouncedSearch.trim() || undefined,
-          status: statusFilter || undefined,
-          tagId: tagFilter || undefined,
+          search: selector.normalizedFilters.search || undefined,
+          status: selector.normalizedFilters.status || undefined,
+          tagId: selector.normalizedFilters.tagId || undefined,
+          followUp: selector.normalizedFilters.followUp, // "all" | "overdue" | "today" | "upcoming" | "none"
+          sort: selector.normalizedSort.key,
+          order: selector.normalizedSort.order,
         }),
       });
 
@@ -2024,73 +2056,183 @@ function OBDCRMPageContent() {
                   <option value="DoNotContact">Do Not Contact</option>
                 </select>
               </div>
+            </div>
 
-              {/* Tag Filter */}
-              <div className="min-w-[140px] flex-shrink-0">
-                <select
-                  value={tagFilter}
-                  onChange={(e) => setTagFilter(e.target.value)}
-                  className={getInputClasses(isDark)}
-                >
-                  <option value="">All Tags</option>
-                  {tags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Follow-Up Filter */}
-              <div className="min-w-[140px] flex-shrink-0">
-                <select
-                  value={followUpFilter}
-                  onChange={(e) => setFollowUpFilter(e.target.value as typeof followUpFilter)}
-                  className={getInputClasses(isDark)}
-                >
-                  <option value="all">All Follow-Ups</option>
-                  <option value="dueToday">Due Today</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="upcoming">Upcoming (7 days)</option>
-                </select>
-              </div>
-
-              {/* Segments Dropdown */}
-              <div className="flex items-center gap-2 min-w-[140px] flex-shrink-0">
-                <div className="flex-1 min-w-0">
+            {/* Advanced filters (Tier 5A parity) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <LocalSeoAccordionSection
+                isDark={isDark}
+                title="Tags"
+                summary={tagsSummary}
+                isOpen={isTagsFiltersOpen}
+                onToggle={() => setIsTagsFiltersOpen((v) => !v)}
+              >
+                <div className="min-w-0">
                   <select
-                    value={selectedSegmentId || ""}
-                    onChange={(e) => handleSegmentSelect(e.target.value || null)}
-                    className={`${getInputClasses(isDark)} ${selectedSegmentId ? (isDark ? "ring-1 ring-blue-500/50" : "ring-1 ring-blue-400/50") : ""}`}
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    className={getInputClasses(isDark)}
                   >
-                    <option value="">No segment</option>
-                    {segments.map((segment) => (
-                      <option key={segment.id} value={segment.id}>
-                        {segment.name}
+                    <option value="">All Tags</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
                       </option>
                     ))}
                   </select>
                 </div>
-                {segments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowManageSegmentsModal(true);
-                      setEditingSegmentId(null);
-                      setDeletingSegmentId(null);
-                    }}
-                    className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
-                      isDark
-                        ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                    }`}
-                    title="Manage segments"
-                    aria-label="Manage segments"
-                  >
-                    Manage
-                  </button>
-                )}
-              </div>
+              </LocalSeoAccordionSection>
+
+              <LocalSeoAccordionSection
+                isDark={isDark}
+                title="Follow-ups"
+                summary={followUpsSummary}
+                isOpen={isFollowUpFiltersOpen}
+                onToggle={() => setIsFollowUpFiltersOpen((v) => !v)}
+              >
+                <div className="space-y-3">
+                  <div className="min-w-0">
+                    <select
+                      value={followUpFilter}
+                      onChange={(e) => setFollowUpFilter(e.target.value as typeof followUpFilter)}
+                      className={getInputClasses(isDark)}
+                    >
+                      <option value="all">All Follow-Ups</option>
+                      <option value="dueToday">Due Today</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="upcoming">Upcoming</option>
+                    </select>
+                  </div>
+
+                  {(() => {
+                    if (isLoading) {
+                      return (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Skeleton className="h-6 w-20 rounded-full" isDark={isDark} />
+                          <Skeleton className="h-6 w-16 rounded-full" isDark={isDark} />
+                          <Skeleton className="h-6 w-24 rounded-full" isDark={isDark} />
+                        </div>
+                      );
+                    }
+
+                    const overdueCount = selector.counts.followUpBuckets.overdue;
+                    const todayCount = selector.counts.followUpBuckets.today;
+                    const upcoming7dCount = selector.counts.followUpBuckets.upcoming;
+
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpFilter("overdue")}
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                            followUpFilter === "overdue"
+                              ? isDark
+                                ? "bg-red-900/30 text-red-400 border-red-700/50"
+                                : "bg-red-100 text-red-700 border-red-300"
+                              : isDark
+                              ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
+                              : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                          }`}
+                        >
+                          Overdue <span className="ml-1.5 font-semibold">{overdueCount}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpFilter("dueToday")}
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                            followUpFilter === "dueToday"
+                              ? isDark
+                                ? "bg-yellow-900/30 text-yellow-400 border-yellow-700/50"
+                                : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                              : isDark
+                              ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
+                              : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                          }`}
+                        >
+                          Today <span className="ml-1.5 font-semibold">{todayCount}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpFilter("upcoming")}
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
+                            followUpFilter === "upcoming"
+                              ? isDark
+                                ? "bg-blue-900/30 text-blue-400 border-blue-700/50"
+                                : "bg-blue-100 text-blue-700 border-blue-300"
+                              : isDark
+                              ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
+                              : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                          }`}
+                        >
+                          Upcoming <span className="ml-1.5 font-semibold">{upcoming7dCount}</span>
+                        </button>
+                        {followUpFilter !== "all" && (
+                          <button
+                            type="button"
+                            onClick={() => setFollowUpFilter("all")}
+                            className={`text-xs ${themeClasses.mutedText} hover:underline`}
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </LocalSeoAccordionSection>
+
+              <LocalSeoAccordionSection
+                isDark={isDark}
+                title="Saved view"
+                summary={segmentsSummary}
+                isOpen={isSegmentsFiltersOpen}
+                onToggle={() => setIsSegmentsFiltersOpen((v) => !v)}
+              >
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <select
+                        value={selectedSegmentId || ""}
+                        onChange={(e) => handleSegmentSelect(e.target.value || null)}
+                        className={`${getInputClasses(isDark)} ${
+                          selectedSegmentId ? (isDark ? "ring-1 ring-blue-500/50" : "ring-1 ring-blue-400/50") : ""
+                        }`}
+                      >
+                        <option value="">No segment</option>
+                        {segments.map((segment) => (
+                          <option key={segment.id} value={segment.id}>
+                            {segment.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {segments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowManageSegmentsModal(true);
+                          setEditingSegmentId(null);
+                          setDeletingSegmentId(null);
+                        }}
+                        className={`px-3 py-2 rounded-full text-sm font-medium transition-colors ${
+                          isDark
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                        }`}
+                        title="Manage segments"
+                        aria-label="Manage segments"
+                      >
+                        Manage
+                      </button>
+                    )}
+                  </div>
+                  {segments.length === 0 && (
+                    <div className={`text-xs ${themeClasses.mutedText}`}>
+                      No saved views yet. Use “Save view” to create your first one.
+                    </div>
+                  )}
+                </div>
+              </LocalSeoAccordionSection>
             </div>
 
             {/* Row 2: View Controls and Action Buttons - All in one horizontal line */}
@@ -2210,6 +2352,9 @@ function OBDCRMPageContent() {
                 >
                   {isExporting ? "Exporting…" : "Export CSV"}
                 </button>
+                <span className={`hidden lg:inline text-xs ${themeClasses.mutedText} whitespace-nowrap`}>
+                  Export reflects your current view (filters + sort).
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -2234,6 +2379,108 @@ function OBDCRMPageContent() {
                 </button>
               </div>
             </div>
+
+            {/* Bulk selection mode (sticky, Tier 5A parity) */}
+            {followUpView === "table" && selectedContactIds.size > 0 && (() => {
+              // Compute filtered contacts for "Select all visible" button
+              const allVisibleSelected =
+                activeContacts.length > 0 && activeContacts.every((c) => selectedContactIds.has(c.id));
+
+              return (
+                <div className="border-t pt-3" style={{ borderColor: isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(148, 163, 184, 0.25)" }}>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <div className={`text-sm font-medium ${themeClasses.headingText}`}>
+                      {selectedContactIds.size} selected
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {!allVisibleSelected && (
+                        <button
+                          type="button"
+                          onClick={() => selectAllVisible(activeContacts.map((c) => c.id))}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                            isDark
+                              ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                              : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                          }`}
+                        >
+                          Select all visible
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={clearSelection}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          isDark
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                        }`}
+                      >
+                        Clear
+                      </button>
+                      <div className="h-4 w-px bg-current/20 mx-1" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowBulkAddTagModal(true);
+                          setBulkTagName("");
+                          setBulkTagError(null);
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          isDark
+                            ? "bg-blue-700 text-white hover:bg-blue-600"
+                            : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        }`}
+                      >
+                        Add Tag
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowBulkSetFollowUpModal(true);
+                          setBulkFollowUpAt("");
+                          setBulkFollowUpNote("");
+                          setBulkFollowUpError(null);
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          isDark
+                            ? "bg-blue-700 text-white hover:bg-blue-600"
+                            : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        }`}
+                      >
+                        Set Follow-Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowBulkClearFollowUpConfirm(true)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          isDark
+                            ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                        }`}
+                      >
+                        Clear Follow-Up
+                      </button>
+                      <div className="h-4 w-px bg-current/20 mx-1" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowBulkSendReviewRequestModal(true);
+                          setBulkReviewRequestChannel("email");
+                          setBulkReviewRequestTemplate("default");
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                          isDark
+                            ? "bg-green-700 text-white hover:bg-green-600"
+                            : "bg-green-100 text-green-700 hover:bg-green-200"
+                        }`}
+                      >
+                        Send Review Request
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </OBDPanel>
       </OBDStickyToolbar>
@@ -2386,112 +2633,6 @@ function OBDCRMPageContent() {
 
       {/* Contacts List */}
       <OBDPanel isDark={isDark} className="mt-3">
-        {/* Follow-ups Counter Strip */}
-        {(() => {
-          if (isLoading) {
-            return (
-              <div className={`pb-4 border-b ${themeClasses.panelBorder} mb-4`}>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className={`text-sm font-semibold ${themeClasses.headingText}`}>Follow-ups:</span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Skeleton className="h-6 w-20 rounded-full" isDark={isDark} />
-                    <Skeleton className="h-6 w-16 rounded-full" isDark={isDark} />
-                    <Skeleton className="h-6 w-24 rounded-full" isDark={isDark} />
-                  </div>
-                </div>
-              </div>
-            );
-          }
-
-          // Compute counts from search-filtered contacts (before follow-up filter)
-          const searchFiltered = contacts.filter((contact) => {
-            if (search.trim()) {
-              const searchLower = search.toLowerCase();
-              return (
-                contact.name.toLowerCase().includes(searchLower) ||
-                (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
-                (contact.phone && contact.phone.includes(search))
-              );
-            }
-            return true;
-          });
-
-          const now = new Date();
-          let overdueCount = 0;
-          let todayCount = 0;
-          let upcoming7dCount = 0;
-
-          searchFiltered.forEach((contact) => {
-            const classification = classifyFollowUp(contact.nextFollowUpAt || null, now);
-            if (classification === "OVERDUE") overdueCount++;
-            else if (classification === "TODAY") todayCount++;
-            else if (classification === "UPCOMING_7D") upcoming7dCount++;
-          });
-
-          return (
-            <div className={`pb-4 border-b ${themeClasses.panelBorder} mb-4`}>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className={`text-sm font-semibold ${themeClasses.headingText}`}>Follow-ups:</span>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setFollowUpFilter("overdue")}
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      followUpFilter === "overdue"
-                        ? isDark
-                          ? "bg-red-900/30 text-red-400 border-red-700/50"
-                          : "bg-red-100 text-red-700 border-red-300"
-                        : isDark
-                        ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Overdue <span className="ml-1.5 font-semibold">{overdueCount}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFollowUpFilter("dueToday")}
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      followUpFilter === "dueToday"
-                        ? isDark
-                          ? "bg-yellow-900/30 text-yellow-400 border-yellow-700/50"
-                          : "bg-yellow-100 text-yellow-700 border-yellow-300"
-                        : isDark
-                        ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Today <span className="ml-1.5 font-semibold">{todayCount}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFollowUpFilter("upcoming")}
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors border ${
-                      followUpFilter === "upcoming"
-                        ? isDark
-                          ? "bg-blue-900/30 text-blue-400 border-blue-700/50"
-                          : "bg-blue-100 text-blue-700 border-blue-300"
-                        : isDark
-                        ? "bg-slate-800/50 text-slate-300 border-slate-700/30 hover:bg-slate-700/50"
-                        : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
-                    }`}
-                  >
-                    Upcoming <span className="ml-1.5 font-semibold">{upcoming7dCount}</span>
-                  </button>
-                  {followUpFilter !== "all" && (
-                    <button
-                      type="button"
-                      onClick={() => setFollowUpFilter("all")}
-                      className={`text-xs ${themeClasses.mutedText} hover:underline`}
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
         {isLoading ? (
           <OBDTableWrapper>
             <table className="w-full">
@@ -2573,22 +2714,24 @@ function OBDCRMPageContent() {
               </tbody>
             </table>
           </OBDTableWrapper>
-        ) : contacts.length === 0 ? (
+        ) : selector.counts.total === 0 ? (
           <div className={`text-center py-12 px-4 ${themeClasses.mutedText}`}>
             <div className={`inline-block p-6 rounded-lg ${isDark ? "bg-slate-800/50" : "bg-slate-50"} max-w-md`}>
               <h3 className={`text-xl font-semibold mb-2 ${themeClasses.headingText}`}>
-                No contacts yet
+                CRM is your relationship memory
               </h3>
-              <p className={`text-sm mb-6 ${themeClasses.mutedText}`}>
-                Add your first customer to start tracking follow-ups.
-              </p>
-              <div className="flex gap-3 justify-center">
+              <ul className={`text-sm mb-6 ${themeClasses.mutedText} text-left list-disc list-inside space-y-1`}>
+                <li>Track conversations and context</li>
+                <li>Set simple follow-ups so leads don’t slip</li>
+                <li>Keep customer history connected across OBD apps</li>
+              </ul>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(true)}
                   className={SUBMIT_BUTTON_CLASSES + " w-auto"}
                 >
-                  Add Contact
+                  Add your first contact
                 </button>
                 <button
                   type="button"
@@ -2615,49 +2758,22 @@ function OBDCRMPageContent() {
         ) : followUpView === "queue" ? (
           // Queue View
           ((): React.ReactNode => {
-            // Apply search filter (same logic as table)
-            const searchFiltered = contacts.filter((contact) => {
-              if (search.trim()) {
-                const searchLower = search.toLowerCase();
-                return (
-                  contact.name.toLowerCase().includes(searchLower) ||
-                  (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
-                  (contact.phone && contact.phone.includes(search))
-                );
-              }
-              return true;
+            // Canonical buckets from selector (deterministic vs stableReferenceTime)
+            const sortedOverdue = [...selector.activeBuckets.overdue].sort((a, b) => {
+              const at = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : Infinity;
+              const bt = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : Infinity;
+              return at - bt;
             });
-
-            // Group contacts by follow-up status
-            const now = new Date();
-            const overdue: CrmContact[] = [];
-            const today: CrmContact[] = [];
-            const upcoming: CrmContact[] = [];
-
-            searchFiltered.forEach((contact) => {
-              const classification = classifyFollowUp(contact.nextFollowUpAt || null, now);
-              if (classification === "OVERDUE") {
-                overdue.push(contact);
-              } else if (classification === "TODAY") {
-                today.push(contact);
-              } else if (classification === "UPCOMING_7D") {
-                upcoming.push(contact);
-              }
+            const sortedToday = [...selector.activeBuckets.today].sort((a, b) => {
+              const at = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : Infinity;
+              const bt = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : Infinity;
+              return at - bt;
             });
-
-            // Sort within each group
-            const sortContacts = (contacts: CrmContact[]) => {
-              return [...contacts].sort((a, b) => {
-                if (!a.nextFollowUpAt && !b.nextFollowUpAt) return 0;
-                if (!a.nextFollowUpAt) return 1;
-                if (!b.nextFollowUpAt) return -1;
-                return new Date(a.nextFollowUpAt).getTime() - new Date(b.nextFollowUpAt).getTime();
-              });
-            };
-
-            const sortedOverdue = sortContacts(overdue);
-            const sortedToday = sortContacts(today);
-            const sortedUpcoming = sortContacts(upcoming);
+            const sortedUpcoming = [...selector.activeBuckets.upcoming].sort((a, b) => {
+              const at = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : Infinity;
+              const bt = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : Infinity;
+              return at - bt;
+            });
 
             // Status pill styling helper
             const getStatusStyles = (status: string) => {
@@ -2719,8 +2835,7 @@ function OBDCRMPageContent() {
               if (!dateStr) return { text: "—", isOverdue: false, isToday: false };
               try {
                 const date = new Date(dateStr);
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const today = selector.todayWindow.startOfToday;
                 const followUpDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
                 const diffDays = Math.floor((followUpDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                 
@@ -2738,13 +2853,13 @@ function OBDCRMPageContent() {
             return (
               <div className="space-y-6">
                 {/* Overdue Section */}
-                {overdue.length > 0 && (
+                {sortedOverdue.length > 0 && (
                   <div>
                     <div className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                      Overdue ({overdue.length})
+                      Overdue ({sortedOverdue.length})
                     </div>
                     <div className="space-y-2">
-                      {overdue.map((contact) => {
+                      {sortedOverdue.map((contact) => {
                         const followUpInfo = formatFollowUpDate(contact.nextFollowUpAt);
                         return (
                           <div
@@ -3001,13 +3116,13 @@ function OBDCRMPageContent() {
                 )}
 
                 {/* Today Section */}
-                {today.length > 0 && (
+                {sortedToday.length > 0 && (
                   <div>
                     <div className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                      Today ({today.length})
+                      Today ({sortedToday.length})
                     </div>
                     <div className="space-y-2">
-                      {today.map((contact) => {
+                      {sortedToday.map((contact) => {
                         return (
                           <div
                             key={contact.id}
@@ -3263,13 +3378,13 @@ function OBDCRMPageContent() {
                 )}
 
                 {/* Upcoming Section */}
-                {upcoming.length > 0 && (
+                {sortedUpcoming.length > 0 && (
                   <div>
                     <div className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                      Upcoming ({upcoming.length})
+                      Upcoming ({sortedUpcoming.length})
                     </div>
                     <div className="space-y-2">
-                      {upcoming.map((contact) => {
+                      {sortedUpcoming.map((contact) => {
                         return (
                           <div
                             key={contact.id}
@@ -3525,14 +3640,14 @@ function OBDCRMPageContent() {
                 )}
 
                 {/* Empty state */}
-                {overdue.length === 0 && today.length === 0 && upcoming.length === 0 && (
+                {sortedOverdue.length === 0 && sortedToday.length === 0 && sortedUpcoming.length === 0 && (
                   <div className={`text-center py-12 px-4 ${themeClasses.mutedText}`}>
                     <div className={`inline-block p-6 rounded-lg ${isDark ? "bg-slate-800/50" : "bg-slate-50"} max-w-md`}>
                       <h3 className={`text-xl font-semibold mb-2 ${themeClasses.headingText}`}>
                         No follow-ups
                       </h3>
                       <p className={`text-sm ${themeClasses.mutedText}`}>
-                        No contacts have follow-ups scheduled in the next 7 days.
+                        No contacts have follow-ups scheduled after today.
                       </p>
                     </div>
                   </div>
@@ -3541,50 +3656,6 @@ function OBDCRMPageContent() {
             );
           })()
         ) : (() => {
-          // Filter contacts by search, status, tag, and follow-up (computed once for header checkbox)
-          const filteredContactsForHeader = contacts.filter((contact) => {
-            // Search filter
-            if (search.trim()) {
-              const searchLower = search.toLowerCase();
-              const matchesSearch = 
-                contact.name.toLowerCase().includes(searchLower) ||
-                (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
-                (contact.phone && contact.phone.includes(search));
-              if (!matchesSearch) return false;
-            }
-            
-            // Status filter
-            if (statusFilter && contact.status !== statusFilter) return false;
-            
-            // Tag filter
-            if (tagFilter && !contact.tags.some(tag => tag.id === tagFilter)) return false;
-            
-            // Follow-up filter
-            if (followUpFilter !== "all") {
-              if (!contact.nextFollowUpAt) return false;
-              
-              const followUpDate = new Date(contact.nextFollowUpAt);
-              const now = new Date();
-              
-              if (followUpFilter === "dueToday") {
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const followUpDay = new Date(followUpDate.getFullYear(), followUpDate.getMonth(), followUpDate.getDate());
-                return followUpDay.getTime() === today.getTime();
-              }
-              
-              if (followUpFilter === "overdue") {
-                return followUpDate.getTime() < now.getTime();
-              }
-              
-              if (followUpFilter === "upcoming") {
-                const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-                return followUpDate.getTime() >= now.getTime() && followUpDate.getTime() <= sevenDaysFromNow.getTime();
-              }
-            }
-            
-            return true;
-          });
-
           return (
           <div className="overflow-y-auto relative" style={{ maxHeight: "calc(100vh - 400px)" }}>
             <OBDTableWrapper>
@@ -3594,10 +3665,10 @@ function OBDCRMPageContent() {
                   <th className={`text-left font-semibold ${themeClasses.labelText} ${densityClasses.header[tableDensity]}`} style={{ width: "40px" }}>
                     <input
                       type="checkbox"
-                      checked={filteredContactsForHeader.length > 0 && filteredContactsForHeader.every((c) => selectedContactIds.has(c.id))}
+                      checked={activeContacts.length > 0 && activeContacts.every((c) => selectedContactIds.has(c.id))}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          selectAllVisible(filteredContactsForHeader.map((c) => c.id));
+                          selectAllVisible(activeContacts.map((c) => c.id));
                         } else {
                           clearSelection();
                         }
@@ -3727,55 +3798,8 @@ function OBDCRMPageContent() {
                     }
                   };
                   
-                  // Filter contacts by search, status, tag, and follow-up
-                  const filteredContacts = contacts.filter((contact) => {
-                    // Search filter
-                    if (search.trim()) {
-                      const searchLower = search.toLowerCase();
-                      const matchesSearch = 
-                        contact.name.toLowerCase().includes(searchLower) ||
-                        (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
-                        (contact.phone && contact.phone.includes(search));
-                      if (!matchesSearch) return false;
-                    }
-                    
-                    // Status filter
-                    if (statusFilter && contact.status !== statusFilter) return false;
-                    
-                    // Tag filter
-                    if (tagFilter && !contact.tags.some(tag => tag.id === tagFilter)) return false;
-                    
-                    // Follow-up filter
-                    if (followUpFilter !== "all") {
-                      if (!contact.nextFollowUpAt) return false;
-                      
-                      const followUpDate = new Date(contact.nextFollowUpAt);
-                      const now = new Date();
-                      
-                      if (followUpFilter === "dueToday") {
-                        // Same local date
-                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        const followUpDay = new Date(followUpDate.getFullYear(), followUpDate.getMonth(), followUpDate.getDate());
-                        return followUpDay.getTime() === today.getTime();
-                      }
-                      
-                      if (followUpFilter === "overdue") {
-                        // Follow-up date is in the past
-                        return followUpDate.getTime() < now.getTime();
-                      }
-                      
-                      if (followUpFilter === "upcoming") {
-                        // Follow-up date is in the future and within 7 days
-                        const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-                        return followUpDate.getTime() >= now.getTime() && followUpDate.getTime() <= sevenDaysFromNow.getTime();
-                      }
-                    }
-                    
-                    return true;
-                  });
-
                   // No results state
-                  if (filteredContacts.length === 0) {
+                  if (activeContacts.length === 0) {
                     return (
                       <tr>
                         <td colSpan={11} className={tableDensity === "compact" ? "py-8 px-3" : "py-12 px-4"}>
@@ -3805,7 +3829,7 @@ function OBDCRMPageContent() {
                     );
                   }
 
-                  return filteredContacts.map((contact) => (
+                  return activeContacts.map((contact) => (
                   <tr
                     key={contact.id}
                     onClick={() => handleContactClick(contact.id)}
@@ -4050,137 +4074,6 @@ function OBDCRMPageContent() {
           );
         })()}
       </OBDPanel>
-
-      {/* Bulk Actions Bar */}
-      {followUpView === "table" && selectedContactIds.size > 0 && (() => {
-        // Compute filtered contacts for "Select all visible" button
-        const filteredContactsForBulk = contacts.filter((contact) => {
-          if (search.trim()) {
-            const searchLower = search.toLowerCase();
-            const matchesSearch = 
-              contact.name.toLowerCase().includes(searchLower) ||
-              (contact.email && contact.email.toLowerCase().includes(searchLower)) ||
-              (contact.phone && contact.phone.includes(search));
-            if (!matchesSearch) return false;
-          }
-          if (statusFilter && contact.status !== statusFilter) return false;
-          if (tagFilter && !contact.tags.some(tag => tag.id === tagFilter)) return false;
-          if (followUpFilter !== "all") {
-            if (!contact.nextFollowUpAt) return false;
-            const followUpDate = new Date(contact.nextFollowUpAt);
-            const now = new Date();
-            if (followUpFilter === "dueToday") {
-              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-              const followUpDay = new Date(followUpDate.getFullYear(), followUpDate.getMonth(), followUpDate.getDate());
-              return followUpDay.getTime() === today.getTime();
-            }
-            if (followUpFilter === "overdue") {
-              return followUpDate.getTime() < now.getTime();
-            }
-            if (followUpFilter === "upcoming") {
-              const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-              return followUpDate.getTime() >= now.getTime() && followUpDate.getTime() <= sevenDaysFromNow.getTime();
-            }
-          }
-          return true;
-        });
-        const allVisibleSelected = filteredContactsForBulk.length > 0 && filteredContactsForBulk.every((c) => selectedContactIds.has(c.id));
-
-        return (
-          <OBDPanel isDark={isDark} className="mt-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-              <div className={`text-sm font-medium ${themeClasses.headingText}`}>
-                {selectedContactIds.size} selected
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                {!allVisibleSelected && (
-                  <button
-                    type="button"
-                    onClick={() => selectAllVisible(filteredContactsForBulk.map((c) => c.id))}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      isDark
-                        ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                    }`}
-                  >
-                    Select all visible
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    isDark
-                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                  }`}
-                >
-                  Clear
-                </button>
-                <div className="h-4 w-px bg-current/20 mx-1" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBulkAddTagModal(true);
-                    setBulkTagName("");
-                    setBulkTagError(null);
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    isDark
-                      ? "bg-blue-700 text-white hover:bg-blue-600"
-                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                  }`}
-                >
-                  Add Tag
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBulkSetFollowUpModal(true);
-                    setBulkFollowUpAt("");
-                    setBulkFollowUpNote("");
-                    setBulkFollowUpError(null);
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    isDark
-                      ? "bg-blue-700 text-white hover:bg-blue-600"
-                      : "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                  }`}
-                >
-                  Set Follow-Up
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowBulkClearFollowUpConfirm(true)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    isDark
-                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                  }`}
-                >
-                  Clear Follow-Up
-                </button>
-                <div className="h-4 w-px bg-current/20 mx-1" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBulkSendReviewRequestModal(true);
-                    setBulkReviewRequestChannel("email");
-                    setBulkReviewRequestTemplate("default");
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                    isDark
-                      ? "bg-green-700 text-white hover:bg-green-600"
-                      : "bg-green-100 text-green-700 hover:bg-green-200"
-                  }`}
-                >
-                  Send Review Request
-                </button>
-              </div>
-            </div>
-          </OBDPanel>
-        );
-      })()}
 
       {/* Create Contact Modal */}
       {showCreateModal && (

@@ -46,6 +46,44 @@ OBD CRM is the customer relationship management hub within the Ocala Business Di
 
 ---
 
+## Tier 5A / 5B / 5C Rollup (2026-01-19)
+
+These upgrades make CRM more trustworthy and “hub-like” without changing its scope.
+
+### Tier 5A — UX Parity (UI-only)
+
+- **Accordion filters**: advanced filters live in accordion sections with summary lines when collapsed.
+- **Sticky actions**:
+  - Bulk selection actions stay accessible via sticky toolbar.
+  - Contact detail edit mode shows a sticky Save/Cancel bar; Save is disabled (not hidden) when nothing changed.
+- **Stronger empty/no-results states**: calm guidance with clear CTAs (Add Contact, Import CSV).
+
+### Tier 5B — Determinism + Canonical View
+
+- **Canonical selector** (single source of truth for list view, counts, and export alignment):
+  - `src/lib/apps/obd-crm/selectors/getActiveContacts.ts`
+- **Deterministic follow-up buckets** (computed from a stable reference timestamp):
+  - **Overdue**: \(nextFollowUpAt < startOfToday\)
+  - **Today**: \(startOfToday \le nextFollowUpAt \le endOfToday\)
+  - **Upcoming**: \(nextFollowUpAt > endOfToday\)
+  - **None**: no follow-up date
+- **Export trust**:
+  - UI banner: “Export reflects your current view (filters + sort).”
+  - Export uses the same normalized filter/sort meaning as the UI.
+
+### Tier 5C — Ecosystem Awareness (Read-only signals; link-only CTAs)
+
+- Contact detail page adds a **Signals** section that is **read-only** and only shown when safe signals exist.
+- **Scheduler awareness**: detects “Has booked before” / “Upcoming booking” by reading tenant-scoped scheduler requests and matching **exact email only** (no fuzzy matching).
+- **Reviews awareness**: derived from existing CRM notes content (“review request sent” / “review received”).
+- **Help Desk awareness**: static guidance line plus a link.
+
+**Guarantees (Tier 5C safety):**
+- No schema changes
+- No automation
+- No cross-app mutation
+- No background jobs
+
 ## Who It's For
 
 OBD CRM is designed for:
@@ -124,7 +162,7 @@ The follow-up system enables businesses to set reminder dates for future custome
 - **All**: Show all contacts regardless of follow-up status
 - **Due Today**: Contacts with follow-ups scheduled for today
 - **Overdue**: Contacts with follow-ups in the past
-- **Upcoming**: Contacts with follow-ups in the next 7 days
+- **Upcoming**: Contacts with follow-ups scheduled after today
 
 **Badges:**
 - **"Today" badge** (orange): Displayed for contacts with follow-ups due today
@@ -152,7 +190,7 @@ The follow-up system enables businesses to set reminder dates for future custome
 - Queue organizes contacts into three urgency-based sections:
   - **Overdue**: Follow-ups past their due date
   - **Due Today**: Follow-ups due today
-  - **Upcoming**: Follow-ups in the next 7 days
+  - **Upcoming**: Follow-ups scheduled after today
 - Smart sorting within each group (most urgent first)
 - Compact card layout optimized for quick scanning
 - Inline snooze buttons on queue cards

@@ -6,6 +6,7 @@ export default function LocalSeoAccordionSection({
   isDark,
   title,
   summary,
+  statusChip,
   isOpen,
   onToggle,
   children,
@@ -13,6 +14,7 @@ export default function LocalSeoAccordionSection({
   isDark: boolean;
   title: string;
   summary?: string;
+  statusChip?: React.ReactNode;
   isOpen: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -25,9 +27,12 @@ export default function LocalSeoAccordionSection({
     >
       <div className="flex items-center justify-between p-4">
         <div className="min-w-0">
-          <OBDHeading level={2} isDark={isDark} className="!text-sm !mb-0">
-            {title}
-          </OBDHeading>
+          <div className="flex items-center gap-2 min-w-0">
+            <OBDHeading level={2} isDark={isDark} className="!text-sm !mb-0">
+              {title}
+            </OBDHeading>
+            {statusChip ? <div className="flex-shrink-0">{statusChip}</div> : null}
+          </div>
           {!isOpen && summary ? (
             <p
               className={`text-xs mt-1 truncate ${

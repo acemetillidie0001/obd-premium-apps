@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -11,6 +12,18 @@ import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses, getDividerClass } from "@/
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
+import {
+  clearRdToReviewResponderDraftHandoff,
+  readRdToReviewResponderDraftHandoff,
+  type RdReviewResponderDraftReviewV1,
+  type RdToReviewResponderDraftHandoffV1,
+} from "@/lib/apps/reputation-dashboard/handoff";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  clearReviewResponderRdDrafts,
+  readReviewResponderRdDrafts,
+  storeReviewResponderRdDrafts,
+} from "@/lib/apps/review-responder/handoff";
 
 export interface ReviewResponderFormValues {
   businessName: string;
@@ -96,12 +109,19 @@ export default function ReviewResponderPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+  const searchParams = useSearchParams();
+  const businessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
 
   const [formValues, setFormValues] = useState<ReviewResponderFormValues>(DEFAULT_FORM);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResponderResponse | null>(null);
   const [actionToast, setActionToast] = useState<string | null>(null);
+
+  // Tier 5C receiver: Reputation Dashboard -> Review Responder (draft-only)
+  const [rdIncoming, setRdIncoming] = useState<RdToReviewResponderDraftHandoffV1 | null>(null);
+  const [rdDrafts, setRdDrafts] = useState<RdToReviewResponderDraftHandoffV1 | null>(null);
+  const [rdImportError, setRdImportError] = useState<string | null>(null);
 
   // Helper to show toast and auto-clear
   const showToast = (message: string) => {
@@ -176,6 +196,98 @@ export default function ReviewResponderPage() {
       }
     });
   }, [formValues.personalityStyle]);
+
+  // Load previously imported RD drafts for this session (refresh-safe)
+  useEffect(() => {
+    const { payload, expired } = readReviewResponderRdDrafts();
+    if (expired) {
+      clearReviewResponderRdDrafts();
+      setRdDrafts(null);
+      return;
+    }
+    if (payload) {
+      setRdDrafts(payload);
+    }
+  }, []);
+
+  // Only check for RD handoff when explicitly routed with receiver flag.
+  useEffect(() => {
+    const handoffFlag = searchParams?.get("handoff");
+    const sourceFlag = searchParams?.get("source");
+    const isRdRoute = handoffFlag === "rd" || (handoffFlag === "1" && sourceFlag === "rd");
+    if (!isRdRoute) return;
+
+    setRdImportError(null);
+    const { payload, expired } = readRdToReviewResponderDraftHandoff();
+    if (expired) {
+      clearRdToReviewResponderDraftHandoff();
+      setRdIncoming(null);
+      showToast("Draft handoff expired.");
+      return;
+    }
+
+    if (!payload) return;
+
+    // Tenant safety: require a resolvable businessId and match it to the payload.
+    if (!businessId) {
+      clearRdToReviewResponderDraftHandoff();
+      setRdIncoming(null);
+      setRdImportError("Business context is required to import drafts. Open this tool from a business-scoped link.");
+      return;
+    }
+    if (payload.from?.businessId !== businessId) {
+      clearRdToReviewResponderDraftHandoff();
+      setRdIncoming(null);
+      setRdImportError("Draft handoff blocked: this draft was created for a different business.");
+      return;
+    }
+
+    setRdIncoming(payload);
+  }, [searchParams, businessId]);
+
+  const dismissRdIncoming = () => {
+    clearRdToReviewResponderDraftHandoff();
+    setRdIncoming(null);
+  };
+
+  const importRdIncoming = () => {
+    if (!rdIncoming) return;
+    if (!businessId) return;
+    if (rdIncoming.from?.businessId !== businessId) return;
+
+    // Store inbox drafts so a refresh doesn't lose them.
+    storeReviewResponderRdDrafts(rdIncoming);
+    setRdDrafts(rdIncoming);
+    clearRdToReviewResponderDraftHandoff();
+    setRdIncoming(null);
+    showToast("Drafts imported.");
+  };
+
+  const clearRdDrafts = () => {
+    clearReviewResponderRdDrafts();
+    setRdDrafts(null);
+    showToast("Drafts cleared.");
+  };
+
+  const mapPlatform = (p: string): ReviewResponderFormValues["platform"] => {
+    if (p === "Google") return "Google";
+    if (p === "Facebook") return "Facebook";
+    if (p === "OBD") return "OBD";
+    return "Other";
+  };
+
+  const loadDraftIntoForm = (draft: RdReviewResponderDraftReviewV1) => {
+    setResult(null);
+    setError(null);
+    setFormValues((prev) => ({
+      ...prev,
+      platform: mapPlatform(draft.platformLabel || draft.platform),
+      reviewRating: Math.min(5, Math.max(1, Math.round(Number(draft.rating) || 5))) as 1 | 2 | 3 | 4 | 5,
+      reviewText: draft.reviewText || "",
+      customerName: "",
+    }));
+    showToast("Draft loaded into the form.");
+  };
 
   const updateFormValue = <K extends keyof ReviewResponderFormValues>(
     key: K,
@@ -256,6 +368,115 @@ export default function ReviewResponderPage() {
           {actionToast}
         </div>
       )}
+
+      {/* Tier 5C: Reputation Dashboard draft handoff (explicit import, tenant-safe) */}
+      {rdImportError ? (
+        <div
+          className={`mt-7 rounded-xl border p-4 ${
+            isDark ? "bg-red-900/20 border-red-700 text-red-200" : "bg-red-50 border-red-200 text-red-800"
+          }`}
+          role="alert"
+          aria-live="polite"
+        >
+          <div className="text-sm font-medium mb-1">Draft import blocked</div>
+          <div className="text-sm">{rdImportError}</div>
+        </div>
+      ) : null}
+
+      {rdIncoming ? (
+        <div
+          className={`mt-7 rounded-xl border p-4 ${
+            isDark ? "bg-blue-900/20 border-blue-700" : "bg-blue-50 border-blue-200"
+          }`}
+          role="alert"
+          aria-live="polite"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <div className={`text-sm font-medium mb-1 ${isDark ? "text-blue-200" : "text-blue-900"}`}>
+                Draft reviews received from Reputation Dashboard
+              </div>
+              <div className={`text-xs ${isDark ? "text-blue-300" : "text-blue-800"}`}>
+                Snapshot {rdIncoming.context.snapshotId} • {rdIncoming.selectedReviews.length} review{rdIncoming.selectedReviews.length === 1 ? "" : "s"} • Draft-only
+              </div>
+              <div className={`text-[11px] mt-2 ${isDark ? "text-blue-300" : "text-blue-700"}`}>
+                Nothing is generated or sent automatically. You’ll choose what to load into the form.
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                type="button"
+                onClick={importRdIncoming}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[#29c4a9] text-white hover:bg-[#22ad93] transition-colors"
+              >
+                Review & Import
+              </button>
+              <button
+                type="button"
+                onClick={dismissRdIncoming}
+                className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  isDark ? "text-slate-300 hover:bg-slate-800/60" : "text-slate-700 hover:bg-white/60"
+                }`}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rdDrafts && rdDrafts.selectedReviews.length > 0 ? (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                Drafts from Reputation Dashboard
+              </div>
+              <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                Snapshot {rdDrafts.context.snapshotId} • {rdDrafts.selectedReviews.length} draft{rdDrafts.selectedReviews.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={clearRdDrafts}
+              className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-200 text-slate-800 hover:bg-slate-300"
+              }`}
+            >
+              Clear drafts
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {rdDrafts.selectedReviews.map((r) => (
+              <div
+                key={r.id}
+                className={`p-3 rounded-lg border ${
+                  isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className={`text-xs ${themeClasses.labelText}`}>
+                      {r.reviewDate} • {r.platformLabel} • {r.rating}★
+                    </div>
+                    <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                      {r.reviewText.length > 220 ? `${r.reviewText.slice(0, 220)}…` : r.reviewText}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadDraftIntoForm(r)}
+                    className="flex-shrink-0 px-3 py-2 text-sm font-medium rounded-lg bg-[#29c4a9] text-white hover:bg-[#22ad93] transition-colors"
+                  >
+                    Load into form
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </OBDPanel>
+      ) : null}
 
       {/* Form card */}
       <OBDPanel isDark={isDark} className="mt-7">

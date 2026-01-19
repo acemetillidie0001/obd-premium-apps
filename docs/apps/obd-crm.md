@@ -131,8 +131,9 @@ The CRM list page shows a small, calm **CRM Health Snapshot** panel, e.g.:
 - Advisory tone only
 - No urgency coloring
 - No “You should” language
-- No actions inside the panel (optional Dismiss only)
+- No actions inside the panel (no buttons)
 - Metrics come only from canonical selector outputs
+- Hidden when there are 0 total contacts (empty state already covers the messaging)
 
 ### Optional 4 — CSV Import UX Micro-Polish (UI-only)
 

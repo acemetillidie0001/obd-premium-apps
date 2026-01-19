@@ -1,3 +1,155 @@
+# OBD CRM — LOCK Readiness Audit Report (Optional 1–4)
+
+**Repo:** OBD Premium Apps  
+**App:** OBD CRM (`/apps/obd-crm`)  
+**Date:** 2026-01-19  
+**Scope:** LOCK readiness audit for Optional upgrades 1–4 (plus supporting CRM API/selector behavior).  
+**Constraints honored:** UI-only for Optional 3/4; no schema changes; no new routes added in this wave; no automation added.
+
+---
+
+## Executive Summary
+
+**Verdict: PASS**
+
+OBD CRM Optional upgrades 1–4 are **tenant-safe**, **non-automating**, and **deterministic** where required (list/counters/export), with export/import behaviors aligned to the canonical selector and explicit user-driven flows.
+
+---
+
+## What shipped in this wave (Optional 1–4)
+
+### Optional 1 — Activity Timeline (Read-only)
+
+- **Timeline builder**: `src/lib/apps/obd-crm/timeline.ts:L71-L163`
+  - Builds entries from **existing** CRM notes + CRM activities + (optionally) scheduler requests.
+  - **No inference**, **no writes**; sorts newest→oldest and de-dupes defensively.
+- **Timeline render**: `src/app/apps/obd-crm/contacts/[id]/page.tsx:L354-L365` and `src/app/apps/obd-crm/contacts/[id]/page.tsx:L887-L912`
+
+### Optional 2 — Saved Views (tenant-scoped localStorage; best-effort migration)
+
+- **Tenant-scoped key**: `src/app/apps/obd-crm/page.tsx:L58-L62`
+  - `obd:crm:<businessId>:savedViews:v1`
+- **Load + best-effort migration from legacy key**: `src/app/apps/obd-crm/page.tsx:L314-L364`
+- **Persist**: `src/app/apps/obd-crm/page.tsx:L366-L370`
+- **Apply view → UI state (filters+sort only)**: `src/app/apps/obd-crm/page.tsx:L387-L407`
+
+### Optional 3 — CRM Health Snapshot (advisory only)
+
+- **Panel**: `src/app/apps/obd-crm/page.tsx:L2728-L2753`
+  - Hidden when `selector.counts.total === 0`
+  - Metrics are selector-derived (no recompute across the app surface).
+  - **No buttons/actions** inside the panel.
+
+### Optional 4 — CSV Import UX micro-polish (UI-only)
+
+- **Deterministic import estimate (aligned to import route behavior)**: `src/app/apps/obd-crm/page.tsx:L1944-L2021`
+- **Preview + mapping recap + explicit “Confirm import”**: `src/app/apps/obd-crm/page.tsx:L6398-L6496`
+- **Post-import success includes clear next step (“View contacts”)**: `src/app/apps/obd-crm/page.tsx:L6344-L6396`
+
+---
+
+## Evidence-based scorecard (A–G)
+
+### A) Tenant safety + auth scoping — **PASS**
+
+**All `api/obd-crm/*` routes are premium-gated and business-scoped** via `getCurrentUser()` → `businessId = user.id`, and Prisma queries are constrained by `businessId`.
+
+- **Contacts list**: `src/app/api/obd-crm/contacts/route.ts:L93-L180` (auth) and `src/app/api/obd-crm/contacts/route.ts:L141-L169` (where `{ businessId }`)
+- **Single contact** (GET): `src/app/api/obd-crm/contacts/[id]/route.ts:L117-L175` (where `{ id, businessId }`)
+- **Notes** (GET/POST): `src/app/api/obd-crm/contacts/[id]/notes/route.ts:L46-L100` and `src/app/api/obd-crm/contacts/[id]/notes/route.ts:L109-L179` (contact ownership verified with `{ id, businessId }`)
+- **Activities** (GET/POST): `src/app/api/obd-crm/contacts/[id]/activities/route.ts:L53-L114` and `src/app/api/obd-crm/contacts/[id]/activities/route.ts:L123-L196`
+- **Tags** (GET/POST/DELETE): `src/app/api/obd-crm/tags/route.ts:L48-L88`, `src/app/api/obd-crm/tags/route.ts:L95-L172`, `src/app/api/obd-crm/tags/route.ts:L178-L240`
+- **Import**: `src/app/api/obd-crm/contacts/import/route.ts:L36-L63` (auth) and `src/app/api/obd-crm/contacts/import/route.ts:L151-L160` (existing lookup constrained by `businessId`)
+- **Export**: `src/app/api/obd-crm/export/route.ts:L116-L170` (auth + where `{ businessId }`)
+- **Upsert (cross-app integration)**: `src/app/api/obd-crm/contacts/upsert/route.ts:L57-L111` (auth + passes `businessId` to service)
+
+**Cross-app reads: Scheduler awareness is read-only + tenant-safe + exact email match** (no fuzzy matching).
+
+- Contact detail fetches tenant-scoped scheduler requests: `src/app/apps/obd-crm/contacts/[id]/page.tsx:L120-L145`
+- Filters results to **exact email match** only: `src/app/apps/obd-crm/contacts/[id]/page.tsx:L148-L152`
+
+### B) Non-automation guarantees — **PASS**
+
+**No scheduling, sending, background jobs, or automation rules were added in CRM.**
+
+- No cron/job primitives in CRM API routes: `src/app/api/obd-crm/**` (evidence: grep for `cron`, `node-cron`, `setInterval`, `schedule(` returned no matches during audit).
+- Timeline is a pure builder function; it **does not write anything**: `src/lib/apps/obd-crm/timeline.ts:L71-L163`
+
+### C) Determinism / canonical view model — **PASS**
+
+**Canonical selector** is the single source of truth for list/table/queue/counters and feeds export inputs.
+
+- Canonical selector used on CRM list page: `src/app/apps/obd-crm/page.tsx:L893-L925`
+- Selector uses stable day boundaries computed from a stable reference time: `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L144-L147`
+- Deterministic bucket logic: `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L112-L120` and `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L177-L203`
+- Deterministic sorting with stable ID tie-breaker: `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L221-L251`
+- Normalized filters/sort returned for reuse: `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L253-L267`
+
+Saved views apply filters/sort into UI state, and selector normalization standardizes semantics:
+
+- Saved view apply: `src/app/apps/obd-crm/page.tsx:L387-L407`
+- Filter normalization (including `dueToday` → `today`): `src/lib/apps/obd-crm/selectors/getActiveContacts.ts:L73-L78`
+
+### D) Export + Import integrity — **PASS**
+
+**Export matches UI’s active view (filters + sort), including day-boundary alignment for follow-up buckets.**
+
+- UI sends normalized selector inputs + canonical `todayWindow`: `src/app/apps/obd-crm/page.tsx:L1876-L1898`
+- Export route aligns notes filter and follow-up buckets with selector semantics and prefers client-provided `todayWindow`: `src/app/api/obd-crm/export/route.ts:L195-L245`
+- Export sorts in-process (supports computed sort like `lastTouchAt`) with stable tie-breaker: `src/app/api/obd-crm/export/route.ts:L49-L81` and `src/app/api/obd-crm/export/route.ts:L269-L291`
+
+**Import is explicit and non-destructive: create-only, duplicates skipped, errors surfaced.**
+
+- Import route validates, de-dupes (existing + within-file), and creates only: `src/app/api/obd-crm/contacts/import/route.ts:L151-L225`
+- UI preview + explicit confirm and post-import summary: `src/app/apps/obd-crm/page.tsx:L6398-L6496` and `src/app/apps/obd-crm/page.tsx:L6344-L6396`
+
+### E) UX parity + resilience — **PASS**
+
+- **Sticky toolbar pattern** (controls always accessible): `src/app/apps/obd-crm/page.tsx:L2172-L2199`
+- **Accordion filters with summaries**: `src/app/apps/obd-crm/page.tsx:L2221-L2253` and `src/app/apps/obd-crm/page.tsx:L2255-L2351`
+- **Clear no-results state** (calm + “Clear filters”): `src/app/apps/obd-crm/page.tsx:L4068-L4096`
+- **Contact detail “disabled-not-hidden” edit affordance**: `src/app/apps/obd-crm/contacts/[id]/page.tsx:L441-L476` and `src/app/apps/obd-crm/contacts/[id]/page.tsx:L486-L505`
+- Timeline and health snapshot are **informational and mobile-safe**:
+  - Timeline: `src/app/apps/obd-crm/contacts/[id]/page.tsx:L887-L912`
+  - Snapshot: `src/app/apps/obd-crm/page.tsx:L2728-L2753`
+
+### F) Error handling + observability — **PASS**
+
+- Friendly DB error mapping for common misconfigurations: `src/lib/apps/obd-crm/dbErrorHandler.ts:L59-L95`
+- Contacts/tags routes wrap DB failures with `handleCrmDatabaseError(...)` first:  
+  - Contacts: `src/app/api/obd-crm/contacts/route.ts:L231-L237`  
+  - Tags: `src/app/api/obd-crm/tags/route.ts:L81-L88`
+  - Contact detail route: `src/app/api/obd-crm/contacts/[id]/route.ts:L175-L182`
+- Dev-only CRM self-test returns structured guidance in development (skips production): `src/lib/apps/obd-crm/devSelfTest.ts:L32-L92` and response wrapper `src/lib/apps/obd-crm/devSelfTest.ts:L100-L112`
+- DB Doctor debug endpoint is gated in production to an allowlisted authenticated session: `src/app/api/debug/obd-crm-db-doctor/route.ts:L115-L157`
+
+### G) Security + privacy — **PASS**
+
+- **No cross-tenant leakage**: all CRM data access is constrained by `businessId` (see A).
+- **Demo mode read-only enforcement** for mutation routes:
+  - Export: `src/app/api/obd-crm/export/route.ts:L116-L127`
+  - Import: `src/app/api/obd-crm/contacts/import/route.ts:L36-L47`
+  - Contact updates: `src/app/api/obd-crm/contacts/[id]/route.ts:L189-L203`
+- **Dev seed route gated**: blocked in production and scoped to current business: `src/app/api/obd-crm/dev/seed-demo-data/route.ts:L37-L44` and `src/app/api/obd-crm/dev/seed-demo-data/route.ts:L49-L60`
+- Server-side logging in CRM API routes is limited to non-PII operational messages (e.g., Prisma client/model missing): `src/app/api/obd-crm/contacts/route.ts:L103-L114`
+
+---
+
+## Punch-list / findings
+
+### P0 (must fix before LOCK)
+
+- None found in audited scope.
+
+### P1 (fix soon)
+
+- None found in audited scope.
+
+### P2 (nice to fix / alignment)
+
+- **Docs wording drift**: Some docs/changelog language previously described CRM Health Snapshot as “dismissible”; implementation is now **non-dismissible** (advisory-only, no actions). (Addressed in this wave’s docs/changelog updates.)
+- **DB Doctor comment vs behavior**: Header comment claims “Returns 404 in production,” but implementation gates via allowlisted session and returns `403` for non-admin: `src/app/api/debug/obd-crm-db-doctor/route.ts:L112-L157`.
+
 # OBD CRM Lock Readiness Audit Report
 
 **Repo:** OBD Premium Apps (`cursor-app-build`)  

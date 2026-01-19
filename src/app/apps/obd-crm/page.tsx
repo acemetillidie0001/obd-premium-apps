@@ -311,26 +311,10 @@ function OBDCRMPageContent() {
   const [editingViewError, setEditingViewError] = useState<string | null>(null);
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
 
-  // CRM Health Snapshot (advisory only; dismissible)
-  const [healthSnapshotDismissed, setHealthSnapshotDismissed] = useState(false);
-
   // Tenant-safe keying: derive businessId from loaded data (contacts/tags are tenant-scoped already)
   const businessIdForStorage = React.useMemo(() => {
     return contacts[0]?.businessId || tags[0]?.businessId || null;
   }, [contacts, tags]);
-
-  const healthSnapshotStorageKey = React.useMemo(() => {
-    return businessIdForStorage ? `obd:crm:${businessIdForStorage}:healthSnapshotDismissed:v1` : null;
-  }, [businessIdForStorage]);
-
-  useEffect(() => {
-    if (!healthSnapshotStorageKey) return;
-    try {
-      setHealthSnapshotDismissed(localStorage.getItem(healthSnapshotStorageKey) === "true");
-    } catch {
-      // ignore storage errors
-    }
-  }, [healthSnapshotStorageKey]);
 
   // Load saved views once businessId is known; migrate legacy segments if present
   useEffect(() => {
@@ -2740,56 +2724,29 @@ function OBDCRMPageContent() {
       </OBDStickyToolbar>
 
       {/* CRM Health Snapshot (advisory only) */}
-      {!healthSnapshotDismissed &&
-        !isLoading &&
+      {!isLoading &&
         (!doctorReport || doctorReport.verdict === "PASS") &&
         !contactsError &&
         !tagsError && (() => {
-          const needsFollowUpCount =
-            selector.counts.followUpBuckets.overdue + selector.counts.followUpBuckets.today;
+          const totalCount = selector.counts.total;
+          if (totalCount === 0) return null;
+
+          const overdueCount = selector.counts.followUpBuckets.overdue;
           const noNotesCount = selector.counts.notes.noNotes;
 
           return (
             <OBDPanel isDark={isDark} className="mt-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                    CRM Health Snapshot
-                  </div>
-                  <div className={`mt-2 text-sm ${themeClasses.mutedText} space-y-1`}>
-                    {needsFollowUpCount > 0 && (
-                      <div>{needsFollowUpCount} contacts need follow-up</div>
-                    )}
-                    {noNotesCount > 0 && (
-                      <div>{noNotesCount} contacts have no notes</div>
-                    )}
-                    {needsFollowUpCount === 0 && noNotesCount === 0 && (
-                      <div>No highlights right now.</div>
-                    )}
-                  </div>
+              <div className="min-w-0">
+                <div className={`text-sm font-semibold ${themeClasses.headingText}`}>CRM Health Snapshot</div>
+                <div className={`mt-1 text-sm ${themeClasses.mutedText}`}>
+                  A quick, informational overview of follow-ups and notes.
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHealthSnapshotDismissed(true);
-                    if (!healthSnapshotStorageKey) return;
-                    try {
-                      localStorage.setItem(healthSnapshotStorageKey, "true");
-                    } catch {
-                      // ignore storage errors
-                    }
-                  }}
-                  className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors flex-shrink-0 ${
-                    isDark
-                      ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                  aria-label="Dismiss CRM health snapshot"
-                  title="Dismiss"
-                >
-                  Dismiss
-                </button>
+                <div className={`mt-3 text-sm ${themeClasses.mutedText} space-y-1`}>
+                  <div>{overdueCount} contacts need follow-up</div>
+                  <div>{noNotesCount} contacts have no notes</div>
+                  <div>{totalCount} total contacts</div>
+                </div>
               </div>
             </OBDPanel>
           );

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optional CRM upgrades 1–4:
     - Optional 1: Contact Activity Timeline (read-only; CRM/Scheduler/Reviews sources)
     - Optional 2: Saved Views (filter + sort presets only; tenant-scoped localStorage)
-    - Optional 3: CRM Health Snapshot (advisory-only; selector-derived metrics; dismissible)
+    - Optional 3: CRM Health Snapshot (advisory-only; selector-derived metrics; no actions; hidden when there are 0 total contacts)
     - Optional 4: CSV Import UX micro-polish (UI-only; clearer preview/confirm/success)
   - Audit: `docs/deployments/OBD_CRM_LOCK_AUDIT_REPORT.md`
   - Explicit: no schema changes, no automation scheduling; Optional 1–4 add no cross-app writes.

@@ -1,4 +1,8 @@
-# Reputation Dashboard — Tier 5C (Production-Ready)
+# Reputation Dashboard — Tier 5C (LOCKED)
+
+**Status:** **LOCKED — maintenance-mode safe**  
+**Last lock verification:** `main @ e3804e82c202dcd20739a0802e1943c45f28a57d`  
+**Definition:** Snapshot-based, advisory-only reputation intelligence. Manual entry + CSV import only. No automation.
 
 **Route:** `/apps/reputation-dashboard`  
 **Category:** Reputation  
@@ -8,7 +12,7 @@
 
 ## Status Banner
 
-**Production-ready**. **Tier 5C** posture:
+**LOCKED (maintenance-mode safe)**. **Tier 5C** posture:
 
 - **Snapshot-based**: viewing is deterministic from the active saved snapshot.
 - **localStorage-only**: snapshots are stored in the browser; no new DB persistence is introduced by this app.
@@ -31,8 +35,9 @@ Explicit non-goals / exclusions:
 - No automatic review syncing from Google/Facebook/Yelp or any other platform.
 - No review scraping.
 - No incentives, gating, or gamification around reviews.
-- No filtering, hiding, or soft-deleting negative reviews.
+- No filtering, reweighting, hiding, or soft-deleting negative reviews.
 - No auto-respond, auto-generate, auto-send, or auto-post actions.
+- No cross-app mutation (no automatic writes into other apps).
 - No background jobs / cron / scheduled processing.
 
 ---

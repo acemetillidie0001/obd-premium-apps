@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tier 5A UX parity: results accordions, sticky action bar, trust messaging, and disabled-not-hidden tooltips.
   - Tier 5B: immutable localStorage snapshots + snapshot picker + snapshot-bound exports/print view.
   - Tier 5C: safe Next Steps routing + Review Responder draft handoff (requires `?handoff=rd`, sessionStorage TTL, businessId guard, explicit import).
+  - Status: LOCKED (maintenance-mode safe).
 
 - **Local Keyword Research Tool — Reference Quality (Tier 6)**
   - Tier 5A UX consistency: canonical `getActiveKeywordResults()`, sticky action bar, accordion inputs, truthful metrics badge semantics, and strong empty/loading/error states.

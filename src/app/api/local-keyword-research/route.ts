@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
 import { requireUserSession } from "@/lib/auth/requireUserSession";
+import { withOpenAITimeout } from "@/lib/openai-timeout";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
@@ -22,6 +23,7 @@ interface RateLimitEntry {
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX_REQUESTS = 20; // per window per IP
+const LKRT_OPENAI_TIMEOUT_MS = 45_000; // hard cap for OpenAI calls (prevent hanging requests)
 
 function generateRequestId(): string {
   const timestamp = Date.now();
@@ -451,30 +453,35 @@ export async function POST(req: NextRequest) {
 
     // -------- STEP 1: generate raw keyword ideas --------
     const openai = getOpenAIClient();
-    const ideasCompletion = await openai.chat.completions.create({
-      model: process.env.OBD_OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: ideasPrompt },
+    const ideasCompletion = await withOpenAITimeout(async (signal) => {
+      return openai.chat.completions.create(
         {
-          role: "user",
-          content: JSON.stringify({
-            businessName: requestData.businessName,
-            businessType: requestData.businessType,
-            services: requestData.services,
-            city: requestData.city,
-            state: requestData.state,
-            primaryGoal: requestData.primaryGoal,
-            maxKeywords: requestData.maxKeywords,
-            includeNearMeVariants: requestData.includeNearMeVariants,
-            includeZipCodes: requestData.includeZipCodes,
-            includeNeighborhoods: requestData.includeNeighborhoods,
-            language: requestData.language,
-          }),
+          model: process.env.OBD_OPENAI_MODEL || "gpt-4o-mini",
+          temperature: 0.3,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: ideasPrompt },
+            {
+              role: "user",
+              content: JSON.stringify({
+                businessName: requestData.businessName,
+                businessType: requestData.businessType,
+                services: requestData.services,
+                city: requestData.city,
+                state: requestData.state,
+                primaryGoal: requestData.primaryGoal,
+                maxKeywords: requestData.maxKeywords,
+                includeNearMeVariants: requestData.includeNearMeVariants,
+                includeZipCodes: requestData.includeZipCodes,
+                includeNeighborhoods: requestData.includeNeighborhoods,
+                language: requestData.language,
+              }),
+            },
+          ],
         },
-      ],
-    });
+        { signal }
+      );
+    }, LKRT_OPENAI_TIMEOUT_MS);
 
     const ideasContent = ideasCompletion.choices[0]?.message?.content;
     if (!ideasContent) {
@@ -522,22 +529,27 @@ export async function POST(req: NextRequest) {
     );
 
     // -------- STEP 3: final clustering + scoring --------
-    const finalCompletion = await openai.chat.completions.create({
-      model: process.env.OBD_OPENAI_MODEL || "gpt-4o-mini",
-      temperature: 0.4,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: finalPrompt },
+    const finalCompletion = await withOpenAITimeout(async (signal) => {
+      return openai.chat.completions.create(
         {
-          role: "user",
-          content: JSON.stringify({
-            request: requestData,
-            ideas: rawKeywords.map((keyword) => ({ keyword })),
-            metrics,
-          }),
+          model: process.env.OBD_OPENAI_MODEL || "gpt-4o-mini",
+          temperature: 0.4,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: finalPrompt },
+            {
+              role: "user",
+              content: JSON.stringify({
+                request: requestData,
+                ideas: rawKeywords.map((keyword) => ({ keyword })),
+                metrics,
+              }),
+            },
+          ],
         },
-      ],
-    });
+        { signal }
+      );
+    }, LKRT_OPENAI_TIMEOUT_MS);
 
     const finalContent = finalCompletion.choices[0]?.message?.content;
 
@@ -699,6 +711,13 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return apiErrorResponse(
+        "Keyword generation timed out. Please try again.",
+        "TIMEOUT",
+        504
+      );
+    }
     console.error("[LKRT] API error", {
       requestId: typeof requestId === "string" ? requestId : "lkrt-unknown",
       businessId: typeof businessId === "string" ? businessId : "unknown",

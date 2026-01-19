@@ -1,8 +1,10 @@
 // src/app/api/local-keyword-research/route.ts
 
 import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { requireUserSession } from "@/lib/auth/requireUserSession";
 import type {
   LocalKeywordRequest,
   LocalKeywordResponse,
@@ -301,14 +303,45 @@ export async function POST(req: NextRequest) {
   const demoBlock = assertNotDemoRequest(req);
   if (demoBlock) return demoBlock;
 
+  // Auth + tenant scoping (repo canonical pattern: session.user.id is businessId)
+  const session = await requireUserSession();
+  if (!session?.userId) {
+    return apiErrorResponse(
+      "Authentication required. Please log in to use this tool.",
+      "UNAUTHORIZED",
+      401
+    );
+  }
+  const businessId = session.userId;
+
+  // Reject attempts to override business/tenant scope via query params
+  const urlBusinessId = (req.nextUrl?.searchParams?.get("businessId") || "").trim();
+  if (urlBusinessId && urlBusinessId !== businessId) {
+    return apiErrorResponse(
+      "Business access denied",
+      "FORBIDDEN",
+      403
+    );
+  }
+  const urlTenantId = (req.nextUrl?.searchParams?.get("tenantId") || "").trim();
+  if (urlTenantId) {
+    // Tenant IDs are not currently supported for LKRT. Reject to prevent scope confusion.
+    return apiErrorResponse(
+      "Tenant access denied",
+      "FORBIDDEN",
+      403
+    );
+  }
+
   // Prune old entries periodically (more frequent if map is large)
   if (rateLimitMap.size > 1000 || Math.random() < 0.1) {
     pruneRateLimitMap();
   }
 
   // Check rate limit
-  const clientIP = getClientIP(req);
-  if (!checkRateLimit(clientIP)) {
+  // Prefer business-scoped key over IP to avoid cross-tenant coupling behind NAT.
+  const clientKey = businessId || getClientIP(req);
+  if (!checkRateLimit(clientKey)) {
     return apiErrorResponse(
       "Too many requests. Please try again in a few minutes.",
       "RATE_LIMITED",
@@ -320,6 +353,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return apiErrorResponse("Invalid request body.", "VALIDATION_ERROR", 400);
+    }
+
+    // Reject attempts to override business/tenant scope via body
+    // LKRT does not accept tenantId today; if present, reject.
+    if (Object.prototype.hasOwnProperty.call(body, "tenantId")) {
+      return apiErrorResponse("Tenant access denied", "FORBIDDEN", 403);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "businessId")) {
+      const bodyBusinessId = (body as any)?.businessId;
+      const normalized = typeof bodyBusinessId === "string" ? bodyBusinessId.trim() : "";
+      if (!normalized || normalized !== businessId) {
+        return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
+      }
+      // If it matches, allow (but LKRT does not rely on it).
     }
 
     if (!body?.businessType || !body?.services) {
@@ -378,7 +425,10 @@ export async function POST(req: NextRequest) {
           },
         ],
       };
-      return apiSuccessResponse(demoResponse);
+      return NextResponse.json(
+        { ok: true, data: demoResponse, scope: { businessId } },
+        { status: 200 }
+      );
     }
 
     // -------- STEP 1: generate raw keyword ideas --------
@@ -613,7 +663,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return apiSuccessResponse(parsed);
+    // Add scope metadata (businessId only) without breaking the standard { ok, data } envelope.
+    return NextResponse.json(
+      { ok: true, data: parsed, scope: { businessId } },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("Local keyword research API error:", err);
     return apiErrorResponse(

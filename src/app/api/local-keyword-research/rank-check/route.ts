@@ -3,6 +3,8 @@
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
 import { checkRank } from "@/lib/local-rank-check";
 import type { RankCheckResult } from "../types";
+import { requireUserSession } from "@/lib/auth/requireUserSession";
+import { NextResponse } from "next/server";
 import * as dns from "node:dns";
 import * as net from "node:net";
 
@@ -164,10 +166,34 @@ export async function POST(req: Request) {
   const demoBlock = assertNotDemoRequest(req as any);
   if (demoBlock) return demoBlock;
 
+  // Auth + tenant scoping (repo canonical pattern: session.user.id is businessId)
+  const session = await requireUserSession();
+  if (!session?.userId) {
+    return apiErrorResponse(
+      "Authentication required. Please log in to use this tool.",
+      "UNAUTHORIZED",
+      401
+    );
+  }
+  const businessId = session.userId;
+
   try {
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return apiErrorResponse("Invalid request body.", "VALIDATION_ERROR", 400);
+    }
+
+    // Reject attempts to override business/tenant scope via body
+    if (Object.prototype.hasOwnProperty.call(body, "tenantId")) {
+      return apiErrorResponse("Tenant access denied", "FORBIDDEN", 403);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "businessId")) {
+      const bodyBusinessId = (body as any)?.businessId;
+      const normalized = typeof bodyBusinessId === "string" ? bodyBusinessId.trim() : "";
+      if (!normalized || normalized !== businessId) {
+        return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
+      }
+      // If it matches, allow (but rank-check does not rely on it).
     }
 
     // Validate required fields
@@ -215,7 +241,10 @@ export async function POST(req: Request) {
         estimatedTraffic: 50,
         notes: "Demo mode: Sample rank check result",
       };
-      return apiSuccessResponse(demoResponse);
+      return NextResponse.json(
+        { ok: true, data: demoResponse, scope: { businessId } },
+        { status: 200 }
+      );
     }
 
     // Call rank check helper with timeout
@@ -242,7 +271,10 @@ export async function POST(req: Request) {
       dataSource: raw.dataSource || "mock",
     };
 
-    return apiSuccessResponse({ result });
+    return NextResponse.json(
+      { ok: true, data: { result }, scope: { businessId } },
+      { status: 200 }
+    );
   } catch (err) {
     // Handle timeout specifically
     if (err instanceof Error && err.message === "TIMEOUT") {

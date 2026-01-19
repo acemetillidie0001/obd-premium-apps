@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
+import OBDStickyActionBar, {
+  OBD_STICKY_ACTION_BAR_OFFSET_CLASS,
+} from "@/components/obd/OBDStickyActionBar";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import {
@@ -21,8 +24,57 @@ import {
   GoogleBusinessRewriteTone,
   PersonalityStyle,
 } from "./types";
+import GoogleBusinessAccordionSection from "./components/GoogleBusinessAccordionSection";
 
 type Mode = "audit" | "wizard" | "pro";
+
+type AuditFormState = Omit<
+  GoogleBusinessAuditRequest,
+  "services" | "secondaryKeywords"
+> & { services: string; secondaryKeywords: string };
+
+type WizardFormState = Omit<
+  GoogleBusinessWizardRequest,
+  "services" | "secondaryKeywords"
+> & { services: string; secondaryKeywords: string };
+
+const DEFAULT_AUDIT_FORM: AuditFormState = {
+  businessName: "",
+  businessType: "",
+  services: "",
+  city: "Ocala",
+  state: "Florida",
+  websiteUrl: "",
+  googleBusinessUrl: "",
+  mainCategory: "",
+  primaryKeyword: "",
+  secondaryKeywords: "",
+  personalityStyle: "Soft",
+  brandVoice: "",
+  goals: "",
+};
+
+const DEFAULT_WIZARD_FORM: WizardFormState = {
+  businessName: "",
+  businessType: "",
+  services: "",
+  city: "Ocala",
+  state: "Florida",
+  websiteUrl: "",
+  primaryKeyword: "",
+  secondaryKeywords: "",
+  personalityStyle: "Soft",
+  brandVoice: "",
+  shortDescriptionLength: "Short",
+  longDescriptionLength: "Medium",
+  serviceAreas: "",
+  openingHours: "",
+  specialities: "",
+  faqCount: 5,
+  includePosts: true,
+  postGoal: "",
+  promoDetails: "",
+};
 
 // Helper to convert text to array (split on commas or newlines, trim, filter empty)
 function textToArray(text: string): string[] {
@@ -40,44 +92,10 @@ export default function GoogleBusinessProfileProPage() {
   const [mode, setMode] = useState<Mode>("audit");
 
   // Audit form state
-  const [auditForm, setAuditForm] = useState<Omit<GoogleBusinessAuditRequest, "services" | "secondaryKeywords"> & { services: string; secondaryKeywords: string }>({
-    businessName: "",
-    businessType: "",
-    services: "",
-    city: "Ocala",
-    state: "Florida",
-    websiteUrl: "",
-    googleBusinessUrl: "",
-    mainCategory: "",
-    primaryKeyword: "",
-    secondaryKeywords: "",
-    personalityStyle: "Soft",
-    brandVoice: "",
-    goals: "",
-  });
+  const [auditForm, setAuditForm] = useState<AuditFormState>(DEFAULT_AUDIT_FORM);
 
   // Wizard form state
-  const [wizardForm, setWizardForm] = useState<Omit<GoogleBusinessWizardRequest, "services" | "secondaryKeywords"> & { services: string; secondaryKeywords: string }>({
-    businessName: "",
-    businessType: "",
-    services: "",
-    city: "Ocala",
-    state: "Florida",
-    websiteUrl: "",
-    primaryKeyword: "",
-    secondaryKeywords: "",
-    personalityStyle: "Soft",
-    brandVoice: "",
-    shortDescriptionLength: "Short",
-    longDescriptionLength: "Medium",
-    serviceAreas: "",
-    openingHours: "",
-    specialities: "",
-    faqCount: 5,
-    includePosts: true,
-    postGoal: "",
-    promoDetails: "",
-  });
+  const [wizardForm, setWizardForm] = useState<WizardFormState>(DEFAULT_WIZARD_FORM);
 
   const [auditResult, setAuditResult] = useState<GoogleBusinessAuditResult | null>(null);
   const [wizardResult, setWizardResult] = useState<GoogleBusinessWizardResult | null>(null);
@@ -114,6 +132,323 @@ export default function GoogleBusinessProfileProPage() {
     { name: "", url: "", notes: "" },
   ]);
 
+  // Tier 5A: accordion sections (default: first open, others collapsed)
+  const [auditAccordion, setAuditAccordion] = useState({
+    businessBasics: true,
+    gbpDetails: false,
+    servicesKeywords: false,
+    brandGoals: false,
+    faqsPosts: false,
+    advancedOptional: false,
+  });
+
+  const [wizardAccordion, setWizardAccordion] = useState({
+    businessBasics: true,
+    gbpDetails: false,
+    servicesKeywords: false,
+    brandGoals: false,
+    faqsPosts: false,
+    advancedOptional: false,
+  });
+
+  const [proAccordion, setProAccordion] = useState({
+    businessBasics: true,
+    gbpDetails: false,
+    servicesKeywords: false,
+    brandGoals: false,
+    faqsPosts: false,
+    advancedOptional: false,
+  });
+
+  const toggleAuditAccordion = (key: keyof typeof auditAccordion) =>
+    setAuditAccordion((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const toggleWizardAccordion = (key: keyof typeof wizardAccordion) =>
+    setWizardAccordion((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const toggleProAccordion = (key: keyof typeof proAccordion) =>
+    setProAccordion((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  const auditServicesCount = useMemo(() => textToArray(auditForm.services).length, [auditForm.services]);
+  const auditSecondaryKeywordsCount = useMemo(
+    () => textToArray(auditForm.secondaryKeywords).length,
+    [auditForm.secondaryKeywords]
+  );
+  const wizardServicesCount = useMemo(() => textToArray(wizardForm.services).length, [wizardForm.services]);
+  const wizardSecondaryKeywordsCount = useMemo(
+    () => textToArray(wizardForm.secondaryKeywords).length,
+    [wizardForm.secondaryKeywords]
+  );
+
+  const auditSectionSummaries = useMemo(() => {
+    const businessBasics = [
+      auditForm.businessName?.trim(),
+      auditForm.businessType?.trim(),
+      [auditForm.city?.trim(), auditForm.state?.trim()].filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const gbpDetails = [
+      auditForm.googleBusinessUrl?.trim() ? "GBP URL" : "",
+      auditForm.mainCategory?.trim() ? auditForm.mainCategory.trim() : "",
+      auditForm.websiteUrl?.trim() ? "Website" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const servicesKeywords = [
+      auditServicesCount ? `${auditServicesCount} services` : "",
+      auditForm.primaryKeyword?.trim() ? `Primary: ${auditForm.primaryKeyword.trim()}` : "",
+      auditSecondaryKeywordsCount ? `${auditSecondaryKeywordsCount} secondary keywords` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const brandGoals = [
+      auditForm.personalityStyle ? `Style: ${auditForm.personalityStyle}` : "",
+      auditForm.brandVoice?.trim() ? "Brand voice" : "",
+      auditForm.goals?.trim() ? "Goals" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    return {
+      businessBasics,
+      gbpDetails,
+      servicesKeywords,
+      brandGoals,
+      faqsPosts: "Not used in Audit mode",
+      advancedOptional: "Optional details",
+    };
+  }, [
+    auditForm.businessName,
+    auditForm.businessType,
+    auditForm.city,
+    auditForm.state,
+    auditForm.googleBusinessUrl,
+    auditForm.mainCategory,
+    auditForm.websiteUrl,
+    auditForm.primaryKeyword,
+    auditForm.personalityStyle,
+    auditForm.brandVoice,
+    auditForm.goals,
+    auditServicesCount,
+    auditSecondaryKeywordsCount,
+  ]);
+
+  const wizardSectionSummaries = useMemo(() => {
+    const businessBasics = [
+      wizardForm.businessName?.trim(),
+      wizardForm.businessType?.trim(),
+      [wizardForm.city?.trim(), wizardForm.state?.trim()].filter(Boolean).join(" "),
+      wizardForm.websiteUrl?.trim() ? "Website" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const gbpDetails = [
+      `Short: ${wizardForm.shortDescriptionLength}`,
+      `Long: ${wizardForm.longDescriptionLength}`,
+      wizardForm.serviceAreas?.trim() ? "Service areas" : "",
+      wizardForm.openingHours?.trim() ? "Hours" : "",
+      wizardForm.specialities?.trim() ? "Specialities" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const servicesKeywords = [
+      wizardServicesCount ? `${wizardServicesCount} services` : "",
+      wizardForm.primaryKeyword?.trim() ? `Primary: ${wizardForm.primaryKeyword.trim()}` : "",
+      wizardSecondaryKeywordsCount ? `${wizardSecondaryKeywordsCount} secondary keywords` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const brandGoals = [
+      wizardForm.personalityStyle ? `Style: ${wizardForm.personalityStyle}` : "",
+      wizardForm.brandVoice?.trim() ? "Brand voice" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    const faqsPosts = [
+      `FAQs: ${Math.min(Math.max(3, wizardForm.faqCount), 12)}`,
+      wizardForm.includePosts ? "Posts on" : "Posts off",
+      wizardForm.includePosts && wizardForm.postGoal?.trim() ? "Post goal" : "",
+      wizardForm.includePosts && wizardForm.promoDetails?.trim() ? "Promo" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Not filled";
+
+    return {
+      businessBasics,
+      gbpDetails,
+      servicesKeywords,
+      brandGoals,
+      faqsPosts,
+      advancedOptional: "Optional fields",
+    };
+  }, [
+    wizardForm.businessName,
+    wizardForm.businessType,
+    wizardForm.city,
+    wizardForm.state,
+    wizardForm.websiteUrl,
+    wizardForm.shortDescriptionLength,
+    wizardForm.longDescriptionLength,
+    wizardForm.serviceAreas,
+    wizardForm.openingHours,
+    wizardForm.specialities,
+    wizardForm.primaryKeyword,
+    wizardForm.personalityStyle,
+    wizardForm.brandVoice,
+    wizardForm.faqCount,
+    wizardForm.includePosts,
+    wizardForm.postGoal,
+    wizardForm.promoDetails,
+    wizardServicesCount,
+    wizardSecondaryKeywordsCount,
+  ]);
+
+  const proSectionSummaries = useMemo(() => {
+    const businessName = wizardForm.businessName?.trim() || auditForm.businessName?.trim();
+    const businessType = wizardForm.businessType?.trim() || auditForm.businessType?.trim();
+    const city = wizardForm.city?.trim() || auditForm.city?.trim();
+    const state = wizardForm.state?.trim() || auditForm.state?.trim();
+    const websiteUrl = wizardForm.websiteUrl?.trim() || auditForm.websiteUrl?.trim();
+
+    const businessBasics = [
+      businessName,
+      businessType,
+      [city, state].filter(Boolean).join(" "),
+      websiteUrl ? "Website" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Fill Audit/Wizard first";
+
+    const gbpDetails = [
+      auditForm.googleBusinessUrl?.trim() ? "GBP URL" : "",
+      auditForm.mainCategory?.trim() ? auditForm.mainCategory.trim() : "",
+      `Short: ${wizardForm.shortDescriptionLength}`,
+      `Long: ${wizardForm.longDescriptionLength}`,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Fill Audit/Wizard first";
+
+    const primaryKeyword = (auditForm.primaryKeyword || wizardForm.primaryKeyword || "").trim();
+
+    const servicesKeywords = [
+      wizardServicesCount || auditServicesCount
+        ? `${wizardServicesCount || auditServicesCount} services`
+        : "",
+      primaryKeyword ? `Primary: ${primaryKeyword}` : "",
+      auditSecondaryKeywordsCount || wizardSecondaryKeywordsCount
+        ? `${auditSecondaryKeywordsCount || wizardSecondaryKeywordsCount} secondary keywords`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Fill Audit/Wizard first";
+
+    const brandGoals = [
+      (wizardForm.personalityStyle || auditForm.personalityStyle)
+        ? `Style: ${wizardForm.personalityStyle || auditForm.personalityStyle}`
+        : "",
+      (wizardForm.brandVoice || auditForm.brandVoice)?.trim() ? "Brand voice" : "",
+      auditForm.goals?.trim() ? "Goals" : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Fill Audit/Wizard first";
+
+    const faqsPosts = [
+      `FAQs: ${Math.min(Math.max(3, wizardForm.faqCount), 12)}`,
+      wizardForm.includePosts ? "Posts on" : "Posts off",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    return {
+      businessBasics,
+      gbpDetails,
+      servicesKeywords,
+      brandGoals,
+      faqsPosts,
+      advancedOptional: proResult ? "Generated" : "Ready to run",
+    };
+  }, [
+    auditForm.businessName,
+    auditForm.businessType,
+    auditForm.city,
+    auditForm.state,
+    auditForm.websiteUrl,
+    auditForm.googleBusinessUrl,
+    auditForm.mainCategory,
+    auditForm.primaryKeyword,
+    auditForm.secondaryKeywords,
+    auditForm.personalityStyle,
+    auditForm.brandVoice,
+    auditForm.goals,
+    wizardForm.businessName,
+    wizardForm.businessType,
+    wizardForm.city,
+    wizardForm.state,
+    wizardForm.websiteUrl,
+    wizardForm.primaryKeyword,
+    wizardForm.secondaryKeywords,
+    wizardForm.shortDescriptionLength,
+    wizardForm.longDescriptionLength,
+    wizardForm.faqCount,
+    wizardForm.includePosts,
+    wizardForm.personalityStyle,
+    wizardForm.brandVoice,
+    auditServicesCount,
+    auditSecondaryKeywordsCount,
+    wizardServicesCount,
+    wizardSecondaryKeywordsCount,
+    proResult,
+  ]);
+
+  const scrollToId = (id: string) => {
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleReset = () => {
+    if (isSubmitting || reportLoading || rewritesLoading || photoLoading || competitorsLoading || csvLoading) return;
+
+    setError(null);
+    setCopiedIndex(null);
+
+    setAuditForm(DEFAULT_AUDIT_FORM);
+    setWizardForm(DEFAULT_WIZARD_FORM);
+
+    setAuditResult(null);
+    setWizardResult(null);
+    setProResult(null);
+
+    setReportError(null);
+    setReportExport(null);
+    setReportPdfUrl(null);
+    setShareUrl(null);
+
+    setRewritesError(null);
+    setRewritesResult(null);
+    setSelectedRewriteTone("Default");
+    setEmphasisNotes("");
+
+    setPhotoError(null);
+    setPhotoResult(null);
+    setCurrentPhotoContext("");
+
+    setCompetitorsError(null);
+    setCompetitorsResult(null);
+    setCompetitorInputs([{ name: "", url: "", notes: "" }]);
+
+    setCsvError(null);
+  };
+
   const handleCopy = async (text: string, index: number) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -124,8 +459,8 @@ export default function GoogleBusinessProfileProPage() {
     }
   };
 
-  const handleAuditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAuditSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     
     if (!auditForm.businessName.trim() || !auditForm.businessType.trim()) {
       setError("Business Name and Business Type are required.");
@@ -170,8 +505,8 @@ export default function GoogleBusinessProfileProPage() {
     }
   };
 
-  const handleWizardSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleWizardSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     
     if (!wizardForm.businessName.trim() || !wizardForm.businessType.trim()) {
       setError("Business Name and Business Type are required.");
@@ -621,6 +956,20 @@ export default function GoogleBusinessProfileProPage() {
     }
   };
 
+  const modeHasGeneratedResult =
+    mode === "audit" ? !!auditResult : mode === "wizard" ? !!wizardResult : !!proResult;
+
+  const generateDisabled = isSubmitting;
+  const regenerateDisabled = isSubmitting || !modeHasGeneratedResult;
+  const exportDisabled = isSubmitting || mode !== "pro" || !proResult;
+  const resetDisabled =
+    isSubmitting ||
+    reportLoading ||
+    rewritesLoading ||
+    photoLoading ||
+    competitorsLoading ||
+    csvLoading;
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -671,6 +1020,23 @@ export default function GoogleBusinessProfileProPage() {
         </button>
       </div>
 
+      {/* Trust & scope microcopy (Tier 5A, non-dismissable) */}
+      <div
+        className={`rounded-xl border p-4 mb-6 ${
+          isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+        }`}
+      >
+        <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+          Draft-only tool
+        </p>
+        <p className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+          This tool does not connect to or update your live Google Business Profile.
+        </p>
+        <p className={`text-sm ${themeClasses.mutedText}`}>
+          All content generated here is draft-only. You choose what to apply.
+        </p>
+      </div>
+
       {/* Error Display */}
       {error && (
         <div className="mb-4">
@@ -685,577 +1051,1163 @@ export default function GoogleBusinessProfileProPage() {
         {/* Left: Form Panel */}
         <OBDPanel isDark={isDark} className="mt-7">
           {mode === "pro" ? (
-            <div className="space-y-4">
-              <OBDHeading level={2} isDark={isDark} className="mb-4">
-                Run Full Pro Analysis
-              </OBDHeading>
-              <p className={`${themeClasses.mutedText} mb-4`}>
-                Pro Mode uses the details you've already entered in Audit and Wizard to run a full Google Business Profile analysis and generate a complete content pack.
-              </p>
-              <ul className={`space-y-2 mb-6 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#29c4a9] mt-1">1.</span>
-                  <span>Fill out your details in Audit Mode.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#29c4a9] mt-1">2.</span>
-                  <span>Fill out your details in Wizard Mode.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#29c4a9] mt-1">3.</span>
-                  <span>Come back here and run Pro Mode to see a combined view.</span>
-                </li>
-              </ul>
-              {(wizardForm.businessName || auditForm.businessName) && (
-                <div className={`mb-4 p-3 rounded-lg ${isDark ? "bg-slate-800/50" : "bg-slate-50"}`}>
-                  <p className={`text-sm ${themeClasses.mutedText}`}>
-                    <span className="font-medium">Business:</span> {wizardForm.businessName || auditForm.businessName}
-                    {(wizardForm.city || auditForm.city) && (
-                      <span> • {wizardForm.city || auditForm.city}</span>
-                    )}
-                  </p>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={handleProSubmit}
-                disabled={isSubmitting}
-                className={SUBMIT_BUTTON_CLASSES}
-              >
-                {isSubmitting ? "Running Pro Analysis..." : "Run Pro Audit & Content"}
-              </button>
-            </div>
-          ) : mode === "audit" ? (
-            <form onSubmit={handleAuditSubmit}>
-              <div className="space-y-4">
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Business Basics
-                </OBDHeading>
-
-                <div>
-                  <label htmlFor="audit-businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Name <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="audit-businessName"
-                    value={auditForm.businessName}
-                    onChange={(e) => setAuditForm({ ...auditForm, businessName: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Ocala Coffee Shop"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="audit-businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Type <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="audit-businessType"
-                    value={auditForm.businessType}
-                    onChange={(e) => setAuditForm({ ...auditForm, businessType: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Restaurant, Retail, Service"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="audit-services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Services
-                  </label>
-                  <textarea
-                    id="audit-services"
-                    value={auditForm.services}
-                    onChange={(e) => setAuditForm({ ...auditForm, services: e.target.value })}
-                    rows={4}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Comma or line separated (e.g., Massage Therapy, Deep Tissue, Hot Stone)"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="audit-city" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      City
-                    </label>
-                    <input
-                      type="text"
-                      id="audit-city"
-                      value={auditForm.city}
-                      onChange={(e) => setAuditForm({ ...auditForm, city: e.target.value })}
-                      className={getInputClasses(isDark)}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="audit-state" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      State
-                    </label>
-                    <input
-                      type="text"
-                      id="audit-state"
-                      value={auditForm.state}
-                      onChange={(e) => setAuditForm({ ...auditForm, state: e.target.value })}
-                      className={getInputClasses(isDark)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="audit-websiteUrl" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Website URL (Optional)
-                  </label>
-                  <input
-                    type="url"
-                    id="audit-websiteUrl"
-                    value={auditForm.websiteUrl}
-                    onChange={(e) => setAuditForm({ ...auditForm, websiteUrl: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="https://example.com"
-                  />
-                </div>
-
-                <OBDHeading level={2} isDark={isDark} className="mb-4 mt-6">
-                  Google Business Profile Details
-                </OBDHeading>
-
-                <div>
-                  <label htmlFor="audit-googleBusinessUrl" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Google Business Profile URL (Optional)
-                  </label>
-                  <input
-                    type="url"
-                    id="audit-googleBusinessUrl"
-                    value={auditForm.googleBusinessUrl}
-                    onChange={(e) => setAuditForm({ ...auditForm, googleBusinessUrl: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="https://g.page/your-business"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="audit-mainCategory" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Main Category
-                  </label>
-                  <input
-                    type="text"
-                    id="audit-mainCategory"
-                    value={auditForm.mainCategory}
-                    onChange={(e) => setAuditForm({ ...auditForm, mainCategory: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Massage Therapist, Restaurant"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="audit-primaryKeyword" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Primary Keyword (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="audit-primaryKeyword"
-                    value={auditForm.primaryKeyword}
-                    onChange={(e) => setAuditForm({ ...auditForm, primaryKeyword: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Ocala massage therapist"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="audit-secondaryKeywords" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Secondary Keywords (Optional)
-                  </label>
-                  <textarea
-                    id="audit-secondaryKeywords"
-                    value={auditForm.secondaryKeywords}
-                    onChange={(e) => setAuditForm({ ...auditForm, secondaryKeywords: e.target.value })}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Comma or line separated"
-                  />
-                </div>
-
-                <OBDHeading level={2} isDark={isDark} className="mb-4 mt-6">
-                  Brand & Goals
-                </OBDHeading>
-
-                <div>
-                  <label htmlFor="audit-personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Personality Style
-                  </label>
-                  <select
-                    id="audit-personalityStyle"
-                    value={auditForm.personalityStyle}
-                    onChange={(e) => setAuditForm({ ...auditForm, personalityStyle: e.target.value as PersonalityStyle })}
-                    className={getInputClasses(isDark)}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleProSubmit();
+              }}
+            >
+              <div className={OBD_STICKY_ACTION_BAR_OFFSET_CLASS}>
+                <div className="space-y-4">
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Business Basics"
+                    summary={proSectionSummaries.businessBasics}
+                    isOpen={proAccordion.businessBasics}
+                    onToggle={() => toggleProAccordion("businessBasics")}
                   >
-                    <option value="None">None</option>
-                    <option value="Soft">Soft</option>
-                    <option value="Bold">Bold</option>
-                    <option value="High-Energy">High-Energy</option>
-                    <option value="Luxury">Luxury</option>
-                  </select>
-                </div>
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Pro Mode uses the details you've entered in Audit and Wizard. If something looks missing,
+                      switch back and fill it in, then Generate here.
+                    </p>
+                  </GoogleBusinessAccordionSection>
 
-                <div>
-                  <label htmlFor="audit-brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Brand Voice (Optional)
-                  </label>
-                  <textarea
-                    id="audit-brandVoice"
-                    value={auditForm.brandVoice}
-                    onChange={(e) => setAuditForm({ ...auditForm, brandVoice: e.target.value })}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Paste 2–4 sentences that sound like your existing brand voice"
-                  />
-                </div>
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Google Business Profile Details"
+                    summary={proSectionSummaries.gbpDetails}
+                    isOpen={proAccordion.gbpDetails}
+                    onToggle={() => toggleProAccordion("gbpDetails")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Pro Mode combines your profile URL/category (Audit) and content settings (Wizard) into one analysis.
+                    </p>
+                  </GoogleBusinessAccordionSection>
 
-                <div>
-                  <label htmlFor="audit-goals" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Goals (Optional)
-                  </label>
-                  <textarea
-                    id="audit-goals"
-                    value={auditForm.goals}
-                    onChange={(e) => setAuditForm({ ...auditForm, goals: e.target.value })}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="What do you want to improve? (e.g., More calls, More direction requests, Better local ranking)"
-                  />
-                </div>
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Services & Keywords"
+                    summary={proSectionSummaries.servicesKeywords}
+                    isOpen={proAccordion.servicesKeywords}
+                    onToggle={() => toggleProAccordion("servicesKeywords")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Pro Mode merges services/keywords from your prior inputs to generate an optimized pack.
+                    </p>
+                  </GoogleBusinessAccordionSection>
 
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Brand & Goals"
+                    summary={proSectionSummaries.brandGoals}
+                    isOpen={proAccordion.brandGoals}
+                    onToggle={() => toggleProAccordion("brandGoals")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Uses your personality style, brand voice, and goals to shape recommendations and content.
+                    </p>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="FAQs & Posts"
+                    summary={proSectionSummaries.faqsPosts}
+                    isOpen={proAccordion.faqsPosts}
+                    onToggle={() => toggleProAccordion("faqsPosts")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      FAQ and post settings come from Wizard mode and are included in Pro outputs.
+                    </p>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Advanced / Optional"
+                    summary={proSectionSummaries.advancedOptional}
+                    isOpen={proAccordion.advancedOptional}
+                    onToggle={() => toggleProAccordion("advancedOptional")}
+                  >
+                    <div className="space-y-3">
+                      <ul className={`space-y-2 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-[#29c4a9] mt-1">1.</span>
+                          <span>Fill out your details in Audit Mode.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-[#29c4a9] mt-1">2.</span>
+                          <span>Fill out your details in Wizard Mode.</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-[#29c4a9] mt-1">3.</span>
+                          <span>Generate here to see a combined view.</span>
+                        </li>
+                      </ul>
+
+                      {(wizardForm.businessName || auditForm.businessName) ? (
+                        <div className={`p-3 rounded-lg ${isDark ? "bg-slate-800/50" : "bg-slate-50"}`}>
+                          <p className={`text-sm ${themeClasses.mutedText}`}>
+                            <span className="font-medium">Business:</span>{" "}
+                            {wizardForm.businessName || auditForm.businessName}
+                            {(wizardForm.city || auditForm.city) ? (
+                              <span> • {wizardForm.city || auditForm.city}</span>
+                            ) : null}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </GoogleBusinessAccordionSection>
+                </div>
+              </div>
+
+              <OBDStickyActionBar
+                isDark={isDark}
+                left={
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold ${themeClasses.headingText}`}>
+                      Draft-only
+                    </div>
+                    <div className={`text-xs leading-snug ${themeClasses.mutedText}`}>
+                      <div>This tool does not connect to or update your live Google Business Profile.</div>
+                      <div>All content generated here is draft-only. You choose what to apply.</div>
+                    </div>
+                  </div>
+                }
+              >
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={generateDisabled}
                   className={SUBMIT_BUTTON_CLASSES}
+                  title={
+                    generateDisabled
+                      ? "Please wait for the current request to finish."
+                      : "Generate draft output."
+                  }
                 >
-                  {isSubmitting ? "Running Audit..." : "Run Google Business Profile Audit"}
+                  {isSubmitting ? "Generating…" : "Generate"}
                 </button>
-                <p className={`text-xs text-center ${themeClasses.mutedText}`}>
-                  We'll review your Google Business Profile and suggest improvements you can apply inside your listing.
-                </p>
+
+                <button
+                  type="button"
+                  onClick={() => handleProSubmit()}
+                  disabled={regenerateDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    isSubmitting
+                      ? "Please wait for the current request to finish."
+                      : !proResult
+                        ? "Generate first to enable Regenerate."
+                        : "Regenerate using your current inputs."
+                  }
+                >
+                  Regenerate
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => scrollToId("gbp-pro-export")}
+                  disabled={exportDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    isSubmitting
+                      ? "Please wait for the current request to finish."
+                      : !proResult
+                        ? "Run Pro Mode first to enable Export."
+                        : "Jump to Export tools (report + CSV)."
+                  }
+                >
+                  Export
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Reset inputs and clear draft results."
+                  }
+                >
+                  Reset
+                </button>
+              </OBDStickyActionBar>
+            </form>
+          ) : mode === "audit" ? (
+            <form onSubmit={handleAuditSubmit}>
+              <div className={OBD_STICKY_ACTION_BAR_OFFSET_CLASS}>
+                <div className="space-y-4">
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Business Basics"
+                    summary={auditSectionSummaries.businessBasics}
+                    isOpen={auditAccordion.businessBasics}
+                    onToggle={() => toggleAuditAccordion("businessBasics")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="audit-businessName"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Business Name <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="audit-businessName"
+                          value={auditForm.businessName}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, businessName: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Ocala Coffee Shop"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-businessType"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Business Type <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="audit-businessType"
+                          value={auditForm.businessType}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, businessType: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Restaurant, Retail, Service"
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            htmlFor="audit-city"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            City
+                          </label>
+                          <input
+                            type="text"
+                            id="audit-city"
+                            value={auditForm.city}
+                            onChange={(e) =>
+                              setAuditForm({ ...auditForm, city: e.target.value })
+                            }
+                            className={getInputClasses(isDark)}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="audit-state"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            State
+                          </label>
+                          <input
+                            type="text"
+                            id="audit-state"
+                            value={auditForm.state}
+                            onChange={(e) =>
+                              setAuditForm({ ...auditForm, state: e.target.value })
+                            }
+                            className={getInputClasses(isDark)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Google Business Profile Details"
+                    summary={auditSectionSummaries.gbpDetails}
+                    isOpen={auditAccordion.gbpDetails}
+                    onToggle={() => toggleAuditAccordion("gbpDetails")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="audit-websiteUrl"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Website URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          id="audit-websiteUrl"
+                          value={auditForm.websiteUrl}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, websiteUrl: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="https://example.com"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-googleBusinessUrl"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Google Business Profile URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          id="audit-googleBusinessUrl"
+                          value={auditForm.googleBusinessUrl}
+                          onChange={(e) =>
+                            setAuditForm({
+                              ...auditForm,
+                              googleBusinessUrl: e.target.value,
+                            })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="https://g.page/your-business"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-mainCategory"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Main Category (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          id="audit-mainCategory"
+                          value={auditForm.mainCategory}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, mainCategory: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Massage Therapist, Restaurant"
+                        />
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Services & Keywords"
+                    summary={auditSectionSummaries.servicesKeywords}
+                    isOpen={auditAccordion.servicesKeywords}
+                    onToggle={() => toggleAuditAccordion("servicesKeywords")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="audit-services"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Services
+                        </label>
+                        <textarea
+                          id="audit-services"
+                          value={auditForm.services}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, services: e.target.value })
+                          }
+                          rows={4}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Comma or line separated (e.g., Massage Therapy, Deep Tissue, Hot Stone)"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-primaryKeyword"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Primary Keyword (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          id="audit-primaryKeyword"
+                          value={auditForm.primaryKeyword}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, primaryKeyword: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Ocala massage therapist"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-secondaryKeywords"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Secondary Keywords (Optional)
+                        </label>
+                        <textarea
+                          id="audit-secondaryKeywords"
+                          value={auditForm.secondaryKeywords}
+                          onChange={(e) =>
+                            setAuditForm({
+                              ...auditForm,
+                              secondaryKeywords: e.target.value,
+                            })
+                          }
+                          rows={3}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Comma or line separated"
+                        />
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Brand & Goals"
+                    summary={auditSectionSummaries.brandGoals}
+                    isOpen={auditAccordion.brandGoals}
+                    onToggle={() => toggleAuditAccordion("brandGoals")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="audit-personalityStyle"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Personality Style
+                        </label>
+                        <select
+                          id="audit-personalityStyle"
+                          value={auditForm.personalityStyle}
+                          onChange={(e) =>
+                            setAuditForm({
+                              ...auditForm,
+                              personalityStyle: e.target.value as PersonalityStyle,
+                            })
+                          }
+                          className={getInputClasses(isDark)}
+                        >
+                          <option value="None">None</option>
+                          <option value="Soft">Soft</option>
+                          <option value="Bold">Bold</option>
+                          <option value="High-Energy">High-Energy</option>
+                          <option value="Luxury">Luxury</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-brandVoice"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Brand Voice (Optional)
+                        </label>
+                        <textarea
+                          id="audit-brandVoice"
+                          value={auditForm.brandVoice}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, brandVoice: e.target.value })
+                          }
+                          rows={3}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Paste 2–4 sentences that sound like your existing brand voice"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="audit-goals"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Goals (Optional)
+                        </label>
+                        <textarea
+                          id="audit-goals"
+                          value={auditForm.goals}
+                          onChange={(e) =>
+                            setAuditForm({ ...auditForm, goals: e.target.value })
+                          }
+                          rows={3}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="What do you want to improve? (e.g., More calls, More direction requests, Better local ranking)"
+                        />
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="FAQs & Posts"
+                    summary={auditSectionSummaries.faqsPosts}
+                    isOpen={auditAccordion.faqsPosts}
+                    onToggle={() => toggleAuditAccordion("faqsPosts")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Audit mode focuses on analysis and optimization suggestions. FAQs and Posts are generated in Wizard/Pro.
+                    </p>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Advanced / Optional"
+                    summary={auditSectionSummaries.advancedOptional}
+                    isOpen={auditAccordion.advancedOptional}
+                    onToggle={() => toggleAuditAccordion("advancedOptional")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Optional fields help improve specificity, but you can generate without them.
+                    </p>
+                  </GoogleBusinessAccordionSection>
+                </div>
               </div>
+
+              <OBDStickyActionBar
+                isDark={isDark}
+                left={
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold ${themeClasses.headingText}`}>
+                      Draft-only
+                    </div>
+                    <div className={`text-xs leading-snug ${themeClasses.mutedText}`}>
+                      <div>This tool does not connect to or update your live Google Business Profile.</div>
+                      <div>All content generated here is draft-only. You choose what to apply.</div>
+                    </div>
+                  </div>
+                }
+              >
+                <button
+                  type="submit"
+                  disabled={generateDisabled}
+                  className={SUBMIT_BUTTON_CLASSES}
+                  title={
+                    generateDisabled
+                      ? "Please wait for the current request to finish."
+                      : "Generate draft output."
+                  }
+                >
+                  {isSubmitting ? "Generating…" : "Generate"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleAuditSubmit()}
+                  disabled={isSubmitting || !auditResult}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    isSubmitting
+                      ? "Please wait for the current request to finish."
+                      : !auditResult
+                        ? "Generate first to enable Regenerate."
+                        : "Regenerate using your current inputs."
+                  }
+                >
+                  Regenerate
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => scrollToId("gbp-pro-export")}
+                  disabled={true}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title="Export is available in Pro Mode."
+                >
+                  Export
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Reset inputs and clear draft results."
+                  }
+                >
+                  Reset
+                </button>
+              </OBDStickyActionBar>
             </form>
           ) : (
             <form onSubmit={handleWizardSubmit}>
-              <div className="space-y-4">
-                <OBDHeading level={2} isDark={isDark} className="mb-4">
-                  Business Basics
-                </OBDHeading>
-
-                <div>
-                  <label htmlFor="wizard-businessName" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Name <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="wizard-businessName"
-                    value={wizardForm.businessName}
-                    onChange={(e) => setWizardForm({ ...wizardForm, businessName: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Ocala Coffee Shop"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-businessType" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Business Type <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="wizard-businessType"
-                    value={wizardForm.businessType}
-                    onChange={(e) => setWizardForm({ ...wizardForm, businessType: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Restaurant, Retail, Service"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-services" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Services
-                  </label>
-                  <textarea
-                    id="wizard-services"
-                    value={wizardForm.services}
-                    onChange={(e) => setWizardForm({ ...wizardForm, services: e.target.value })}
-                    rows={4}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Comma or line separated"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="wizard-city" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      City
-                    </label>
-                    <input
-                      type="text"
-                      id="wizard-city"
-                      value={wizardForm.city}
-                      onChange={(e) => setWizardForm({ ...wizardForm, city: e.target.value })}
-                      className={getInputClasses(isDark)}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="wizard-state" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      State
-                    </label>
-                    <input
-                      type="text"
-                      id="wizard-state"
-                      value={wizardForm.state}
-                      onChange={(e) => setWizardForm({ ...wizardForm, state: e.target.value })}
-                      className={getInputClasses(isDark)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-websiteUrl" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Website URL (Optional)
-                  </label>
-                  <input
-                    type="url"
-                    id="wizard-websiteUrl"
-                    value={wizardForm.websiteUrl}
-                    onChange={(e) => setWizardForm({ ...wizardForm, websiteUrl: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="https://example.com"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-primaryKeyword" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Primary Keyword (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    id="wizard-primaryKeyword"
-                    value={wizardForm.primaryKeyword}
-                    onChange={(e) => setWizardForm({ ...wizardForm, primaryKeyword: e.target.value })}
-                    className={getInputClasses(isDark)}
-                    placeholder="e.g., Ocala massage therapist"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-secondaryKeywords" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Secondary Keywords (Optional)
-                  </label>
-                  <textarea
-                    id="wizard-secondaryKeywords"
-                    value={wizardForm.secondaryKeywords}
-                    onChange={(e) => setWizardForm({ ...wizardForm, secondaryKeywords: e.target.value })}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Comma or line separated"
-                  />
-                </div>
-
-                <OBDHeading level={2} isDark={isDark} className="mb-4 mt-6">
-                  Profile Content Settings
-                </OBDHeading>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="wizard-shortDescriptionLength" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      Short Description Length
-                    </label>
-                    <select
-                      id="wizard-shortDescriptionLength"
-                      value={wizardForm.shortDescriptionLength}
-                      onChange={(e) => setWizardForm({ ...wizardForm, shortDescriptionLength: e.target.value as "Short" | "Medium" | "Long" })}
-                      className={getInputClasses(isDark)}
-                    >
-                      <option value="Short">Short</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Long">Long</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="wizard-longDescriptionLength" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                      Long Description Length
-                    </label>
-                    <select
-                      id="wizard-longDescriptionLength"
-                      value={wizardForm.longDescriptionLength}
-                      onChange={(e) => setWizardForm({ ...wizardForm, longDescriptionLength: e.target.value as "Short" | "Medium" | "Long" })}
-                      className={getInputClasses(isDark)}
-                    >
-                      <option value="Short">Short</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Long">Long</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-serviceAreas" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Service Areas (Optional)
-                  </label>
-                  <textarea
-                    id="wizard-serviceAreas"
-                    value={wizardForm.serviceAreas}
-                    onChange={(e) => setWizardForm({ ...wizardForm, serviceAreas: e.target.value })}
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., Ocala, Gainesville, The Villages"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-openingHours" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Opening Hours (Optional)
-                  </label>
-                  <textarea
-                    id="wizard-openingHours"
-                    value={wizardForm.openingHours}
-                    onChange={(e) => setWizardForm({ ...wizardForm, openingHours: e.target.value })}
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., Monday-Friday: 9am-5pm, Saturday: 10am-3pm"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="wizard-specialities" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Specialities (Optional)
-                  </label>
-                  <textarea
-                    id="wizard-specialities"
-                    value={wizardForm.specialities}
-                    onChange={(e) => setWizardForm({ ...wizardForm, specialities: e.target.value })}
-                    rows={2}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="e.g., Deep tissue massage, Sports injury recovery"
-                  />
-                </div>
-
-                <OBDHeading level={2} isDark={isDark} className="mb-4 mt-6">
-                  Brand & Voice
-                </OBDHeading>
-
-                <div>
-                  <label htmlFor="wizard-personalityStyle" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Personality Style
-                  </label>
-                  <select
-                    id="wizard-personalityStyle"
-                    value={wizardForm.personalityStyle}
-                    onChange={(e) => setWizardForm({ ...wizardForm, personalityStyle: e.target.value as PersonalityStyle })}
-                    className={getInputClasses(isDark)}
+              <div className={OBD_STICKY_ACTION_BAR_OFFSET_CLASS}>
+                <div className="space-y-4">
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Business Basics"
+                    summary={wizardSectionSummaries.businessBasics}
+                    isOpen={wizardAccordion.businessBasics}
+                    onToggle={() => toggleWizardAccordion("businessBasics")}
                   >
-                    <option value="None">None</option>
-                    <option value="Soft">Soft</option>
-                    <option value="Bold">Bold</option>
-                    <option value="High-Energy">High-Energy</option>
-                    <option value="Luxury">Luxury</option>
-                  </select>
-                </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="wizard-businessName"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Business Name <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="wizard-businessName"
+                          value={wizardForm.businessName}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, businessName: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Ocala Coffee Shop"
+                          required
+                        />
+                      </div>
 
-                <div>
-                  <label htmlFor="wizard-brandVoice" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    Brand Voice (Optional)
-                  </label>
-                  <textarea
-                    id="wizard-brandVoice"
-                    value={wizardForm.brandVoice}
-                    onChange={(e) => setWizardForm({ ...wizardForm, brandVoice: e.target.value })}
-                    rows={3}
-                    className={getInputClasses(isDark, "resize-none")}
-                    placeholder="Paste 2–4 sentences that sound like your existing brand voice"
-                  />
-                </div>
+                      <div>
+                        <label
+                          htmlFor="wizard-businessType"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Business Type <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="wizard-businessType"
+                          value={wizardForm.businessType}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, businessType: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Restaurant, Retail, Service"
+                          required
+                        />
+                      </div>
 
-                <OBDHeading level={2} isDark={isDark} className="mb-4 mt-6">
-                  FAQs & Posts
-                </OBDHeading>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            htmlFor="wizard-city"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            City
+                          </label>
+                          <input
+                            type="text"
+                            id="wizard-city"
+                            value={wizardForm.city}
+                            onChange={(e) =>
+                              setWizardForm({ ...wizardForm, city: e.target.value })
+                            }
+                            className={getInputClasses(isDark)}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="wizard-state"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            State
+                          </label>
+                          <input
+                            type="text"
+                            id="wizard-state"
+                            value={wizardForm.state}
+                            onChange={(e) =>
+                              setWizardForm({ ...wizardForm, state: e.target.value })
+                            }
+                            className={getInputClasses(isDark)}
+                          />
+                        </div>
+                      </div>
 
-                <div>
-                  <label htmlFor="wizard-faqCount" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                    FAQ Count
-                  </label>
-                  <input
-                    type="number"
-                    id="wizard-faqCount"
-                    value={wizardForm.faqCount}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === "") {
-                        setWizardForm({ ...wizardForm, faqCount: 5 });
-                        return;
-                      }
-                      const num = parseInt(val, 10);
-                      if (!isNaN(num)) {
-                        setWizardForm({ ...wizardForm, faqCount: Math.min(Math.max(3, num), 12) });
-                      }
-                    }}
-                    min={3}
-                    max={12}
-                    className={getInputClasses(isDark)}
-                  />
-                  <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>Generate between 3 and 12 FAQs.</p>
-                </div>
-
-                <div>
-                  <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
-                    <input
-                      type="checkbox"
-                      checked={wizardForm.includePosts}
-                      onChange={(e) => setWizardForm({ ...wizardForm, includePosts: e.target.checked })}
-                      className="w-4 h-4 rounded border-slate-300 text-[#29c4a9] focus:ring-[#29c4a9]"
-                    />
-                    <span className="text-sm font-medium">Include Google Business Posts?</span>
-                  </label>
-                </div>
-
-                {wizardForm.includePosts && (
-                  <>
-                    <div>
-                      <label htmlFor="wizard-postGoal" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                        Post Goal (Optional)
-                      </label>
-                      <textarea
-                        id="wizard-postGoal"
-                        value={wizardForm.postGoal}
-                        onChange={(e) => setWizardForm({ ...wizardForm, postGoal: e.target.value })}
-                        rows={2}
-                        className={getInputClasses(isDark, "resize-none")}
-                        placeholder="e.g., announcements, promotions, events, etc."
-                      />
+                      <div>
+                        <label
+                          htmlFor="wizard-websiteUrl"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Website URL (Optional)
+                        </label>
+                        <input
+                          type="url"
+                          id="wizard-websiteUrl"
+                          value={wizardForm.websiteUrl}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, websiteUrl: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="https://example.com"
+                        />
+                      </div>
                     </div>
+                  </GoogleBusinessAccordionSection>
 
-                    <div>
-                      <label htmlFor="wizard-promoDetails" className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>
-                        Promo Details (Optional)
-                      </label>
-                      <textarea
-                        id="wizard-promoDetails"
-                        value={wizardForm.promoDetails}
-                        onChange={(e) => setWizardForm({ ...wizardForm, promoDetails: e.target.value })}
-                        rows={2}
-                        className={getInputClasses(isDark, "resize-none")}
-                        placeholder="e.g., current offers, seasonal specials, etc."
-                      />
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Google Business Profile Details"
+                    summary={wizardSectionSummaries.gbpDetails}
+                    isOpen={wizardAccordion.gbpDetails}
+                    onToggle={() => toggleWizardAccordion("gbpDetails")}
+                  >
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            htmlFor="wizard-shortDescriptionLength"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            Short Description Length
+                          </label>
+                          <select
+                            id="wizard-shortDescriptionLength"
+                            value={wizardForm.shortDescriptionLength}
+                            onChange={(e) =>
+                              setWizardForm({
+                                ...wizardForm,
+                                shortDescriptionLength: e.target.value as
+                                  | "Short"
+                                  | "Medium"
+                                  | "Long",
+                              })
+                            }
+                            className={getInputClasses(isDark)}
+                          >
+                            <option value="Short">Short</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Long">Long</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="wizard-longDescriptionLength"
+                            className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                          >
+                            Long Description Length
+                          </label>
+                          <select
+                            id="wizard-longDescriptionLength"
+                            value={wizardForm.longDescriptionLength}
+                            onChange={(e) =>
+                              setWizardForm({
+                                ...wizardForm,
+                                longDescriptionLength: e.target.value as
+                                  | "Short"
+                                  | "Medium"
+                                  | "Long",
+                              })
+                            }
+                            className={getInputClasses(isDark)}
+                          >
+                            <option value="Short">Short</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Long">Long</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-serviceAreas"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Service Areas (Optional)
+                        </label>
+                        <textarea
+                          id="wizard-serviceAreas"
+                          value={wizardForm.serviceAreas}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, serviceAreas: e.target.value })
+                          }
+                          rows={2}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="e.g., Ocala, Gainesville, The Villages"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-openingHours"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Opening Hours (Optional)
+                        </label>
+                        <textarea
+                          id="wizard-openingHours"
+                          value={wizardForm.openingHours}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, openingHours: e.target.value })
+                          }
+                          rows={2}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="e.g., Monday-Friday: 9am-5pm, Saturday: 10am-3pm"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-specialities"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Specialities (Optional)
+                        </label>
+                        <textarea
+                          id="wizard-specialities"
+                          value={wizardForm.specialities}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, specialities: e.target.value })
+                          }
+                          rows={2}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="e.g., Deep tissue massage, Sports injury recovery"
+                        />
+                      </div>
                     </div>
-                  </>
-                )}
+                  </GoogleBusinessAccordionSection>
 
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Services & Keywords"
+                    summary={wizardSectionSummaries.servicesKeywords}
+                    isOpen={wizardAccordion.servicesKeywords}
+                    onToggle={() => toggleWizardAccordion("servicesKeywords")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="wizard-services"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Services
+                        </label>
+                        <textarea
+                          id="wizard-services"
+                          value={wizardForm.services}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, services: e.target.value })
+                          }
+                          rows={4}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Comma or line separated"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-primaryKeyword"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Primary Keyword (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          id="wizard-primaryKeyword"
+                          value={wizardForm.primaryKeyword}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, primaryKeyword: e.target.value })
+                          }
+                          className={getInputClasses(isDark)}
+                          placeholder="e.g., Ocala massage therapist"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-secondaryKeywords"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Secondary Keywords (Optional)
+                        </label>
+                        <textarea
+                          id="wizard-secondaryKeywords"
+                          value={wizardForm.secondaryKeywords}
+                          onChange={(e) =>
+                            setWizardForm({
+                              ...wizardForm,
+                              secondaryKeywords: e.target.value,
+                            })
+                          }
+                          rows={3}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Comma or line separated"
+                        />
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Brand & Goals"
+                    summary={wizardSectionSummaries.brandGoals}
+                    isOpen={wizardAccordion.brandGoals}
+                    onToggle={() => toggleWizardAccordion("brandGoals")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="wizard-personalityStyle"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Personality Style
+                        </label>
+                        <select
+                          id="wizard-personalityStyle"
+                          value={wizardForm.personalityStyle}
+                          onChange={(e) =>
+                            setWizardForm({
+                              ...wizardForm,
+                              personalityStyle: e.target.value as PersonalityStyle,
+                            })
+                          }
+                          className={getInputClasses(isDark)}
+                        >
+                          <option value="None">None</option>
+                          <option value="Soft">Soft</option>
+                          <option value="Bold">Bold</option>
+                          <option value="High-Energy">High-Energy</option>
+                          <option value="Luxury">Luxury</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="wizard-brandVoice"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          Brand Voice (Optional)
+                        </label>
+                        <textarea
+                          id="wizard-brandVoice"
+                          value={wizardForm.brandVoice}
+                          onChange={(e) =>
+                            setWizardForm({ ...wizardForm, brandVoice: e.target.value })
+                          }
+                          rows={3}
+                          className={getInputClasses(isDark, "resize-none")}
+                          placeholder="Paste 2–4 sentences that sound like your existing brand voice"
+                        />
+                      </div>
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="FAQs & Posts"
+                    summary={wizardSectionSummaries.faqsPosts}
+                    isOpen={wizardAccordion.faqsPosts}
+                    onToggle={() => toggleWizardAccordion("faqsPosts")}
+                  >
+                    <div className="space-y-4">
+                      <div>
+                        <label
+                          htmlFor="wizard-faqCount"
+                          className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                        >
+                          FAQ Count
+                        </label>
+                        <input
+                          type="number"
+                          id="wizard-faqCount"
+                          value={wizardForm.faqCount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "") {
+                              setWizardForm({ ...wizardForm, faqCount: 5 });
+                              return;
+                            }
+                            const num = parseInt(val, 10);
+                            if (!isNaN(num)) {
+                              setWizardForm({
+                                ...wizardForm,
+                                faqCount: Math.min(Math.max(3, num), 12),
+                              });
+                            }
+                          }}
+                          min={3}
+                          max={12}
+                          className={getInputClasses(isDark)}
+                        />
+                        <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                          Generate between 3 and 12 FAQs.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className={`flex items-center gap-2 ${themeClasses.labelText}`}>
+                          <input
+                            type="checkbox"
+                            checked={wizardForm.includePosts}
+                            onChange={(e) =>
+                              setWizardForm({ ...wizardForm, includePosts: e.target.checked })
+                            }
+                            className="w-4 h-4 rounded border-slate-300 text-[#29c4a9] focus:ring-[#29c4a9]"
+                          />
+                          <span className="text-sm font-medium">
+                            Include Google Business Posts?
+                          </span>
+                        </label>
+                      </div>
+
+                      {wizardForm.includePosts ? (
+                        <div className="space-y-4">
+                          <div>
+                            <label
+                              htmlFor="wizard-postGoal"
+                              className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                            >
+                              Post Goal (Optional)
+                            </label>
+                            <textarea
+                              id="wizard-postGoal"
+                              value={wizardForm.postGoal}
+                              onChange={(e) =>
+                                setWizardForm({ ...wizardForm, postGoal: e.target.value })
+                              }
+                              rows={2}
+                              className={getInputClasses(isDark, "resize-none")}
+                              placeholder="e.g., announcements, promotions, events, etc."
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="wizard-promoDetails"
+                              className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                            >
+                              Promo Details (Optional)
+                            </label>
+                            <textarea
+                              id="wizard-promoDetails"
+                              value={wizardForm.promoDetails}
+                              onChange={(e) =>
+                                setWizardForm({ ...wizardForm, promoDetails: e.target.value })
+                              }
+                              rows={2}
+                              className={getInputClasses(isDark, "resize-none")}
+                              placeholder="e.g., current offers, seasonal specials, etc."
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </GoogleBusinessAccordionSection>
+
+                  <GoogleBusinessAccordionSection
+                    isDark={isDark}
+                    title="Advanced / Optional"
+                    summary={wizardSectionSummaries.advancedOptional}
+                    isOpen={wizardAccordion.advancedOptional}
+                    onToggle={() => toggleWizardAccordion("advancedOptional")}
+                  >
+                    <p className={`text-sm ${themeClasses.mutedText}`}>
+                      Optional fields help personalize outputs. You can generate with only the required basics.
+                    </p>
+                  </GoogleBusinessAccordionSection>
+                </div>
+              </div>
+
+              <OBDStickyActionBar
+                isDark={isDark}
+                left={
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold ${themeClasses.headingText}`}>
+                      Draft-only
+                    </div>
+                    <div className={`text-xs leading-snug ${themeClasses.mutedText}`}>
+                      <div>This tool does not connect to or update your live Google Business Profile.</div>
+                      <div>All content generated here is draft-only. You choose what to apply.</div>
+                    </div>
+                  </div>
+                }
+              >
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={generateDisabled}
                   className={SUBMIT_BUTTON_CLASSES}
+                  title={
+                    generateDisabled
+                      ? "Please wait for the current request to finish."
+                      : "Generate draft output."
+                  }
                 >
-                  {isSubmitting ? "Generating..." : "Generate Google Business Profile Content"}
+                  {isSubmitting ? "Generating…" : "Generate"}
                 </button>
-              </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleWizardSubmit()}
+                  disabled={isSubmitting || !wizardResult}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    isSubmitting
+                      ? "Please wait for the current request to finish."
+                      : !wizardResult
+                        ? "Generate first to enable Regenerate."
+                        : "Regenerate using your current inputs."
+                  }
+                >
+                  Regenerate
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => scrollToId("gbp-pro-export")}
+                  disabled={true}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title="Export is available in Pro Mode."
+                >
+                  Export
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Reset inputs and clear draft results."
+                  }
+                >
+                  Reset
+                </button>
+              </OBDStickyActionBar>
             </form>
           )}
         </OBDPanel>
@@ -1469,7 +2421,7 @@ export default function GoogleBusinessProfileProPage() {
                   </div>
 
                   {/* Export Pro Report */}
-                  <div className={`rounded-xl border p-4 ${
+                  <div id="gbp-pro-export" className={`rounded-xl border p-4 ${
                     isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
                   }`}>
                     <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>

@@ -4,6 +4,16 @@ This document reflects **current shipped behavior** (code-truth), including Tier
 
 ---
 
+## Status
+
+- **Status: LOCKED (maintenance-mode safe)**
+- **Maintenance Mode Guarantees**
+  - **Tenant-safe**: API routes require authentication and are scoped to the active `businessId` (override attempts rejected).
+  - **No background jobs**: all generation/metrics/rank-check calls are user-triggered only.
+  - **Draft-only applies**: cross-app handoffs are Apply/Dismiss, additive-only, TTL’d, tenant-checked.
+  - **Deterministic exports**: CSV schema is fixed; TXT is deterministic by default (timestamps are opt-in).
+  - **Safe fallbacks**: Google Ads metrics are best-effort with timeouts/retry; missing/invalid creds fall back to mock metrics without crashing.
+
 ## Current behavior (authoritative, code-truth)
 
 ### App version

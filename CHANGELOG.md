@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- LKRT: Lock audit passed; status LOCKED (maintenance-mode safe).
+
 - **Local Keyword Research Tool — Reference Quality (Tier 6)**
   - Tier 5A UX consistency: canonical `getActiveKeywordResults()`, sticky action bar, accordion inputs, truthful metrics badge semantics, and strong empty/loading/error states.
   - Tier 5C safe handoffs (draft-only): LKRT → Local SEO + LKRT → Content Writer with TTL, tenant-safe guards, Apply/Dismiss, additive-only applies.

@@ -12,7 +12,7 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 |---|---:|---|
 | **A) Determinism & canonical selector** | **PASS** | Canonical `getActiveKeywordResults()` used for active results; no recompute/mutation. |
 | **B) Tier 5A UX consistency** | **PASS** | Accordion inputs, sticky action bar, disabled-not-hidden, truthful metrics badge semantics, explicit empty/loading/error states. |
-| **C) Export integrity** | **PASS** | Unified Export Center; deterministic CSV schema (no comment lines); TXT report format stable. |
+| **C) Export integrity** | **PASS** | Unified Export Center; deterministic CSV schema (no comment lines); TXT is deterministic by default (timestamps are opt-in). |
 | **D) Tier 5C ecosystem handoffs** | **PASS** | TTL’d + tenant-safe + Apply/Dismiss + additive-only to Local SEO + Content Writer. |
 | **E) Trust & guardrails** | **PASS** | Explicit “no automation”; explicit “ads competition ≠ organic ranking guarantee”; no silent background calls. |
 | **F) Google Ads metrics correctness** | **PASS** | Real Keyword Planner historical metrics; null-safe; best-effort targeting; no false “Live” without numeric metrics. |
@@ -38,7 +38,7 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 
 - Unified Export Center: `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` + `src/app/apps/local-keyword-research/page.tsx` (“Export Center” panel)
 - Deterministic CSV schema (fixed columns; no comment lines; empty cells for missing metrics): `src/lib/exports/local-keyword-exports.ts` (`generateKeywordsCsv`)
-- TXT report format stability (structured sections; timestamped): `src/lib/exports/local-keyword-exports.ts` (`generateFullReportTxt`)
+- TXT report format stability (structured sections; deterministic by default; timestamps opt-in): `src/lib/exports/local-keyword-exports.ts` (`generateFullReportTxt`) + `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` (timestamp toggle)
 
 ### D) Tier 5C ecosystem handoffs — PASS
 
@@ -91,6 +91,6 @@ This audit compares LKRT against established Tier 5C / Tier 6 patterns already p
 - **No auto-publish / no auto-apply**:
   - LKRT never publishes/schedules/changes anything automatically.
 - **Deterministic, parser-safe exports**:
-  - CSV schema is fixed; missing metrics export as empty cells; TXT report remains structured and readable.
+  - CSV schema is fixed; missing metrics export as empty cells; TXT is deterministic by default (optional opt-in timestamps).
 
 

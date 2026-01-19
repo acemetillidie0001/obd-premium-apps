@@ -1,4 +1,4 @@
-### LOCAL_KEYWORD_RESEARCH_LOCK_AUDIT (LKRT) — BEFORE LOCK
+### LOCAL_KEYWORD_RESEARCH_LOCK_AUDIT (LKRT) — FINAL (after fixes 7A–7E)
 
 Scope: **code-truth audit only** (no runtime changes, no dependency changes, no API/DB changes in this prompt).
 
@@ -33,11 +33,11 @@ App: Local Keyword Research Tool (LKRT)
 
 ---
 
-## Executive Summary (PASS / CONDITIONAL PASS / FAIL)
+## Executive Summary (YES / NO)
 
-**CONDITIONAL PASS (ready for LOCK)** — LKRT now enforces **auth + business scoping in the API routes** (middleware does not protect `/api/*`, but LKRT routes self-enforce), and the main OpenAI calls are guarded with a hard timeout. Remaining caveats are primarily operational/determinism (e.g., TXT exports include click-time timestamps).
+**YES — Safe to mark LOCKED (maintenance-mode safe).**
 
-LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known caveats listed under Export determinism and rate limiting behavior.
+LKRT now meets the lock criteria after fixes **7A–7E**: tenant-safe API scoping, safe logging, hard OpenAI timeouts, production-truth rank-check messaging, and deterministic exports (TXT deterministic by default; timestamps are opt-in).
 
 ---
 
@@ -49,13 +49,34 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
 | **B) Determinism + Canonical State** | **PASS** | Canonical `getActiveKeywordResults()` used for active results; refresh is user-triggered; no background recompute/mutation. |
 | **C) Google Ads Metrics Correctness + Fallback** | **PASS** | Default mock; google-ads best-effort; null-safe; does not drop keywords; badge semantics are numeric-driven; deterministic retry/timeout present. |
 | **D) Reliability + Timeouts + Error Surfaces** | **PASS** | Google Ads + rank-check have explicit timeouts; LKRT main OpenAI calls are guarded with `withOpenAITimeout` and return a stable 504 TIMEOUT envelope. |
-| **E) Export Integrity (Export Center + CSV/TXT)** | **PARTIAL** | Unified Export Center + deterministic CSV schema pass; TXT report includes click-time timestamps (intended but non-deterministic output). |
+| **E) Export Integrity (Export Center + CSV/TXT)** | **PASS** | Unified Export Center; deterministic CSV schema; TXT export is deterministic by default with optional opt-in timestamps toggle. |
 | **F) Tier 5C Ecosystem Handoffs (Draft-only)** | **PASS** | TTL enforced; tenant mismatch blocks Apply; Apply/Dismiss with additive-only merges; payloads versioned + minimal. |
 | **G) Trust + Guardrails** | **PASS** | UI + docs now match production truth: no automation, no ranking guarantees, no ongoing tracking; rank-check is a one-time check (mock by default) and LKRT does not run a first‑party SERP scraper. |
 
 ---
 
 ## Evidence by section (brief; no large code)
+
+## Resolved Blockers (7A–7E)
+
+- **7A — Auth + tenant/business scoping**
+  - `src/app/api/local-keyword-research/route.ts`: requires `requireUserSession()` and returns `UNAUTHORIZED` 401 when missing session (L325–L333); rejects query/body override attempts for `businessId`/`tenantId` (L337–L354, L378–L390); success response includes `scope: { businessId }` (L708–L712).
+  - `src/app/api/local-keyword-research/rank-check/route.ts`: requires `requireUserSession()` and returns `UNAUTHORIZED` 401 when missing session (L169–L177); rejects body override attempts (L186–L197); success response includes `scope: { businessId }` (L274–L277).
+
+- **7B — Remove raw model output logging**
+  - `src/app/api/local-keyword-research/route.ts`: parse-failure logs include only metadata (requestId, businessId, lengths/counts) and do not print model text (ideas parse log L499–L504; final parse log L693–L700).
+
+- **7C — Hard timeout wrapper for main OpenAI generation**
+  - `src/app/api/local-keyword-research/route.ts`: both OpenAI calls are wrapped with `withOpenAITimeout` (ideas L456–L485; final L532–L553).
+  - Timeout returns stable `{ ok:false, code:"TIMEOUT" }` with 504 via `apiErrorResponse` (L714–L720).
+
+- **7D — Rank-check guardrail mismatch resolved (copy/docs)**
+  - LKRT UI rank-check copy is explicit: one-time, not tracking, not a guarantee, no first‑party SERP scraper; mock by default / third‑party provider only if enabled (`src/app/apps/local-keyword-research/page.tsx` rank-check helper text, L1666–L1668; empty-state education copy L1969–L1971).
+  - LKRT docs reflect “no first‑party SERP scraping” and “no ongoing tracking”: `docs/apps/local-keyword-research.md` (Guardrails + Rank Check section).
+
+- **7E — TXT export determinism enforced**
+  - `src/lib/exports/local-keyword-exports.ts`: TXT timestamps are opt-in via `options.includeTimestamps` (header emits `Generated:` only when enabled; L172–L210).
+  - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx`: UI toggle exists and defaults OFF (`includeTxtTimestamps` state L32–L35; checkbox L146–L160); exporter passes timestamps only when toggle is enabled (L103–L123).
 
 ### A) Tenant Safety + Auth Scoping — PASS
 
@@ -108,7 +129,7 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
 - **UI error surfacing**
   - LKRT UI stores and displays error strings and has explicit empty-state guidance: `src/app/apps/local-keyword-research/page.tsx` (error panels + education copy).
 
-### E) Export Integrity (Export Center + CSV/TXT) — PARTIAL
+### E) Export Integrity (Export Center + CSV/TXT) — PASS
 
 - Unified Export Center exists and is the authoritative download surface:
   - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx`
@@ -116,10 +137,9 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
 - CSV deterministic schema:
   - `src/lib/exports/local-keyword-exports.ts` `generateKeywordsCsv` fixed header order and no comment lines (L87–L149).
   - Null metrics export as empty cells (same function).
-- TXT report stability / determinism risk:
-  - `src/lib/exports/local-keyword-exports.ts` `generateFullReportTxt` includes timestamps (`Generated:` and ISO) (L169–L196).
-  - `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` passes `generatedAt: new Date()` per click (CSV: L87–L100; TXT: L102–L122).
-  - **Flag**: TXT output is intentionally timestamped; it is not deterministic across repeated exports.
+- TXT report determinism:
+  - Default TXT is deterministic (no timestamps in output): `src/lib/exports/local-keyword-exports.ts` `generateFullReportTxt` only prints timestamps when `includeTimestamps` is true (L172–L210).
+  - Export Center toggle is opt-in and defaults OFF: `src/app/apps/local-keyword-research/components/LKRTExportCenterPanel.tsx` (toggle state L32–L35; checkbox L146–L160; callsite passes `includeTimestamps` L120–L122).
 - Exports read from canonical active results:
   - Export Center uses `activeResult` (which is derived via `getActiveKeywordResults()` in the page) and uses visible keywords derived from that active result (see LKRT UI + export center).
 
@@ -144,34 +164,27 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
   - Rank check is **one-time and user-triggered** (no background jobs; no saved history) and is **not a ranking guarantee** (`src/app/apps/local-keyword-research/page.tsx`, Rank Check helper text).
   - LKRT does **not** run a first‑party SERP scraper; rank-check results are **mock by default** (`src/lib/local-rank-check.ts`, `LOCAL_RANK_PROVIDER` default `"mock"`, L238–L253).
   - Optional third‑party SERP API mode is documented as an environment configuration (not first‑party scraping) (`src/lib/local-rank-check.ts`, provider docs L9–L18).
-- Caveat: API not auth-scoped (see A) undermines operational trust in production.
+- Caveat: none known that blocks LOCK; see “Known constraints” below for non-blocking limitations.
 
 ---
 
-## Top 5 Risks (before LOCK) + recommended fixes (no changes applied here)
+## Known constraints (non-blocking; production-truth)
 
-1) **TXT export is intentionally timestamped (non-deterministic output)**
-   - Risk: operators expecting deterministic exports may be surprised.
-   - Fix: document as intentional, or add an optional “deterministic TXT” mode that omits timestamps.
-
-2) **Per-instance rate limiting**
-   - Risk: in serverless/multi-instance deployments, per-instance memory rate limiting is not a strict global quota.
-   - Fix: move rate limiting to a shared store (Redis/DB) if strict global quotas are required.
-
-3) **Rank check misunderstanding risk (expectation management)**
-   - Risk: users may assume a single check implies ongoing tracking or guarantees outcomes.
-   - Fix: keep the “one-time / not tracking / not a guarantee / no first‑party scraper” disclaimer in UI + docs (now implemented).
+- **Per-instance rate limiting**
+  - `src/app/api/local-keyword-research/route.ts` uses an in-memory `Map` for rate limiting (L23–L26). In serverless/multi-instance deployments, this is not a strict global quota.
+- **LLM output is non-deterministic across runs**
+  - Strategy text, clusters, and ideas are model-generated and can vary between runs even with the same inputs (by design; no background jobs).
 
 ---
 
 ## Lock Criteria Confirmation (must be true to mark LKRT LOCKED)
 
-- [ ] `/api/local-keyword-research` and `/api/local-keyword-research/rank-check` require authenticated session and enforce tenant/business scoping.
-- [ ] No server logs include raw model output or sensitive request payload content.
-- [ ] Exports remain unified and deterministic where claimed (CSV fixed schema; no comment lines).
-- [ ] google-ads path remains best-effort with timeouts + deterministic retry and never drops keyword rows.
-- [ ] Tier 5C handoffs remain draft-only, TTL’d, tenant-safe, and additive-only.
-- [ ] UI messaging remains production-truth (no automation; no ranking guarantees).
+- [x] `/api/local-keyword-research` and `/api/local-keyword-research/rank-check` require authenticated session and enforce tenant/business scoping.
+- [x] No server logs include raw model output or sensitive request payload content.
+- [x] Exports remain unified and deterministic where claimed (CSV fixed schema; no comment lines; TXT deterministic by default with opt-in timestamps).
+- [x] google-ads path remains best-effort with timeouts + deterministic retry and never drops keyword rows.
+- [x] Tier 5C handoffs remain draft-only, TTL’d, tenant-safe, and additive-only.
+- [x] UI messaging remains production-truth (no automation; no ranking guarantees; no ongoing tracking).
 
 ---
 
@@ -180,7 +193,7 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
 1) Open LKRT under `/apps/local-keyword-research?businessId=<id>` and run once in **mock mode** (unset `LOCAL_KEYWORD_METRICS_SOURCE`).
 2) Verify metrics badge shows **Mock Data** (or non–Google Ads mode) and results render (top keywords + clusters).
 3) In Export Center, export **CSV** and confirm header is fixed and contains no comment lines; confirm empty metric cells exist when expected.
-4) Export **TXT** and confirm report structure is readable (note timestamps are expected).
+4) Export **TXT** and confirm report structure is readable and **deterministic by default** (no timestamps). Optional: enable the TXT timestamp toggle and confirm `Generated:` appears.
 5) Enable **google-ads** env vars and set `LOCAL_KEYWORD_METRICS_SOURCE=google-ads`; run LKRT again.
 6) Verify numeric metrics appear for at least some keywords and badge becomes **Live Google Ads** only when numeric metrics exist.
 7) Simulate partial failure (bad `GOOGLE_ADS_LOGIN_CUSTOMER_ID` or nonsensical location); rerun and verify keywords are not dropped and a metrics notice appears in `overviewNotes`.
@@ -190,18 +203,6 @@ LKRT is safe to mark as LOCKED / maintenance-mode provided you accept the known 
 
 ---
 
-## Final answer
+## Lock flip decision
 
-### Is LKRT safe to mark LOCKED right now?
-
-**No.**
-
-### Minimum changes required to reach “Yes” (<= 5 items)
-
-1) Add **auth + tenant/business scoping** to LKRT API routes (`/api/local-keyword-research` and `/api/local-keyword-research/rank-check`) consistent with the rest of the suite.
-2) Remove/limit **raw model output logging** (`ideasContent` / `finalContent`) from server logs.
-3) Add a **hard timeout** wrapper for the main OpenAI generation calls (stable timeout code surfaced to UI).
-4) Resolve **guardrail mismatch**: align LKRT UI copy/docs to production-truth about rank-check / SERP access (or remove/feature-flag the rank-check surface if “no SERP scraping” must remain a hard non-goal).
-5) Decide and document TXT determinism expectations (keep timestamps but explicitly treat TXT as non-deterministic, or offer deterministic variant).
-
-
+**YES — Safe to mark LOCKED (maintenance-mode safe).**

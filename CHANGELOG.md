@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Google Business Profile Pro — Tier 5B+ + Tier 5C (2026-01-20)**
+  - Tier 5B+ Export Center (authoritative exports + validation): exports resolve from the active canonical draft (`getActiveGbpDraft()`), with readiness blockers/warnings and correct copy/download behavior.
+  - Tier 5C ecosystem awareness: ACW + Schema apply-only handoffs (`?handoff=gbp`, sessionStorage TTL, additive-only applies) and link-only CTAs (Local SEO Page Builder, SEO Audit & Roadmap).
+
 - **OBD CRM — Tier 5A + Tier 5B + Tier 5C (2026-01-19)**
   - Tier 5A UX parity: accordion filters, sticky bulk actions, improved empty/no-results states, and edit-mode sticky Save/Cancel (disabled-not-hidden).
   - Tier 5B determinism: canonical contacts selector (single source of truth), deterministic follow-up buckets, and “Export reflects your current view (filters + sort)” alignment.

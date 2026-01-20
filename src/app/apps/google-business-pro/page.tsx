@@ -38,6 +38,12 @@ import {
   type FaqItem,
 } from "./components/GbpEditableBlocks";
 import GbpExportCenterPanel from "./components/GbpExportCenterPanel";
+import {
+  buildGbpToContentWriterHandoffV1,
+  buildGbpToSchemaGeneratorHandoffV1,
+  storeGbpToContentWriterHandoff,
+  storeGbpToSchemaGeneratorHandoff,
+} from "@/lib/apps/google-business-pro/handoff";
 
 type Mode = "audit" | "wizard" | "pro";
 
@@ -497,6 +503,64 @@ export default function GoogleBusinessProfileProPage() {
     } catch (error) {
       console.error("Failed to copy:", error);
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Tier 5C Ecosystem Awareness (safe, apply-only / link-only)
+  // ---------------------------------------------------------------------------
+
+  const openContentWriterWithBlock = (args: { kind: "business-description" | "services" | "faqs"; title: string; text: string }) => {
+    if (typeof window === "undefined") return;
+    const ctx = {
+      businessName: (wizardForm.businessName || auditForm.businessName || "").trim() || undefined,
+      businessType: (wizardForm.businessType || auditForm.businessType || "").trim() || undefined,
+      city: (wizardForm.city || auditForm.city || "Ocala").trim() || undefined,
+      state: (wizardForm.state || auditForm.state || "Florida").trim() || undefined,
+      websiteUrl: (wizardForm.websiteUrl || auditForm.websiteUrl || "").trim() || undefined,
+      servicesInput: (wizardForm.services || auditForm.services || "").trim() || undefined,
+    };
+
+    const payload = buildGbpToContentWriterHandoffV1({
+      block: { kind: args.kind, title: args.title, text: args.text },
+      context: ctx,
+    });
+
+    storeGbpToContentWriterHandoff(payload);
+    window.open("/apps/content-writer?handoff=gbp", "_blank");
+    showToast("Sent to AI Content Writer (apply-only)");
+  };
+
+  const openSchemaGeneratorFromDraft = () => {
+    if (typeof window === "undefined") return;
+    const active = getActiveGbpDraft(gbpDraft);
+    const content = active?.content;
+
+    const servicesArray = textToArray(wizardForm.services || auditForm.services);
+    const faqs = (content?.faqSuggestions ?? []).map((f) => ({
+      question: (f.question || "").trim(),
+      answer: (f.answer || "").trim(),
+    })).filter((f) => f.question && f.answer);
+
+    const ctx = {
+      businessName: (wizardForm.businessName || auditForm.businessName || "").trim() || undefined,
+      businessType: (wizardForm.businessType || auditForm.businessType || "").trim() || undefined,
+      city: (wizardForm.city || auditForm.city || "Ocala").trim() || undefined,
+      state: (wizardForm.state || auditForm.state || "Florida").trim() || undefined,
+      websiteUrl: (wizardForm.websiteUrl || auditForm.websiteUrl || "").trim() || undefined,
+      servicesInput: (wizardForm.services || auditForm.services || "").trim() || undefined,
+    };
+
+    const payload = buildGbpToSchemaGeneratorHandoffV1({
+      context: ctx,
+      facts: {
+        services: servicesArray.length > 0 ? servicesArray : undefined,
+        faqs: faqs.length > 0 ? faqs : undefined,
+      },
+    });
+
+    storeGbpToSchemaGeneratorHandoff(payload);
+    window.open("/apps/business-schema-generator?handoff=gbp", "_blank");
+    showToast("Sent to Schema Generator (review to apply)");
   };
 
   // ---------------------------------------------------------------------------
@@ -2456,17 +2520,37 @@ export default function GoogleBusinessProfileProPage() {
                           baseline={generatedWizard?.longDescription}
                           isEdited={isWizardFieldEdited("longDescription")}
                           extraActions={
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(activeWizard.longDescription, 101)}
-                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                                isDark
-                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                              }`}
-                            >
-                              {copiedIndex === 101 ? "Copied!" : "Copy"}
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(activeWizard.longDescription, 101)}
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                              >
+                                {copiedIndex === 101 ? "Copied!" : "Copy"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openContentWriterWithBlock({
+                                    kind: "business-description",
+                                    title: "Business Description",
+                                    text: activeWizard.longDescription,
+                                  })
+                                }
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                                title="Apply-only: send this draft block to AI Content Writer"
+                              >
+                                Website content
+                              </button>
+                            </>
                           }
                           onSave={(next) => updateWizardContent((c) => ({ ...c, longDescription: next }))}
                           onResetToGenerated={
@@ -2483,17 +2567,37 @@ export default function GoogleBusinessProfileProPage() {
                           baseline={generatedWizard?.servicesSection}
                           isEdited={isWizardFieldEdited("servicesSection")}
                           extraActions={
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(activeWizard.servicesSection, 102)}
-                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                                isDark
-                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                              }`}
-                            >
-                              {copiedIndex === 102 ? "Copied!" : "Copy"}
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(activeWizard.servicesSection, 102)}
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                              >
+                                {copiedIndex === 102 ? "Copied!" : "Copy"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openContentWriterWithBlock({
+                                    kind: "services",
+                                    title: "Services (GBP)",
+                                    text: activeWizard.servicesSection,
+                                  })
+                                }
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                                title="Apply-only: send this draft block to AI Content Writer"
+                              >
+                                Website content
+                              </button>
+                            </>
                           }
                           onSave={(next) => updateWizardContent((c) => ({ ...c, servicesSection: next }))}
                           onResetToGenerated={
@@ -2536,6 +2640,29 @@ export default function GoogleBusinessProfileProPage() {
                           value={activeWizard.faqSuggestions as FaqItem[]}
                           baseline={generatedWizard?.faqSuggestions as FaqItem[] | undefined}
                           isEdited={isWizardFieldEdited("faqSuggestions")}
+                          extraActions={
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = (activeWizard.faqSuggestions ?? [])
+                                  .map((f, i) => `Q${i + 1}: ${f.question}\nA${i + 1}: ${f.answer}`.trim())
+                                  .join("\n\n");
+                                openContentWriterWithBlock({
+                                  kind: "faqs",
+                                  title: "FAQs (GBP)",
+                                  text,
+                                });
+                              }}
+                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                              title="Apply-only: send these FAQs to AI Content Writer"
+                            >
+                              Website content
+                            </button>
+                          }
                           onSave={(next) => updateWizardContent((c) => ({ ...c, faqSuggestions: next }))}
                           onResetToGenerated={
                             generatedWizard
@@ -2628,6 +2755,62 @@ export default function GoogleBusinessProfileProPage() {
                       businessName={wizardForm.businessName || auditForm.businessName}
                       onToast={showToast}
                     />
+
+                    {/* Tier 5C Ecosystem Awareness (safe links + apply-only handoffs) */}
+                    <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-900/40 border-slate-700" : "bg-white border-slate-200"}`}>
+                        <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Local SEO Page Builder</h4>
+                        <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
+                          This Google Business Profile content pairs with local landing pages to strengthen local relevance.
+                        </p>
+                        <a
+                          href="/apps/local-seo-page-builder"
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`inline-block px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            isDark
+                              ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                              : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                          }`}
+                        >
+                          Open Local SEO Page Builder
+                        </a>
+                      </div>
+
+                      <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-900/40 border-slate-700" : "bg-white border-slate-200"}`}>
+                        <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>SEO Audit &amp; Roadmap</h4>
+                        <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
+                          Completing and maintaining your Google Business Profile supports local trust and visibility.
+                        </p>
+                        <a
+                          href="/apps/seo-audit-roadmap"
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`inline-block px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            isDark
+                              ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                              : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                          }`}
+                        >
+                          Open SEO Audit &amp; Roadmap
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className={`mt-4 rounded-xl border p-4 ${isDark ? "bg-slate-900/40 border-slate-700" : "bg-white border-slate-200"}`}>
+                      <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Schema Generator (Additive Apply)</h4>
+                      <p className={`text-sm mb-3 ${themeClasses.mutedText}`}>
+                        Send services + FAQs to Schema Generator. You’ll review and apply—nothing is overwritten automatically.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openSchemaGeneratorFromDraft}
+                        className={SUBMIT_BUTTON_CLASSES}
+                        title="Apply-only: sends draft facts to Schema Generator for review."
+                      >
+                        Send to Schema Generator
+                      </button>
+                    </div>
 
                     {/* Existing advanced exports (kept here so Export Center is the single source) */}
                     <div className="mt-6 space-y-4">

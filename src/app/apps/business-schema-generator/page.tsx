@@ -20,6 +20,8 @@ import { parseSchemaGeneratorHandoff, type SchemaGeneratorHandoffPayload, parseC
 import FAQImportBanner from "./components/FAQImportBanner";
 import ContentWriterSchemaImportReadyBanner from "./components/ContentWriterSchemaImportReadyBanner";
 import ContentWriterSchemaImportModal from "./components/ContentWriterSchemaImportModal";
+import GbpProImportReadyBanner from "./components/GbpProImportReadyBanner";
+import GbpProImportModal, { type GbpSchemaImportSelection } from "./components/GbpProImportModal";
 import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 import {
   getHandoffHash,
@@ -30,6 +32,11 @@ import {
   clearHandoffParamsFromUrl,
   replaceUrlWithoutReload,
 } from "@/lib/utils/clear-handoff-params";
+import {
+  clearGbpToSchemaGeneratorHandoff,
+  readGbpToSchemaGeneratorHandoff,
+  type GbpToSchemaGeneratorHandoffV1,
+} from "@/lib/apps/google-business-pro/handoff";
 
 const USE_BRAND_PROFILE_KEY = "obd.v3.useBrandProfile";
 
@@ -122,6 +129,11 @@ function BusinessSchemaGeneratorPageContent() {
   const [showContentWriterSchemaBanner, setShowContentWriterSchemaBanner] = useState(false);
   const [showContentWriterSchemaModal, setShowContentWriterSchemaModal] = useState(false);
 
+  // GBP Pro -> Schema Generator (Tier 5C, apply-only, additive)
+  const [gbpSchemaPayload, setGbpSchemaPayload] = useState<GbpToSchemaGeneratorHandoffV1 | null>(null);
+  const [showGbpSchemaBanner, setShowGbpSchemaBanner] = useState(false);
+  const [showGbpSchemaModal, setShowGbpSchemaModal] = useState(false);
+
   // Load "use brand profile" preference from localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -182,6 +194,29 @@ function BusinessSchemaGeneratorPageContent() {
           if (!alreadyImported && !wasDismissed) {
             setContentWriterSchemaPayload(cwPayload);
             setShowContentWriterSchemaBanner(true);
+          }
+        }
+
+        // Tier 5C receiver: GBP Pro -> Schema Generator (sessionStorage + TTL; apply-only)
+        const handoffFlag = searchParams.get("handoff");
+        const sourceFlag = searchParams.get("source");
+        const isGbpRoute = handoffFlag === "gbp" || (handoffFlag === "1" && sourceFlag === "gbp");
+        if (isGbpRoute) {
+          const dismissedKey = "obd_schema_dismissed_handoff:gbp-pro";
+          const wasDismissed = sessionStorage.getItem(dismissedKey) === "true";
+          if (!wasDismissed) {
+            const { payload, expired } = readGbpToSchemaGeneratorHandoff();
+            if (expired) {
+              clearGbpToSchemaGeneratorHandoff();
+              setGbpSchemaPayload(null);
+              setShowGbpSchemaBanner(false);
+              setShowGbpSchemaModal(false);
+              setToast("Handoff expired.");
+              setTimeout(() => setToast(null), 2000);
+            } else if (payload) {
+              setGbpSchemaPayload(payload);
+              setShowGbpSchemaBanner(true);
+            }
           }
         }
       } catch (error) {
@@ -564,6 +599,116 @@ function BusinessSchemaGeneratorPageContent() {
     setShowContentWriterSchemaModal(true);
   };
 
+  // GBP Pro Schema handoff handlers (apply-only, additive)
+  const handleDismissGbpSchema = () => {
+    clearGbpToSchemaGeneratorHandoff();
+    setGbpSchemaPayload(null);
+    setShowGbpSchemaBanner(false);
+    setShowGbpSchemaModal(false);
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("obd_schema_dismissed_handoff:gbp-pro", "true");
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+  };
+
+  const handleReviewGbpSchema = () => {
+    setShowGbpSchemaModal(true);
+  };
+
+  const handleConfirmGbpSchemaImport = (selection: GbpSchemaImportSelection) => {
+    if (!gbpSchemaPayload) return;
+
+    const incomingServices = Array.isArray(gbpSchemaPayload.facts.services) ? gbpSchemaPayload.facts.services : [];
+    const incomingFaqs = Array.isArray(gbpSchemaPayload.facts.faqs) ? gbpSchemaPayload.facts.faqs : [];
+
+    let addedServices = 0;
+    let addedFaqs = 0;
+    let skippedFaqs = 0;
+
+    setForm((prev) => {
+      const next = { ...prev };
+
+      if (selection.businessContext) {
+        const ctx = gbpSchemaPayload.context ?? {};
+        if (!prev.businessName.trim() && ctx.businessName) next.businessName = ctx.businessName;
+        if (!prev.businessType.trim() && ctx.businessType) next.businessType = ctx.businessType as any;
+
+        // City/state: fill empty or replace default placeholders only if incoming differs.
+        const prevCity = (prev.city ?? "").trim();
+        if ((!prevCity || prevCity === "Ocala") && ctx.city && ctx.city.trim() !== "Ocala") {
+          next.city = ctx.city.trim();
+        }
+        const prevState = (prev.state ?? "").trim();
+        if ((!prevState || prevState === "Florida") && ctx.state && ctx.state.trim() !== "Florida") {
+          next.state = ctx.state.trim();
+        }
+
+        const prevWebsiteUrl = (prev.websiteUrl ?? "").trim();
+        if (!prevWebsiteUrl && ctx.websiteUrl) next.websiteUrl = ctx.websiteUrl;
+
+        // Optional NAP (only fill empty; never overwrite)
+        const prevPhone = (prev.phone ?? "").trim();
+        if (!prevPhone && gbpSchemaPayload.facts.phone) next.phone = gbpSchemaPayload.facts.phone;
+        const prevStreet = (prev.streetAddress ?? "").trim();
+        if (!prevStreet && gbpSchemaPayload.facts.streetAddress) next.streetAddress = gbpSchemaPayload.facts.streetAddress;
+        const prevPostal = (prev.postalCode ?? "").trim();
+        if (!prevPostal && gbpSchemaPayload.facts.postalCode) next.postalCode = gbpSchemaPayload.facts.postalCode;
+      }
+
+      if (selection.services && incomingServices.length > 0) {
+        const existing = Array.isArray(prev.services) ? prev.services : [];
+        const seen = new Set(existing.map((s) => s.trim().toLowerCase()).filter(Boolean));
+        const additions = incomingServices
+          .map((s) => (s || "").trim())
+          .filter((s) => s && !seen.has(s.toLowerCase()));
+        addedServices = additions.length;
+        next.services = [...existing, ...additions];
+        setServicesInput(next.services.join(", "));
+      }
+
+      if (selection.faqs && incomingFaqs.length > 0) {
+        next.includeFaqSchema = true;
+
+        const existingFaqs = Array.isArray(prev.faqs) ? prev.faqs : [];
+        const existingQuestions = new Set(existingFaqs.map((f) => f.question.trim().toLowerCase()));
+
+        const additions = incomingFaqs.filter((f) => {
+          const key = (f.question || "").trim().toLowerCase();
+          if (!key) return false;
+          if (existingQuestions.has(key)) {
+            skippedFaqs++;
+            return false;
+          }
+          return true;
+        });
+        addedFaqs = additions.length;
+        next.faqs = [...existingFaqs, ...additions];
+      }
+
+      return next;
+    });
+
+    clearGbpToSchemaGeneratorHandoff();
+    setGbpSchemaPayload(null);
+    setShowGbpSchemaBanner(false);
+    setShowGbpSchemaModal(false);
+
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+
+    const parts: string[] = [];
+    if (selection.services && addedServices > 0) parts.push(`+${addedServices} services`);
+    if (selection.faqs) parts.push(`${addedFaqs} FAQs added${skippedFaqs ? ` (${skippedFaqs} skipped)` : ""}`);
+    if (parts.length === 0) parts.push("Imported");
+
+    setToast(`GBP Pro import applied: ${parts.join(" • ")}`);
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const handleConfirmContentWriterSchemaImport = (importMode: "faqs" | "page-meta") => {
     if (!contentWriterSchemaPayload || !contentWriterSchemaHash) return;
 
@@ -814,6 +959,16 @@ function BusinessSchemaGeneratorPageContent() {
         />
       )}
 
+      {/* GBP Pro Import Ready Banner (Tier 5C) */}
+      {showGbpSchemaBanner && gbpSchemaPayload && (
+        <GbpProImportReadyBanner
+          isDark={isDark}
+          payload={gbpSchemaPayload}
+          onReview={handleReviewGbpSchema}
+          onDismiss={handleDismissGbpSchema}
+        />
+      )}
+
       {/* Content Writer Schema Import Modal */}
       {showContentWriterSchemaModal && contentWriterSchemaPayload && (
         <ContentWriterSchemaImportModal
@@ -822,6 +977,16 @@ function BusinessSchemaGeneratorPageContent() {
           isAlreadyImported={contentWriterSchemaHash ? wasHandoffAlreadyImported("business-schema-generator", contentWriterSchemaHash) : false}
           onClose={() => setShowContentWriterSchemaModal(false)}
           onConfirm={handleConfirmContentWriterSchemaImport}
+        />
+      )}
+
+      {/* GBP Pro Import Modal */}
+      {showGbpSchemaModal && gbpSchemaPayload && (
+        <GbpProImportModal
+          payload={gbpSchemaPayload}
+          isDark={isDark}
+          onClose={() => setShowGbpSchemaModal(false)}
+          onConfirm={handleConfirmGbpSchemaImport}
         />
       )}
 

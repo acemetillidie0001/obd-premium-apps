@@ -27,11 +27,17 @@ import { parseContentWriterHandoff, type ContentWriterHandoffPayload } from "@/l
 import FAQImportBanner from "./components/FAQImportBanner";
 import OffersImportBanner from "./components/OffersImportBanner";
 import EventImportBanner from "./components/EventImportBanner";
+import GbpProImportBanner from "./components/GbpProImportBanner";
 import {
   clearLkrtToContentWriterSeedsHandoff,
   readLkrtToContentWriterSeedsHandoff,
   type LkrtToContentWriterSeedsHandoffV1,
 } from "@/lib/apps/local-keyword-research/handoff";
+import {
+  clearGbpToContentWriterHandoff,
+  readGbpToContentWriterHandoff,
+  type GbpToContentWriterHandoffV1,
+} from "@/lib/apps/google-business-pro/handoff";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -358,6 +364,10 @@ function ContentWriterPageContent() {
   const [showLkrtImportBanner, setShowLkrtImportBanner] = useState(false);
   const [lkrtBusinessMismatch, setLkrtBusinessMismatch] = useState(false);
 
+  // GBP Pro -> Content Writer (apply-only source material)
+  const [gbpHandoffPayload, setGbpHandoffPayload] = useState<GbpToContentWriterHandoffV1 | null>(null);
+  const [showGbpImportBanner, setShowGbpImportBanner] = useState(false);
+
   // Accordion state for form sections
   const [accordionState, setAccordionState] = useState({
     businessBasics: true,
@@ -570,6 +580,39 @@ function ContentWriterPageContent() {
     setShowLkrtImportBanner(true);
   }, [searchParams]);
 
+  // Tier 5C receiver: GBP Pro -> Content Writer (apply-only source material)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Only check for GBP handoff when explicitly routed with receiver flag.
+    const handoffFlag = searchParams?.get("handoff");
+    const sourceFlag = searchParams?.get("source");
+    const isGbpRoute =
+      handoffFlag === "gbp" || (handoffFlag === "1" && sourceFlag === "gbp");
+    if (!searchParams || !isGbpRoute) {
+      return;
+    }
+
+    // Session dismissal (avoid sticky banners if user dismissed once this session)
+    const dismissedKey = "obd_content_writer_dismissed_handoff:gbp-pro";
+    const wasDismissed = sessionStorage.getItem(dismissedKey) === "true";
+    if (wasDismissed) return;
+
+    const { payload, expired } = readGbpToContentWriterHandoff();
+    if (expired) {
+      clearGbpToContentWriterHandoff();
+      setGbpHandoffPayload(null);
+      setShowGbpImportBanner(false);
+      showToast("Expired");
+      return;
+    }
+
+    if (!payload) return;
+
+    setGbpHandoffPayload(payload);
+    setShowGbpImportBanner(true);
+  }, [searchParams]);
+
   // Handle Offers Builder handoff from sessionStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -701,6 +744,91 @@ function ContentWriterPageContent() {
     setShowLkrtImportBanner(false);
     setLkrtBusinessMismatch(false);
     if (isDev) console.info("[LKRT handoff][Content Writer] dismissed — cleared");
+    clearReceiverImportParamsFromUrl();
+  };
+
+  const handleDismissGbpImport = () => {
+    clearGbpToContentWriterHandoff();
+    setGbpHandoffPayload(null);
+    setShowGbpImportBanner(false);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("obd_content_writer_dismissed_handoff:gbp-pro", "true");
+    }
+    clearReceiverImportParamsFromUrl();
+  };
+
+  const handleApplyGbpToInputs = () => {
+    if (!gbpHandoffPayload) return;
+
+    const ctx = gbpHandoffPayload.context ?? {};
+    const source = gbpHandoffPayload.block;
+    const sourceText = (source?.text || "").trim();
+
+    // Additive-only:
+    // - Never overwrite user-authored text
+    // - Only fill empty fields, or replace default placeholders (Ocala/Florida, BlogPost)
+    setFormValues((prev) => {
+      const next = { ...prev };
+
+      if (!next.businessName.trim() && ctx.businessName) next.businessName = ctx.businessName;
+      if (!next.businessType.trim() && ctx.businessType) next.businessType = ctx.businessType;
+
+      if ((!next.city.trim() || next.city.trim() === "Ocala") && ctx.city && ctx.city.trim() !== "Ocala") {
+        next.city = ctx.city.trim();
+      }
+      if ((!next.state.trim() || next.state.trim() === "Florida") && ctx.state && ctx.state.trim() !== "Florida") {
+        next.state = ctx.state.trim();
+      }
+
+      // Services: fill empty, or append missing lines (safe additive)
+      const incomingServices = (ctx.servicesInput || "").trim();
+      if (incomingServices) {
+        if (!next.services.trim()) {
+          next.services = incomingServices;
+        } else {
+          const existing = new Set(
+            next.services
+              .split(/[,\n]/)
+              .map((s) => s.trim().toLowerCase())
+              .filter(Boolean)
+          );
+          const additions = incomingServices
+            .split(/[,\n]/)
+            .map((s) => s.trim())
+            .filter((s) => s && !existing.has(s.toLowerCase()));
+          if (additions.length > 0) {
+            next.services = `${next.services.trim()}\n${additions.join("\n")}`.trim();
+          }
+        }
+      }
+
+      if (!next.topic.trim()) {
+        const bn = ctx.businessName ? `${ctx.businessName} ` : "";
+        next.topic = `${bn}${source.title}`.trim();
+      }
+
+      // If user hasn't changed default contentType, nudge toward website content
+      if (next.contentType === "BlogPost") {
+        next.contentType = "ServicePage";
+      }
+
+      // Put the GBP draft text into templateNotes (source material) if empty, otherwise append
+      const header = `SOURCE MATERIAL (GBP Pro) — ${source.title}`;
+      const block = sourceText ? `${header}\n\n${sourceText}` : header;
+
+      if (!next.templateNotes.trim()) {
+        next.templateNotes = block;
+      } else if (sourceText) {
+        next.templateNotes = `${next.templateNotes.trim()}\n\n---\n\n${block}`.trim();
+      }
+
+      return next;
+    });
+
+    clearGbpToContentWriterHandoff();
+    setGbpHandoffPayload(null);
+    setShowGbpImportBanner(false);
+    showToast("Applied");
     clearReceiverImportParamsFromUrl();
   };
 
@@ -2067,6 +2195,15 @@ function ContentWriterPageContent() {
           payload={eventHandoffPayload}
           onApplyToInputs={handleApplyEventToInputs}
           onDismiss={handleDismissEventImport}
+        />
+      )}
+
+      {showGbpImportBanner && gbpHandoffPayload && (
+        <GbpProImportBanner
+          isDark={isDark}
+          payload={gbpHandoffPayload}
+          onApplyToInputs={handleApplyGbpToInputs}
+          onDismiss={handleDismissGbpImport}
         />
       )}
 

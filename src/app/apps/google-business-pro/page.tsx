@@ -37,6 +37,7 @@ import {
   EditableTextBlock,
   type FaqItem,
 } from "./components/GbpEditableBlocks";
+import GbpExportCenterPanel from "./components/GbpExportCenterPanel";
 
 type Mode = "audit" | "wizard" | "pro";
 
@@ -100,6 +101,13 @@ export default function GoogleBusinessProfileProPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
   const themeClasses = getThemeClasses(isDark);
+
+  // Simple OBD-style toast (used by Export Center copy/download actions)
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const showToast = (message: string) => {
+    setActionToast(message);
+    setTimeout(() => setActionToast(null), 1200);
+  };
 
   const [mode, setMode] = useState<Mode>("audit");
 
@@ -992,6 +1000,7 @@ export default function GoogleBusinessProfileProPage() {
   const generateDisabled = isSubmitting;
   const regenerateDisabled = isSubmitting || !modeHasGeneratedResult;
   const exportDisabled = isSubmitting || mode !== "pro" || !activeProResult;
+  const canProExports = Boolean(activeProResult);
   const resetDisabled =
     isSubmitting ||
     reportLoading ||
@@ -1011,6 +1020,19 @@ export default function GoogleBusinessProfileProPage() {
       title="Google Business Profile Pro"
       tagline="Audit, optimize, and rebuild your Google Business Profile for Ocala search visibility."
     >
+      {/* Toast Feedback */}
+      {actionToast && (
+        <div
+          className={`fixed top-20 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg ${
+            isDark
+              ? "bg-slate-800 text-white border border-slate-700"
+              : "bg-white text-slate-900 border border-slate-200"
+          }`}
+        >
+          {actionToast}
+        </div>
+      )}
+
       {/* Mode Toggle */}
       <div className="flex justify-center gap-2 mb-6 mt-4 flex-wrap">
         <button
@@ -2587,110 +2609,146 @@ export default function GoogleBusinessProfileProPage() {
                     </div>
                   ) : null}
 
-                  {/* Export Pro Report */}
-                  <div id="gbp-pro-export" className={`rounded-xl border p-4 ${
-                    isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
-                  }`}>
-                    <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>
-                      Export Pro Report
-                    </h3>
+                  {/* Export Center (Single Authoritative Export) */}
+                  <div
+                    id="gbp-pro-export"
+                    className={`rounded-xl border p-4 ${
+                      isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                    }`}
+                  >
+                    <h3 className={`text-lg font-semibold mb-2 ${themeClasses.headingText}`}>Export Center</h3>
                     <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
-                      Generate a clean, printable report for clients or internal use.
+                      All exports are built from your active canonical draft (edited-over-generated) via{" "}
+                      <span className="font-medium">getActiveGbpDraft()</span>.
                     </p>
-                    {reportError && (
-                      <div className={`mb-4 ${getErrorPanelClasses(isDark)}`}>
-                        <p className="text-sm">{reportError}</p>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleGenerateReport}
-                      disabled={reportLoading}
-                      className={SUBMIT_BUTTON_CLASSES}
-                    >
-                      {reportLoading ? "Generating Report..." : "Generate HTML Report"}
-                    </button>
-                    {reportExport && (
-                      <div className="mt-4 space-y-3">
+
+                    <GbpExportCenterPanel
+                      isDark={isDark}
+                      draft={gbpDraft}
+                      businessName={wizardForm.businessName || auditForm.businessName}
+                      onToast={showToast}
+                    />
+
+                    {/* Existing advanced exports (kept here so Export Center is the single source) */}
+                    <div className="mt-6 space-y-4">
+                      {/* Pro Report Export */}
+                      <div
+                        className={`rounded-xl border p-4 ${
+                          isDark ? "bg-slate-900/40 border-slate-700" : "bg-white border-slate-200"
+                        }`}
+                      >
+                        <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>Pro Report (HTML/PDF)</h4>
+                        <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                          Generates a clean, printable report. Source-locked to the active draft at click time.
+                        </p>
+                        {!canProExports && (
+                          <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                            Run <span className="font-medium">Audit</span> and <span className="font-medium">Wizard</span> first to enable Pro exports.
+                          </p>
+                        )}
+                        {reportError && (
+                          <div className={`mb-4 ${getErrorPanelClasses(isDark)}`}>
+                            <p className="text-sm">{reportError}</p>
+                          </div>
+                        )}
                         <button
                           type="button"
-                          onClick={handleViewReport}
-                          disabled={!shareUrl && !reportExport.html}
-                          className={`w-full px-4 py-2 font-medium rounded-xl transition-colors ${
-                            isDark
-                              ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                              : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                          }`}
+                          onClick={handleGenerateReport}
+                          disabled={reportLoading || !canProExports}
+                          className={SUBMIT_BUTTON_CLASSES}
+                          title={!canProExports ? "Run Audit + Wizard first to enable Pro exports." : undefined}
                         >
-                          View HTML Report
+                          {reportLoading ? "Generating Report..." : "Generate Report"}
                         </button>
-                        {reportPdfUrl && (
-                          <button
-                            type="button"
-                            onClick={handleDownloadPDF}
-                            className={`w-full px-4 py-2 font-medium rounded-xl transition-colors ${
-                              isDark
-                                ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                                : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
-                            }`}
-                          >
-                            Download PDF
-                          </button>
-                        )}
-                        {shareUrl && (
-                          <div>
-                            <label className={`block text-xs font-medium mb-1 ${themeClasses.labelText}`}>
-                              Shareable Link
-                            </label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                readOnly
-                                value={shareUrl}
-                                className={getInputClasses(isDark, "flex-1")}
-                                onClick={(e) => (e.target as HTMLInputElement).select()}
-                              />
+                        {reportExport && (
+                          <div className="mt-4 space-y-3">
+                            <button
+                              type="button"
+                              onClick={handleViewReport}
+                              disabled={!shareUrl && !reportExport.html}
+                              className={`w-full px-4 py-2 font-medium rounded-xl transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                            >
+                              View HTML Report
+                            </button>
+                            {reportPdfUrl && (
                               <button
                                 type="button"
-                                onClick={handleCopyLink}
-                                className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+                                onClick={handleDownloadPDF}
+                                className={`w-full px-4 py-2 font-medium rounded-xl transition-colors ${
                                   isDark
-                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                    ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                                    : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
                                 }`}
                               >
-                                Copy Link
+                                Download PDF
                               </button>
-                            </div>
+                            )}
+                            {shareUrl && (
+                              <div>
+                                <label className={`block text-xs font-medium mb-1 ${themeClasses.labelText}`}>
+                                  Shareable Link
+                                </label>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={shareUrl}
+                                    className={getInputClasses(isDark, "flex-1")}
+                                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleCopyLink}
+                                    className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+                                      isDark
+                                        ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                    }`}
+                                  >
+                                    Copy Link
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* CSV Export */}
-                  <div className={`rounded-xl border p-4 ${
-                    isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
-                  }`}>
-                    <h3 className={`text-lg font-semibold mb-3 ${themeClasses.headingText}`}>
-                      CSV Export (Agency Tools)
-                    </h3>
-                    <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
-                      Download a CSV summary of this Pro analysis for your internal records or reporting.
-                    </p>
-                    {csvError && (
-                      <div className={`mb-4 ${getErrorPanelClasses(isDark)}`}>
-                        <p className="text-sm">{csvError}</p>
+                      {/* CSV Export */}
+                      <div
+                        className={`rounded-xl border p-4 ${
+                          isDark ? "bg-slate-900/40 border-slate-700" : "bg-white border-slate-200"
+                        }`}
+                      >
+                        <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>CSV Export (Agency Tools)</h4>
+                        <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                          Downloads a CSV summary. Source-locked to the active draft at click time.
+                        </p>
+                        {!canProExports && (
+                          <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                            Run <span className="font-medium">Audit</span> and <span className="font-medium">Wizard</span> first to enable Pro exports.
+                          </p>
+                        )}
+                        {csvError && (
+                          <div className={`mb-4 ${getErrorPanelClasses(isDark)}`}>
+                            <p className="text-sm">{csvError}</p>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleExportCSV}
+                          disabled={csvLoading || !canProExports}
+                          className={SUBMIT_BUTTON_CLASSES}
+                          title={!canProExports ? "Run Audit + Wizard first to enable Pro exports." : undefined}
+                        >
+                          {csvLoading ? "Generating CSV..." : "Download CSV"}
+                        </button>
                       </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleExportCSV}
-                      disabled={!activeProResult || csvLoading}
-                      className={SUBMIT_BUTTON_CLASSES}
-                    >
-                      {csvLoading ? "Generating CSV..." : "Download CSV"}
-                    </button>
+                    </div>
                   </div>
 
                   {/* Premium GBP Optimization Pack (AI Rewrites) */}

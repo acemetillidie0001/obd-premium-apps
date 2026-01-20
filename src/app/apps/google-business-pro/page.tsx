@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useReducer } from "react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -11,9 +11,9 @@ import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
 import {
   GoogleBusinessAuditRequest,
-  GoogleBusinessAuditResult,
+  type GoogleBusinessAuditResult,
   GoogleBusinessWizardRequest,
-  GoogleBusinessWizardResult,
+  type GoogleBusinessWizardResult,
   GoogleBusinessProRequest,
   GoogleBusinessProResult,
   GoogleBusinessProReportExport,
@@ -25,6 +25,18 @@ import {
   PersonalityStyle,
 } from "./types";
 import GoogleBusinessAccordionSection from "./components/GoogleBusinessAccordionSection";
+import { getActiveGbpDraft, type GoogleBusinessDraftContent } from "./draft";
+import {
+  buildEditedSnapshot,
+  createInitialGoogleBusinessDraft,
+  googleBusinessDraftReducer,
+} from "./draft-reducer";
+import {
+  EditableFaqsBlock,
+  EditableLinesBlock,
+  EditableTextBlock,
+  type FaqItem,
+} from "./components/GbpEditableBlocks";
 
 type Mode = "audit" | "wizard" | "pro";
 
@@ -97,9 +109,24 @@ export default function GoogleBusinessProfileProPage() {
   // Wizard form state
   const [wizardForm, setWizardForm] = useState<WizardFormState>(DEFAULT_WIZARD_FORM);
 
-  const [auditResult, setAuditResult] = useState<GoogleBusinessAuditResult | null>(null);
-  const [wizardResult, setWizardResult] = useState<GoogleBusinessWizardResult | null>(null);
-  const [proResult, setProResult] = useState<GoogleBusinessProResult | null>(null);
+  // Tier 5B Canonical Draft Model (deterministic; no output drift)
+  const [gbpDraft, gbpDispatch] = useReducer(
+    googleBusinessDraftReducer,
+    undefined,
+    createInitialGoogleBusinessDraft
+  );
+  const activeDraft = useMemo(() => getActiveGbpDraft(gbpDraft), [gbpDraft]);
+  const activeAudit = activeDraft?.audit ?? null;
+  const activeWizard = activeDraft?.content ?? null;
+  const activeProResult = useMemo<GoogleBusinessProResult | null>(() => {
+    if (activeDraft?.audit && activeDraft?.content) {
+      return { audit: activeDraft.audit, content: activeDraft.content };
+    }
+    return null;
+  }, [activeDraft]);
+  const generatedWizard = gbpDraft.generatedContent?.content ?? null;
+  const editedWizard = gbpDraft.editedContent?.content ?? null;
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -373,7 +400,7 @@ export default function GoogleBusinessProfileProPage() {
       servicesKeywords,
       brandGoals,
       faqsPosts,
-      advancedOptional: proResult ? "Generated" : "Ready to run",
+      advancedOptional: activeProResult ? "Ready" : "Draft-only (run Audit + Wizard for full Pro)",
     };
   }, [
     auditForm.businessName,
@@ -405,7 +432,7 @@ export default function GoogleBusinessProfileProPage() {
     auditSecondaryKeywordsCount,
     wizardServicesCount,
     wizardSecondaryKeywordsCount,
-    proResult,
+    activeProResult,
   ]);
 
   const scrollToId = (id: string) => {
@@ -415,7 +442,14 @@ export default function GoogleBusinessProfileProPage() {
     el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const handleReset = () => {
+  const handleResetEdits = () => {
+    if (isSubmitting || reportLoading || rewritesLoading || photoLoading || competitorsLoading || csvLoading) return;
+    setError(null);
+    setCopiedIndex(null);
+    gbpDispatch({ type: "RESET_ALL_EDITS" });
+  };
+
+  const handleClearAll = () => {
     if (isSubmitting || reportLoading || rewritesLoading || photoLoading || competitorsLoading || csvLoading) return;
 
     setError(null);
@@ -424,9 +458,7 @@ export default function GoogleBusinessProfileProPage() {
     setAuditForm(DEFAULT_AUDIT_FORM);
     setWizardForm(DEFAULT_WIZARD_FORM);
 
-    setAuditResult(null);
-    setWizardResult(null);
-    setProResult(null);
+    gbpDispatch({ type: "CLEAR_GENERATED_AND_EDITS" });
 
     setReportError(null);
     setReportExport(null);
@@ -457,6 +489,48 @@ export default function GoogleBusinessProfileProPage() {
     } catch (error) {
       console.error("Failed to copy:", error);
     }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Tier 5B Draft Editing Helpers (write ONLY to editedContent)
+  // ---------------------------------------------------------------------------
+
+  const hasEdits = gbpDraft.editedContent !== null;
+
+  const jsonEqual = (a: unknown, b: unknown): boolean => {
+    return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  };
+
+  const isDraftContentEqualToGenerated = (nextEdited: GoogleBusinessDraftContent): boolean => {
+    if (!gbpDraft.generatedContent) return false;
+    return (
+      jsonEqual(nextEdited.audit, gbpDraft.generatedContent.audit) &&
+      jsonEqual(nextEdited.content, gbpDraft.generatedContent.content)
+    );
+  };
+
+  const commitEditedSnapshot = (nextEdited: GoogleBusinessDraftContent) => {
+    // If edits match the generated baseline, drop edits entirely (keeps state deterministic).
+    if (isDraftContentEqualToGenerated(nextEdited)) {
+      gbpDispatch({ type: "SET_EDITED_SNAPSHOT", editedContent: null });
+      return;
+    }
+    gbpDispatch({ type: "SET_EDITED_SNAPSHOT", editedContent: nextEdited });
+  };
+
+  const updateWizardContent = (updater: (current: GoogleBusinessWizardResult) => GoogleBusinessWizardResult) => {
+    if (!activeWizard) return;
+    const nextEdited = buildEditedSnapshot(gbpDraft, (baseline) => {
+      const base = baseline.content ?? activeWizard;
+      return { ...baseline, content: updater(base) };
+    });
+    commitEditedSnapshot(nextEdited);
+  };
+
+  const isWizardFieldEdited = (key: keyof GoogleBusinessWizardResult): boolean => {
+    if (!editedWizard) return false;
+    if (!generatedWizard) return true;
+    return !jsonEqual(editedWizard[key], generatedWizard[key]);
   };
 
   const handleAuditSubmit = async (e?: React.FormEvent) => {
@@ -490,8 +564,8 @@ export default function GoogleBusinessProfileProPage() {
         throw new Error(errorData.error || `Server error: ${res.status}`);
       }
 
-      const data = await res.json();
-      setAuditResult(data);
+      const data = (await res.json()) as GoogleBusinessAuditResult;
+      gbpDispatch({ type: "UPSERT_GENERATED_AUDIT", audit: data, preserveEdits: true });
     } catch (error) {
       console.error("Error:", error);
       setError(
@@ -499,7 +573,6 @@ export default function GoogleBusinessProfileProPage() {
           ? error.message
           : "An error occurred while running the audit. Please try again."
       );
-      setAuditResult(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -543,8 +616,8 @@ export default function GoogleBusinessProfileProPage() {
         throw new Error(errorData.error || `Server error: ${res.status}`);
       }
 
-      const data = await res.json();
-      setWizardResult(data);
+      const data = (await res.json()) as GoogleBusinessWizardResult;
+      gbpDispatch({ type: "UPSERT_GENERATED_WIZARD", content: data, preserveEdits: true });
     } catch (error) {
       console.error("Error:", error);
       setError(
@@ -552,89 +625,38 @@ export default function GoogleBusinessProfileProPage() {
           ? error.message
           : "An error occurred while generating content. Please try again."
       );
-      setWizardResult(null);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleProSubmit = async () => {
-    // Validate that we have basic info from either form
-    const businessName = wizardForm.businessName.trim() || auditForm.businessName.trim();
-    const businessType = wizardForm.businessType.trim() || auditForm.businessType.trim();
-
-    if (!businessName || !businessType) {
-      setError("Please complete your business details in Audit or Wizard mode before running Pro Mode.");
+  const handleProSubmit = () => {
+    // Tier 5B: Pro Mode is deterministic and read-only.
+    // It must aggregate from the existing canonical draft only (no new generation).
+    const active = getActiveGbpDraft(gbpDraft);
+    if (!active?.audit && !active?.content) {
+      setError("Run Audit and/or Wizard first so Pro Mode has draft data to summarize.");
       return;
     }
-
-    setIsSubmitting(true);
     setError(null);
+    setMode("pro");
+  };
 
-    try {
-      // Build Pro request payload by merging auditForm and wizardForm
-      // wizardForm fields take precedence when both exist
-      const wizardServices = textToArray(wizardForm.services);
-      const auditServices = textToArray(auditForm.services);
-      const wizardKeywords = textToArray(wizardForm.secondaryKeywords);
-      const auditKeywords = textToArray(auditForm.secondaryKeywords);
-
-      const payload: GoogleBusinessProRequest = {
-        businessName: wizardForm.businessName || auditForm.businessName,
-        businessType: wizardForm.businessType || auditForm.businessType,
-        services: wizardServices.length > 0 ? wizardServices : auditServices,
-        city: wizardForm.city || auditForm.city || "Ocala",
-        state: wizardForm.state || auditForm.state || "Florida",
-        websiteUrl: wizardForm.websiteUrl || auditForm.websiteUrl,
-        primaryKeyword: auditForm.primaryKeyword || wizardForm.primaryKeyword,
-        secondaryKeywords: auditKeywords.length > 0 ? auditKeywords : wizardKeywords,
-        googleBusinessUrl: auditForm.googleBusinessUrl,
-        mainCategory: auditForm.mainCategory,
-        goals: auditForm.goals,
-        shortDescriptionLength: wizardForm.shortDescriptionLength,
-        longDescriptionLength: wizardForm.longDescriptionLength,
-        serviceAreas: wizardForm.serviceAreas,
-        openingHours: wizardForm.openingHours,
-        specialities: wizardForm.specialities,
-        faqCount: Math.min(Math.max(3, wizardForm.faqCount), 12),
-        includePosts: wizardForm.includePosts,
-        postGoal: wizardForm.postGoal,
-        promoDetails: wizardForm.promoDetails,
-        personalityStyle: (wizardForm.personalityStyle || auditForm.personalityStyle) as PersonalityStyle,
-        brandVoice: wizardForm.brandVoice || auditForm.brandVoice,
-      };
-
-      const res = await fetch("/api/google-business/pro", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server error: ${res.status}`);
-      }
-
-      const data = await res.json();
-      setProResult(data);
-    } catch (error) {
-      console.error("Error in Pro Mode:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "An error occurred while running Pro Mode. Please try again."
-      );
-      setProResult(null);
-    } finally {
-      setIsSubmitting(false);
-    }
+  /**
+   * Export-source lock helper:
+   * Always build the payload from the canonical selector at action-time
+   * (no reads from ad-hoc component state or raw AI responses).
+   */
+  const getActiveProResultFromDraft = (): GoogleBusinessProResult | null => {
+    const active = getActiveGbpDraft(gbpDraft);
+    if (active?.audit && active?.content) return { audit: active.audit, content: active.content };
+    return null;
   };
 
   const handleGenerateReport = async () => {
+    const proResult = getActiveProResultFromDraft();
     if (!proResult) {
-      setReportError("Run Pro Mode first to generate a full analysis before using this feature.");
+      setReportError("Run Audit + Wizard first so Pro Mode has a full draft (audit + content) to export.");
       return;
     }
 
@@ -754,8 +776,9 @@ export default function GoogleBusinessProfileProPage() {
   const [csvError, setCsvError] = useState<string | null>(null);
 
   const handleExportCSV = async () => {
+    const proResult = getActiveProResultFromDraft();
     if (!proResult) {
-      setCsvError("Run Pro Mode first to generate data for export.");
+      setCsvError("Run Audit + Wizard first so Pro Mode has data for export.");
       return;
     }
 
@@ -794,8 +817,9 @@ export default function GoogleBusinessProfileProPage() {
   };
 
   const handleGenerateRewrites = async () => {
+    const proResult = getActiveProResultFromDraft();
     if (!proResult) {
-      setRewritesError("Run Pro Mode first to generate a full analysis before using this feature.");
+      setRewritesError("Run Audit + Wizard first so Pro Mode has a full draft to rewrite.");
       return;
     }
 
@@ -835,8 +859,9 @@ export default function GoogleBusinessProfileProPage() {
   };
 
   const handleGeneratePhotoOptimization = async () => {
+    const proResult = getActiveProResultFromDraft();
     if (!proResult) {
-      setPhotoError("Run Pro Mode first to generate a full analysis before using this feature.");
+      setPhotoError("Run Audit + Wizard first so Pro Mode has a full draft to use for photo optimization.");
       return;
     }
 
@@ -875,8 +900,9 @@ export default function GoogleBusinessProfileProPage() {
   };
 
   const handleAnalyzeCompetitors = async () => {
+    const proResult = getActiveProResultFromDraft();
     if (!proResult) {
-      setCompetitorsError("Run Pro Mode first to generate a full analysis before using this feature.");
+      setCompetitorsError("Run Audit + Wizard first so Pro Mode has a full draft to analyze.");
       return;
     }
 
@@ -957,11 +983,15 @@ export default function GoogleBusinessProfileProPage() {
   };
 
   const modeHasGeneratedResult =
-    mode === "audit" ? !!auditResult : mode === "wizard" ? !!wizardResult : !!proResult;
+    mode === "audit"
+      ? Boolean(gbpDraft.generatedContent?.audit)
+      : mode === "wizard"
+        ? Boolean(gbpDraft.generatedContent?.content)
+        : Boolean(activeDraft?.audit || activeDraft?.content);
 
   const generateDisabled = isSubmitting;
   const regenerateDisabled = isSubmitting || !modeHasGeneratedResult;
-  const exportDisabled = isSubmitting || mode !== "pro" || !proResult;
+  const exportDisabled = isSubmitting || mode !== "pro" || !activeProResult;
   const resetDisabled =
     isSubmitting ||
     reportLoading ||
@@ -969,6 +999,10 @@ export default function GoogleBusinessProfileProPage() {
     photoLoading ||
     competitorsLoading ||
     csvLoading;
+
+  // Deterministic view models for results panels (resolve ONLY from canonical draft selector)
+  const auditResult = activeAudit;
+  const wizardResult = activeWizard;
 
   return (
     <OBDPageContainer
@@ -1174,36 +1208,13 @@ export default function GoogleBusinessProfileProPage() {
                 }
               >
                 <button
-                  type="submit"
-                  disabled={generateDisabled}
-                  className={SUBMIT_BUTTON_CLASSES}
-                  title={
-                    generateDisabled
-                      ? "Please wait for the current request to finish."
-                      : "Generate draft output."
-                  }
-                >
-                  {isSubmitting ? "Generating…" : "Generate"}
-                </button>
-
-                <button
                   type="button"
-                  onClick={() => handleProSubmit()}
-                  disabled={regenerateDisabled}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    isDark
-                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                  title={
-                    isSubmitting
-                      ? "Please wait for the current request to finish."
-                      : !proResult
-                        ? "Generate first to enable Regenerate."
-                        : "Regenerate using your current inputs."
-                  }
+                  onClick={() => scrollToId("gbp-pro-results")}
+                  disabled={isSubmitting || !(activeDraft?.audit || activeDraft?.content)}
+                  className={SUBMIT_BUTTON_CLASSES}
+                  title="Pro Mode is read-only and renders from your existing draft."
                 >
-                  Regenerate
+                  View Pro Summary
                 </button>
 
                 <button
@@ -1218,8 +1229,8 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     isSubmitting
                       ? "Please wait for the current request to finish."
-                      : !proResult
-                        ? "Run Pro Mode first to enable Export."
+                      : !activeProResult
+                        ? "Run Audit + Wizard first to enable Export."
                         : "Jump to Export tools (report + CSV)."
                   }
                 >
@@ -1228,7 +1239,7 @@ export default function GoogleBusinessProfileProPage() {
 
                 <button
                   type="button"
-                  onClick={handleReset}
+                  onClick={handleResetEdits}
                   disabled={resetDisabled}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark
@@ -1238,10 +1249,28 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     resetDisabled
                       ? "Please wait for any in-progress tasks to finish."
-                      : "Reset inputs and clear draft results."
+                      : "Reset all edits (generated content is preserved)."
                   }
                 >
-                  Reset
+                  Reset Edits
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Clear inputs + draft content."
+                  }
+                >
+                  Clear All
                 </button>
               </OBDStickyActionBar>
             </form>
@@ -1606,7 +1635,7 @@ export default function GoogleBusinessProfileProPage() {
                 <button
                   type="button"
                   onClick={() => handleAuditSubmit()}
-                  disabled={isSubmitting || !auditResult}
+                  disabled={isSubmitting || !gbpDraft.generatedContent?.audit}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark
                       ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -1615,7 +1644,7 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     isSubmitting
                       ? "Please wait for the current request to finish."
-                      : !auditResult
+                      : !gbpDraft.generatedContent?.audit
                         ? "Generate first to enable Regenerate."
                         : "Regenerate using your current inputs."
                   }
@@ -1639,7 +1668,7 @@ export default function GoogleBusinessProfileProPage() {
 
                 <button
                   type="button"
-                  onClick={handleReset}
+                  onClick={handleResetEdits}
                   disabled={resetDisabled}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark
@@ -1649,10 +1678,28 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     resetDisabled
                       ? "Please wait for any in-progress tasks to finish."
-                      : "Reset inputs and clear draft results."
+                      : "Reset all edits (generated content is preserved)."
                   }
                 >
-                  Reset
+                  Reset Edits
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Clear inputs + draft content."
+                  }
+                >
+                  Clear All
                 </button>
               </OBDStickyActionBar>
             </form>
@@ -2159,7 +2206,7 @@ export default function GoogleBusinessProfileProPage() {
                 <button
                   type="button"
                   onClick={() => handleWizardSubmit()}
-                  disabled={isSubmitting || !wizardResult}
+                  disabled={isSubmitting || !gbpDraft.generatedContent?.content}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark
                       ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -2168,7 +2215,7 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     isSubmitting
                       ? "Please wait for the current request to finish."
-                      : !wizardResult
+                      : !gbpDraft.generatedContent?.content
                         ? "Generate first to enable Regenerate."
                         : "Regenerate using your current inputs."
                   }
@@ -2192,7 +2239,7 @@ export default function GoogleBusinessProfileProPage() {
 
                 <button
                   type="button"
-                  onClick={handleReset}
+                  onClick={handleResetEdits}
                   disabled={resetDisabled}
                   className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark
@@ -2202,10 +2249,28 @@ export default function GoogleBusinessProfileProPage() {
                   title={
                     resetDisabled
                       ? "Please wait for any in-progress tasks to finish."
-                      : "Reset inputs and clear draft results."
+                      : "Reset all edits (generated content is preserved)."
                   }
                 >
-                  Reset
+                  Reset Edits
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  disabled={resetDisabled}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                  title={
+                    resetDisabled
+                      ? "Please wait for any in-progress tasks to finish."
+                      : "Clear inputs + draft content."
+                  }
+                >
+                  Clear All
                 </button>
               </OBDStickyActionBar>
             </form>
@@ -2219,9 +2284,10 @@ export default function GoogleBusinessProfileProPage() {
               <OBDHeading level={2} isDark={isDark} className="mb-4">
                 Pro Mode Results
               </OBDHeading>
-              {proResult ? (
+              {activeAudit || activeWizard ? (
                 <div className="space-y-6">
                   {/* Pro Audit Overview */}
+                  {activeAudit ? (
                   <div className={`rounded-xl border-2 p-6 ${
                     isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
                   }`}>
@@ -2234,7 +2300,7 @@ export default function GoogleBusinessProfileProPage() {
                         <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
                           isDark ? "bg-[#29c4a9]/20 text-[#29c4a9]" : "bg-[#29c4a9]/10 text-[#29c4a9]"
                         }`}>
-                          From Pro Analysis
+                          From Draft
                         </span>
                       </div>
                       <button
@@ -2261,10 +2327,10 @@ export default function GoogleBusinessProfileProPage() {
                       </div>
                       <div className="relative mb-4">
                         <div className={`text-5xl font-bold mb-2 ${
-                          proResult.audit.score >= 80 ? "text-green-500" :
-                          proResult.audit.score >= 60 ? "text-yellow-500" : "text-red-500"
+                          activeAudit.score >= 80 ? "text-green-500" :
+                          activeAudit.score >= 60 ? "text-yellow-500" : "text-red-500"
                         }`}>
-                          {proResult.audit.score}
+                          {activeAudit.score}
                         </div>
                         <div className={`text-sm font-medium ${themeClasses.mutedText}`}>out of 100</div>
                         <div className={`mt-3 h-2 rounded-full overflow-hidden ${
@@ -2272,24 +2338,24 @@ export default function GoogleBusinessProfileProPage() {
                         }`}>
                           <div
                             className={`h-full transition-all ${
-                              proResult.audit.score >= 80 ? "bg-green-500" :
-                              proResult.audit.score >= 60 ? "bg-yellow-500" : "bg-red-500"
+                              activeAudit.score >= 80 ? "bg-green-500" :
+                              activeAudit.score >= 60 ? "bg-yellow-500" : "bg-red-500"
                             }`}
-                            style={{ width: `${proResult.audit.score}%` }}
+                            style={{ width: `${activeAudit.score}%` }}
                           />
                         </div>
                       </div>
                       <p className={`mt-4 text-sm ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                        {proResult.audit.summary}
+                        {activeAudit.summary}
                       </p>
                     </div>
-                    {proResult.audit.strengths.length > 0 && (
+                    {activeAudit.strengths.length > 0 && (
                       <div className="mb-4">
                         <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>
                           Top Strengths
                         </h4>
                         <ul className={`space-y-1 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                          {proResult.audit.strengths.slice(0, 5).map((strength, idx) => (
+                          {activeAudit.strengths.slice(0, 5).map((strength, idx) => (
                             <li key={idx} className="flex items-start gap-2 text-sm">
                               <span className="text-green-500 mt-1">✓</span>
                               <span>{strength}</span>
@@ -2298,13 +2364,13 @@ export default function GoogleBusinessProfileProPage() {
                         </ul>
                       </div>
                     )}
-                    {proResult.audit.issues.length > 0 && (
+                    {activeAudit.issues.length > 0 && (
                       <div>
                         <h4 className={`text-sm font-semibold mb-2 ${themeClasses.headingText}`}>
                           Top Issues
                         </h4>
                         <ul className={`space-y-1 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                          {proResult.audit.issues.slice(0, 5).map((issue, idx) => (
+                          {activeAudit.issues.slice(0, 5).map((issue, idx) => (
                             <li key={idx} className="flex items-start gap-2 text-sm">
                               <span className="text-red-500 mt-1">✗</span>
                               <span>{issue}</span>
@@ -2314,111 +2380,212 @@ export default function GoogleBusinessProfileProPage() {
                       </div>
                     )}
                   </div>
+                  ) : null}
 
                   {/* Pro Content Highlights */}
-                  <div className={`rounded-xl border-2 p-6 ${
-                    isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
-                  }`}>
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="text-2xl">✨</span>
-                      <h3 className={`text-lg font-bold ${themeClasses.headingText}`}>
-                        Pro Content Highlights
-                      </h3>
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
-                        isDark ? "bg-[#29c4a9]/20 text-[#29c4a9]" : "bg-[#29c4a9]/10 text-[#29c4a9]"
-                      }`}>
-                        GBP Content
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Short Description */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            Short Description
-                          </h4>
-                          <button
-                            onClick={() => handleCopy(proResult.content.shortDescription, 100)}
-                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                              isDark
-                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                            }`}
-                          >
-                            {copiedIndex === 100 ? "Copied!" : "Copy"}
-                          </button>
-                        </div>
-                        <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                          {proResult.content.shortDescription}
-                        </p>
+                  {activeWizard ? (
+                    <div className={`rounded-xl border-2 p-6 ${
+                      isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
+                    }`}>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-2xl">✨</span>
+                        <h3 className={`text-lg font-bold ${themeClasses.headingText}`}>
+                          Pro Content Highlights
+                        </h3>
+                        <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+                          isDark ? "bg-[#29c4a9]/20 text-[#29c4a9]" : "bg-[#29c4a9]/10 text-[#29c4a9]"
+                        }`}>
+                          GBP Content
+                        </span>
                       </div>
 
-                      {/* Long Description */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            Long Description
-                          </h4>
-                          <button
-                            onClick={() => handleCopy(proResult.content.longDescription, 101)}
-                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                              isDark
-                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                            }`}
-                          >
-                            {copiedIndex === 101 ? "Copied!" : "Copy"}
-                          </button>
-                        </div>
-                        <p className={`whitespace-pre-wrap text-sm ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                          {proResult.content.longDescription}
-                        </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="Short Description"
+                          value={activeWizard.shortDescription}
+                          baseline={generatedWizard?.shortDescription}
+                          isEdited={isWizardFieldEdited("shortDescription")}
+                          extraActions={
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(activeWizard.shortDescription, 100)}
+                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                            >
+                              {copiedIndex === 100 ? "Copied!" : "Copy"}
+                            </button>
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, shortDescription: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, shortDescription: generatedWizard.shortDescription }))
+                              : undefined
+                          }
+                        />
+
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="Long Description"
+                          value={activeWizard.longDescription}
+                          baseline={generatedWizard?.longDescription}
+                          isEdited={isWizardFieldEdited("longDescription")}
+                          extraActions={
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(activeWizard.longDescription, 101)}
+                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                            >
+                              {copiedIndex === 101 ? "Copied!" : "Copy"}
+                            </button>
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, longDescription: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, longDescription: generatedWizard.longDescription }))
+                              : undefined
+                          }
+                        />
+
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="Services Section"
+                          value={activeWizard.servicesSection}
+                          baseline={generatedWizard?.servicesSection}
+                          isEdited={isWizardFieldEdited("servicesSection")}
+                          extraActions={
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(activeWizard.servicesSection, 102)}
+                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                            >
+                              {copiedIndex === 102 ? "Copied!" : "Copy"}
+                            </button>
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, servicesSection: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, servicesSection: generatedWizard.servicesSection }))
+                              : undefined
+                          }
+                        />
+
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="About Section"
+                          value={activeWizard.aboutSection}
+                          baseline={generatedWizard?.aboutSection}
+                          isEdited={isWizardFieldEdited("aboutSection")}
+                          extraActions={
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(activeWizard.aboutSection, 103)}
+                              className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                              }`}
+                            >
+                              {copiedIndex === 103 ? "Copied!" : "Copy"}
+                            </button>
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, aboutSection: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, aboutSection: generatedWizard.aboutSection }))
+                              : undefined
+                          }
+                        />
+
+                        <EditableFaqsBlock
+                          isDark={isDark}
+                          title="FAQ Suggestions"
+                          value={activeWizard.faqSuggestions as FaqItem[]}
+                          baseline={generatedWizard?.faqSuggestions as FaqItem[] | undefined}
+                          isEdited={isWizardFieldEdited("faqSuggestions")}
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, faqSuggestions: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, faqSuggestions: generatedWizard.faqSuggestions }))
+                              : undefined
+                          }
+                        />
+
+                        <EditableLinesBlock
+                          isDark={isDark}
+                          title="Post Ideas"
+                          value={activeWizard.postIdeas}
+                          baseline={generatedWizard?.postIdeas}
+                          isEdited={isWizardFieldEdited("postIdeas")}
+                          placeholder={"One idea per line"}
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, postIdeas: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, postIdeas: generatedWizard.postIdeas }))
+                              : undefined
+                          }
+                        />
+
+                        {(activeWizard.serviceAreaSection || generatedWizard?.serviceAreaSection) ? (
+                          <EditableTextBlock
+                            isDark={isDark}
+                            title="Service Area Section"
+                            value={activeWizard.serviceAreaSection ?? ""}
+                            baseline={generatedWizard?.serviceAreaSection ?? ""}
+                            isEdited={isWizardFieldEdited("serviceAreaSection")}
+                            onSave={(next) => updateWizardContent((c) => ({ ...c, serviceAreaSection: next }))}
+                            onResetToGenerated={
+                              generatedWizard
+                                ? () => updateWizardContent((c) => ({ ...c, serviceAreaSection: generatedWizard.serviceAreaSection }))
+                                : undefined
+                            }
+                          />
+                        ) : null}
+
+                        {(activeWizard.openingHoursBlurb || generatedWizard?.openingHoursBlurb) ? (
+                          <EditableTextBlock
+                            isDark={isDark}
+                            title="Opening Hours Blurb"
+                            value={activeWizard.openingHoursBlurb ?? ""}
+                            baseline={generatedWizard?.openingHoursBlurb ?? ""}
+                            isEdited={isWizardFieldEdited("openingHoursBlurb")}
+                            onSave={(next) => updateWizardContent((c) => ({ ...c, openingHoursBlurb: next }))}
+                            onResetToGenerated={
+                              generatedWizard
+                                ? () => updateWizardContent((c) => ({ ...c, openingHoursBlurb: generatedWizard.openingHoursBlurb }))
+                                : undefined
+                            }
+                          />
+                        ) : null}
+
+                        <EditableLinesBlock
+                          isDark={isDark}
+                          title="Keyword Suggestions"
+                          value={activeWizard.keywordSuggestions}
+                          baseline={generatedWizard?.keywordSuggestions}
+                          isEdited={isWizardFieldEdited("keywordSuggestions")}
+                          placeholder={"One keyword phrase per line"}
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, keywordSuggestions: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, keywordSuggestions: generatedWizard.keywordSuggestions }))
+                              : undefined
+                          }
+                        />
                       </div>
-
-                      {/* Top FAQs */}
-                      {proResult.content.faqSuggestions.length > 0 && (
-                        <div className={`rounded-lg border p-4 ${
-                          isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                        }`}>
-                          <h4 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                            Top FAQs
-                          </h4>
-                          <div className="space-y-3">
-                            {proResult.content.faqSuggestions.slice(0, 3).map((faq, idx) => (
-                              <div key={idx} className={`pb-3 ${idx < 2 ? "border-b " + (isDark ? "border-slate-700" : "border-slate-200") : ""}`}>
-                                <p className={`font-medium mb-1 text-sm ${isDark ? "text-slate-100" : "text-gray-900"}`}>
-                                  Q: {faq.question}
-                                </p>
-                                <p className={`text-xs ${isDark ? "text-slate-300" : "text-gray-600"}`}>
-                                  A: {faq.answer}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Post Ideas */}
-                      {proResult.content.postIdeas.length > 0 && (
-                        <div className={`rounded-lg border p-4 ${
-                          isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                        }`}>
-                          <h4 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                            Post Ideas
-                          </h4>
-                          <ul className={`space-y-1 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                            {proResult.content.postIdeas.slice(0, 5).map((idea, idx) => (
-                              <li key={idx} className="text-sm">• {idea}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
                     </div>
-                  </div>
+                  ) : null}
 
                   {/* Export Pro Report */}
                   <div id="gbp-pro-export" className={`rounded-xl border p-4 ${
@@ -2519,7 +2686,7 @@ export default function GoogleBusinessProfileProPage() {
                     <button
                       type="button"
                       onClick={handleExportCSV}
-                      disabled={!proResult || csvLoading}
+                      disabled={!activeProResult || csvLoading}
                       className={SUBMIT_BUTTON_CLASSES}
                     >
                       {csvLoading ? "Generating CSV..." : "Download CSV"}
@@ -3225,55 +3392,60 @@ export default function GoogleBusinessProfileProPage() {
                         Business Descriptions
                       </h3>
                     </div>
-                    <div className="space-y-4">
-                      {/* Short Profile Description */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            Short Profile Description
-                          </h4>
-                      <button
-                        onClick={() => handleCopy(wizardResult.shortDescription, 0)}
-                        className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                          isDark
-                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                        }`}
-                      >
-                        {copiedIndex === 0 ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                      {wizardResult.shortDescription}
-                    </p>
-                  </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <EditableTextBlock
+                        isDark={isDark}
+                        title="Short Profile Description"
+                        value={wizardResult.shortDescription}
+                        baseline={generatedWizard?.shortDescription}
+                        isEdited={isWizardFieldEdited("shortDescription")}
+                        extraActions={
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(wizardResult.shortDescription, 0)}
+                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            {copiedIndex === 0 ? "Copied!" : "Copy"}
+                          </button>
+                        }
+                        onSave={(next) => updateWizardContent((c) => ({ ...c, shortDescription: next }))}
+                        onResetToGenerated={
+                          generatedWizard
+                            ? () => updateWizardContent((c) => ({ ...c, shortDescription: generatedWizard.shortDescription }))
+                            : undefined
+                        }
+                      />
 
-                      {/* Full Description */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            Full "From the Business" Description
-                          </h4>
-                      <button
-                        onClick={() => handleCopy(wizardResult.longDescription, 1)}
-                        className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                          isDark
-                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                        }`}
-                      >
-                        {copiedIndex === 1 ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                      {wizardResult.longDescription}
-                    </p>
-                  </div>
-
+                      <EditableTextBlock
+                        isDark={isDark}
+                        title={`Full "From the Business" Description`}
+                        value={wizardResult.longDescription}
+                        baseline={generatedWizard?.longDescription}
+                        isEdited={isWizardFieldEdited("longDescription")}
+                        extraActions={
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(wizardResult.longDescription, 1)}
+                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            {copiedIndex === 1 ? "Copied!" : "Copy"}
+                          </button>
+                        }
+                        onSave={(next) => updateWizardContent((c) => ({ ...c, longDescription: next }))}
+                        onResetToGenerated={
+                          generatedWizard
+                            ? () => updateWizardContent((c) => ({ ...c, longDescription: generatedWizard.longDescription }))
+                            : undefined
+                        }
+                      />
                     </div>
                   </div>
 
@@ -3287,179 +3459,195 @@ export default function GoogleBusinessProfileProPage() {
                         Services & About
                       </h3>
                     </div>
-                    <div className="space-y-4">
-                      {/* Services Section */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            Services Section
-                          </h4>
-                      <button
-                        onClick={() => handleCopy(wizardResult.servicesSection, 2)}
-                        className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                          isDark
-                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                        }`}
-                      >
-                        {copiedIndex === 2 ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                      {wizardResult.servicesSection}
-                    </p>
-                  </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <EditableTextBlock
+                        isDark={isDark}
+                        title="Services Section"
+                        value={wizardResult.servicesSection}
+                        baseline={generatedWizard?.servicesSection}
+                        isEdited={isWizardFieldEdited("servicesSection")}
+                        extraActions={
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(wizardResult.servicesSection, 2)}
+                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            {copiedIndex === 2 ? "Copied!" : "Copy"}
+                          </button>
+                        }
+                        onSave={(next) => updateWizardContent((c) => ({ ...c, servicesSection: next }))}
+                        onResetToGenerated={
+                          generatedWizard
+                            ? () => updateWizardContent((c) => ({ ...c, servicesSection: generatedWizard.servicesSection }))
+                            : undefined
+                        }
+                      />
 
-                      {/* About Section */}
-                      <div className={`rounded-lg border p-4 ${
-                        isDark ? "bg-slate-900/50 border-slate-700" : "bg-white border-slate-200"
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                            About / Story Section
-                          </h4>
-                      <button
-                        onClick={() => handleCopy(wizardResult.aboutSection, 3)}
-                        className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                          isDark
-                            ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                            : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                        }`}
-                      >
-                        {copiedIndex === 3 ? "Copied!" : "Copy"}
-                      </button>
-                    </div>
-                    <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                      {wizardResult.aboutSection}
-                    </p>
-                  </div>
+                      <EditableTextBlock
+                        isDark={isDark}
+                        title="About / Story Section"
+                        value={wizardResult.aboutSection}
+                        baseline={generatedWizard?.aboutSection}
+                        isEdited={isWizardFieldEdited("aboutSection")}
+                        extraActions={
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(wizardResult.aboutSection, 3)}
+                            className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                              isDark
+                                ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                            }`}
+                          >
+                            {copiedIndex === 3 ? "Copied!" : "Copy"}
+                          </button>
+                        }
+                        onSave={(next) => updateWizardContent((c) => ({ ...c, aboutSection: next }))}
+                        onResetToGenerated={
+                          generatedWizard
+                            ? () => updateWizardContent((c) => ({ ...c, aboutSection: generatedWizard.aboutSection }))
+                            : undefined
+                        }
+                      />
 
-                  {/* Service Area Section */}
-                  {wizardResult.serviceAreaSection && (
-                    <div className={`rounded-xl border p-4 ${
-                      isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
-                    }`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                          Service Area Section
-                        </h3>
-                        <button
-                          onClick={() => handleCopy(wizardResult.serviceAreaSection!, 4)}
-                          className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                            isDark
-                              ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                              : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                          }`}
-                        >
-                          {copiedIndex === 4 ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                        {wizardResult.serviceAreaSection}
-                      </p>
-                    </div>
-                  )}
+                      {(wizardResult.serviceAreaSection || generatedWizard?.serviceAreaSection) ? (
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="Service Area Section"
+                          value={wizardResult.serviceAreaSection ?? ""}
+                          baseline={generatedWizard?.serviceAreaSection ?? ""}
+                          isEdited={isWizardFieldEdited("serviceAreaSection")}
+                          extraActions={
+                            wizardResult.serviceAreaSection ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(wizardResult.serviceAreaSection ?? "", 4)}
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                              >
+                                {copiedIndex === 4 ? "Copied!" : "Copy"}
+                              </button>
+                            ) : null
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, serviceAreaSection: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, serviceAreaSection: generatedWizard.serviceAreaSection }))
+                              : undefined
+                          }
+                        />
+                      ) : null}
 
-                  {/* Opening Hours Blurb */}
-                  {wizardResult.openingHoursBlurb && (
-                    <div className={`rounded-xl border p-4 ${
-                      isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
-                    }`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                          Opening Hours Blurb
-                        </h3>
-                        <button
-                          onClick={() => handleCopy(wizardResult.openingHoursBlurb!, 5)}
-                          className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
-                            isDark
-                              ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                              : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                          }`}
-                        >
-                          {copiedIndex === 5 ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <p className={`whitespace-pre-wrap ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                        {wizardResult.openingHoursBlurb}
-                      </p>
-                    </div>
-                  )}
-
+                      {(wizardResult.openingHoursBlurb || generatedWizard?.openingHoursBlurb) ? (
+                        <EditableTextBlock
+                          isDark={isDark}
+                          title="Opening Hours Blurb"
+                          value={wizardResult.openingHoursBlurb ?? ""}
+                          baseline={generatedWizard?.openingHoursBlurb ?? ""}
+                          isEdited={isWizardFieldEdited("openingHoursBlurb")}
+                          extraActions={
+                            wizardResult.openingHoursBlurb ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(wizardResult.openingHoursBlurb ?? "", 5)}
+                                className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors ${
+                                  isDark
+                                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                }`}
+                              >
+                                {copiedIndex === 5 ? "Copied!" : "Copy"}
+                              </button>
+                            ) : null
+                          }
+                          onSave={(next) => updateWizardContent((c) => ({ ...c, openingHoursBlurb: next }))}
+                          onResetToGenerated={
+                            generatedWizard
+                              ? () => updateWizardContent((c) => ({ ...c, openingHoursBlurb: generatedWizard.openingHoursBlurb }))
+                              : undefined
+                          }
+                        />
+                      ) : null}
                     </div>
                   </div>
 
                   {/* FAQs */}
-                  {wizardResult.faqSuggestions.length > 0 && (
-                    <div className={`rounded-xl border-2 p-4 ${
-                      isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
-                    }`}>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="text-xl">❓</span>
-                        <h3 className={`text-sm font-bold ${themeClasses.headingText}`}>
-                          FAQs
-                        </h3>
-                      </div>
-                      <div className="space-y-4">
-                        {wizardResult.faqSuggestions.map((faq, idx) => (
-                          <div key={idx} className={`pb-4 ${idx < wizardResult.faqSuggestions.length - 1 ? "border-b " + (isDark ? "border-slate-700" : "border-slate-200") : ""}`}>
-                            <p className={`font-medium mb-2 ${isDark ? "text-slate-100" : "text-gray-900"}`}>
-                              Q: {faq.question}
-                            </p>
-                            <p className={`text-sm ${isDark ? "text-slate-300" : "text-gray-600"}`}>
-                              A: {faq.answer}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
+                  <div className={`rounded-xl border-2 p-4 ${
+                    isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-xl">❓</span>
+                      <h3 className={`text-sm font-bold ${themeClasses.headingText}`}>
+                        FAQs
+                      </h3>
                     </div>
-                  )}
+                    <EditableFaqsBlock
+                      isDark={isDark}
+                      title="FAQ Suggestions"
+                      value={wizardResult.faqSuggestions as FaqItem[]}
+                      baseline={generatedWizard?.faqSuggestions as FaqItem[] | undefined}
+                      isEdited={isWizardFieldEdited("faqSuggestions")}
+                      onSave={(next) => updateWizardContent((c) => ({ ...c, faqSuggestions: next }))}
+                      onResetToGenerated={
+                        generatedWizard
+                          ? () => updateWizardContent((c) => ({ ...c, faqSuggestions: generatedWizard.faqSuggestions }))
+                          : undefined
+                      }
+                    />
+                  </div>
 
                   {/* Post Ideas */}
-                  {wizardResult.postIdeas.length > 0 && (
-                    <div className={`rounded-xl border-2 p-4 ${
-                      isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
-                    }`}>
-                      <div className="flex items-center gap-2 mb-4">
-                        <span className="text-xl">📱</span>
-                        <h3 className={`text-sm font-bold ${themeClasses.headingText}`}>
-                          Post Ideas
-                        </h3>
-                      </div>
-                      <ul className={`space-y-2 ${isDark ? "text-slate-200" : "text-gray-700"}`}>
-                        {wizardResult.postIdeas.map((idea, idx) => (
-                          <li key={idx} className="text-sm">• {idea}</li>
-                        ))}
-                      </ul>
+                  <div className={`rounded-xl border-2 p-4 ${
+                    isDark ? "bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-[#29c4a9]/30" : "bg-gradient-to-br from-slate-50 to-white border-[#29c4a9]/20"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-xl">📱</span>
+                      <h3 className={`text-sm font-bold ${themeClasses.headingText}`}>
+                        Post Ideas
+                      </h3>
                     </div>
-                  )}
+                    <EditableLinesBlock
+                      isDark={isDark}
+                      title="Post Ideas"
+                      value={wizardResult.postIdeas}
+                      baseline={generatedWizard?.postIdeas}
+                      isEdited={isWizardFieldEdited("postIdeas")}
+                      placeholder={"One idea per line"}
+                      onSave={(next) => updateWizardContent((c) => ({ ...c, postIdeas: next }))}
+                      onResetToGenerated={
+                        generatedWizard
+                          ? () => updateWizardContent((c) => ({ ...c, postIdeas: generatedWizard.postIdeas }))
+                          : undefined
+                      }
+                    />
+                  </div>
 
                   {/* Keyword Suggestions */}
-                  {wizardResult.keywordSuggestions.length > 0 && (
-                    <div className={`rounded-xl border p-4 ${
-                      isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
-                    }`}>
-                      <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                        Keyword Suggestions
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {wizardResult.keywordSuggestions.map((keyword, idx) => (
-                          <span
-                            key={idx}
-                            className={`px-3 py-1 rounded-full text-xs ${
-                              isDark
-                                ? "bg-slate-800 text-slate-200 border border-slate-700"
-                                : "bg-slate-100 text-slate-700 border border-slate-300"
-                            }`}
-                          >
-                            {keyword}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className={`rounded-xl border p-4 ${
+                    isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                  }`}>
+                    <EditableLinesBlock
+                      isDark={isDark}
+                      title="Keyword Suggestions"
+                      value={wizardResult.keywordSuggestions}
+                      baseline={generatedWizard?.keywordSuggestions}
+                      isEdited={isWizardFieldEdited("keywordSuggestions")}
+                      placeholder={"One keyword phrase per line"}
+                      onSave={(next) => updateWizardContent((c) => ({ ...c, keywordSuggestions: next }))}
+                      onResetToGenerated={
+                        generatedWizard
+                          ? () => updateWizardContent((c) => ({ ...c, keywordSuggestions: generatedWizard.keywordSuggestions }))
+                          : undefined
+                      }
+                    />
+                  </div>
                 </div>
               ) : (
                 <p className={`italic ${themeClasses.mutedText}`}>

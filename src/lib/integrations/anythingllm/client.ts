@@ -13,11 +13,32 @@ import type {
   ChatSource,
 } from "@/lib/apps/ai-help-desk/types";
 
+type AnythingLLMUpstreamErrorCode =
+  | "UPSTREAM_BAD_REQUEST"
+  | "UPSTREAM_UNAUTHORIZED"
+  | "UPSTREAM_FORBIDDEN"
+  | "UPSTREAM_NOT_FOUND"
+  | "UPSTREAM_TIMEOUT"
+  | "UPSTREAM_ERROR";
+
+type AnythingLLMUpstreamError = Error & {
+  code?: AnythingLLMUpstreamErrorCode;
+  status?: number;
+  details?: unknown;
+};
+
 /**
  * AnythingLLM Client Configuration
  */
 interface AnythingLLMConfig {
-  baseUrl: string;
+  /**
+   * Resolved API base URL (AnythingLLM v1): https://host/api/v1
+   */
+  apiBase: string;
+  /**
+   * Normalized origin/root URL (ex: https://host)
+   */
+  baseOrigin: string;
   apiKey?: string;
   timeoutMs?: number;
 }
@@ -31,38 +52,68 @@ const endpointCache = new Map<string, {
 }>();
 
 /**
- * Candidate endpoint patterns for search (in order of preference)
+ * AnythingLLM v1 search endpoint (vector search)
  */
 const SEARCH_ENDPOINT_CANDIDATES = [
-  "/api/workspaces/{slug}/search",
-  "/api/workspace/{slug}/search",
-  "/api/search/{slug}",
-  "/api/query/{slug}",
+  "/workspace/{slug}/vector-search",
 ] as const;
 
 /**
- * Candidate endpoint patterns for chat (in order of preference)
+ * AnythingLLM v1 chat endpoint
  */
 const CHAT_ENDPOINT_CANDIDATES = [
-  "/api/workspaces/{slug}/chat",
-  "/api/workspace/{slug}/chat",
-  "/api/chat/{slug}",
-  "/api/conversation/{slug}",
+  "/workspace/{slug}/chat",
 ] as const;
 
 /**
- * Get AnythingLLM configuration from environment variables
+ * Parse and validate ANYTHINGLLM_BASE_URL.
+ *
+ * Requirement: MUST be origin-only (no path), e.g.
+ *   https://anythingllm.example.com
  */
-function getConfig(): AnythingLLMConfig {
-  const baseUrl = process.env.ANYTHINGLLM_BASE_URL;
-  if (!baseUrl) {
+function parseBaseOrigin(raw: string): string {
+  const trimmed = raw.trim();
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(
+      "ANYTHINGLLM_BASE_URL must be a full URL origin (e.g. https://anythingllm.example.com)"
+    );
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(
+      "ANYTHINGLLM_BASE_URL must start with http:// or https://"
+    );
+  }
+
+  // Enforce origin-only: no pathname beyond "/"
+  const pathname = url.pathname || "/";
+  if (pathname !== "/" && pathname !== "") {
+    throw new Error(
+      "ANYTHINGLLM_BASE_URL must be the instance origin only (no /api, no /api/v1). Example: https://anythingllm.example.com"
+    );
+  }
+
+  return url.origin;
+}
+
+/**
+ * Get AnythingLLM config inputs from environment variables
+ */
+function getEnvConfig(): Omit<AnythingLLMConfig, "apiBase"> {
+  const rawBaseUrl = process.env.ANYTHINGLLM_BASE_URL;
+  if (!rawBaseUrl) {
     throw new Error(
       "ANYTHINGLLM_BASE_URL environment variable is required"
     );
   }
 
+  const baseOrigin = parseBaseOrigin(rawBaseUrl);
+
   return {
-    baseUrl: baseUrl.replace(/\/$/, ""), // Remove trailing slash
+    baseOrigin,
     apiKey: process.env.ANYTHINGLLM_API_KEY,
     timeoutMs: process.env.ANYTHINGLLM_TIMEOUT_MS
       ? parseInt(process.env.ANYTHINGLLM_TIMEOUT_MS, 10)
@@ -71,22 +122,17 @@ function getConfig(): AnythingLLMConfig {
 }
 
 /**
- * Make a request to AnythingLLM API with timeout, retry, and error handling
+ * Build request headers including AnythingLLM auth.
+ * - Always sends Authorization Bearer
+ * - Also sends x-api-key as a harmless fallback (some installs/gateways use it)
  */
-async function makeRequest<T>(
-  endpoint: string,
-  options: RequestInit = {},
-  retryCount: number = 0
-): Promise<{ response: Response; data: T }> {
-  const config = getConfig();
-  const url = `${config.baseUrl}${endpoint}`;
+function buildHeaders(options: RequestInit = {}): Record<string, string> {
+  const env = getEnvConfig();
 
-  // Build headers
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
-  // Merge in any existing headers from options
   if (options.headers) {
     if (options.headers instanceof Headers) {
       options.headers.forEach((value, key) => {
@@ -101,73 +147,166 @@ async function makeRequest<T>(
     }
   }
 
-  // Add API key if provided
-  if (config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`;
+  if (env.apiKey) {
+    headers.Authorization = `Bearer ${env.apiKey}`;
+    // Lowercase header name is fine; fetch will normalize.
+    headers["x-api-key"] = env.apiKey;
   }
 
-  // Create abort controller for timeout
+  return headers;
+}
+
+/**
+ * Fetch JSON with explicit non-JSON detection.
+ * If the upstream responds with HTML (common when hitting the UI server instead of API),
+ * throw an error including status + a short snippet to aid debugging.
+ */
+async function fetchJson<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<{ response: Response; data: T }> {
+  const env = getEnvConfig();
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () => controller.abort(),
-    config.timeoutMs
-  );
+  const timeoutId = setTimeout(() => controller.abort(), env.timeoutMs);
 
   try {
     const response = await fetch(url, {
       ...options,
-      headers,
+      headers: buildHeaders(options),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
-    // Handle non-OK responses
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      
-      // Don't log full error text to avoid leaking secrets
-      apiLogger.error("anythingllm.client.request-error", {
-        status: response.status,
-        statusText: response.statusText,
-        endpoint: endpoint.replace(config.baseUrl, ""),
-        hasErrorText: !!errorText,
-      });
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = /application\/json|[+\/]json/i.test(contentType);
 
-      // 4xx errors should not be retried
-      if (response.status >= 400 && response.status < 500) {
-        if (response.status === 401) {
-          throw new Error("AnythingLLM authentication failed");
-        }
-        if (response.status === 404) {
-          throw new Error("AnythingLLM workspace not found");
-        }
-        throw new Error(`AnythingLLM API error: ${response.statusText}`);
-      }
-
-      // 5xx errors can be retried (handled below)
-      throw new Error(`AnythingLLM server error: ${response.statusText}`);
+    if (!isJson) {
+      const text = await response.text().catch(() => "");
+      const snippet = text.slice(0, 200);
+      const err: AnythingLLMUpstreamError = new Error(
+        `AnythingLLM returned non-JSON response (status ${response.status}). First 200 chars: ${snippet}`
+      );
+      err.code = "UPSTREAM_ERROR";
+      err.status = response.status;
+      err.details = {
+        nonJson: true,
+        contentType: contentType || null,
+        snippet,
+      };
+      throw err;
     }
 
-    // Parse JSON response
     try {
-      const data = await response.json();
+      const data = (await response.json()) as T;
       return { response, data };
     } catch (parseError) {
+      const text = await response.text().catch(() => "");
+      const snippet = text.slice(0, 200);
+      const err: AnythingLLMUpstreamError = new Error(
+        `Invalid JSON response from AnythingLLM (status ${response.status}). First 200 chars: ${snippet}`
+      );
+      err.code = "UPSTREAM_ERROR";
+      err.status = response.status;
+      err.details = {
+        invalidJson: true,
+        snippet,
+      };
       apiLogger.error("anythingllm.client.parse-error", {
-        endpoint: endpoint.replace(config.baseUrl, ""),
         error: parseError instanceof Error ? parseError.message : String(parseError),
       });
-      throw new Error("Invalid JSON response from AnythingLLM");
+      throw err;
     }
   } catch (error) {
     clearTimeout(timeoutId);
 
-    // Handle abort (timeout)
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("AnythingLLM request timeout");
+      const err: AnythingLLMUpstreamError = new Error("AnythingLLM request timeout");
+      err.code = "UPSTREAM_TIMEOUT";
+      throw err;
     }
 
+    throw error;
+  }
+}
+
+/**
+ * Get AnythingLLM configuration (AnythingLLM v1 API only)
+ */
+async function getConfig(): Promise<AnythingLLMConfig> {
+  const env = getEnvConfig();
+  return { ...env, apiBase: `${env.baseOrigin}/api/v1` };
+}
+
+/**
+ * List workspaces (AnythingLLM v1)
+ * Used for auth verification and (optionally) for determining whether a workspace slug exists.
+ */
+export async function listWorkspaces(): Promise<unknown> {
+  const { data } = await makeRequest<unknown>("/workspaces", { method: "GET" });
+  return data;
+}
+
+/**
+ * Make a request to AnythingLLM API with timeout, retry, and error handling
+ */
+async function makeRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  retryCount: number = 0
+): Promise<{ response: Response; data: T }> {
+  const config = await getConfig();
+  const url = `${config.apiBase}${endpoint}`;
+
+  try {
+    const { response, data } = await fetchJson<T>(url, options);
+
+    if (!response.ok) {
+      // Don't log full upstream payload to avoid leaking secrets
+      apiLogger.error("anythingllm.client.request-error", {
+        status: response.status,
+        statusText: response.statusText,
+        endpoint,
+      });
+
+      const upstreamError: AnythingLLMUpstreamError = new Error(
+        `AnythingLLM API error: ${response.statusText || String(response.status)}`
+      );
+      upstreamError.status = response.status;
+      upstreamError.details = {
+        endpoint,
+        status: response.status,
+        statusText: response.statusText,
+      };
+
+      if (response.status === 401) {
+        upstreamError.code = "UPSTREAM_UNAUTHORIZED";
+        upstreamError.message = "AnythingLLM authentication failed";
+        throw upstreamError;
+      }
+      if (response.status === 403) {
+        upstreamError.code = "UPSTREAM_FORBIDDEN";
+        upstreamError.message = "AnythingLLM access forbidden";
+        throw upstreamError;
+      }
+      if (response.status === 404) {
+        upstreamError.code = "UPSTREAM_NOT_FOUND";
+        upstreamError.message = "AnythingLLM endpoint or workspace not found";
+        throw upstreamError;
+      }
+
+      if (response.status >= 400 && response.status < 500) {
+        upstreamError.code = "UPSTREAM_BAD_REQUEST";
+        throw upstreamError;
+      }
+
+      upstreamError.code = "UPSTREAM_ERROR";
+      throw upstreamError;
+    }
+
+    return { response, data };
+  } catch (error) {
     // Retry network failures (not 4xx errors) once
     const isNetworkError = 
       error instanceof TypeError || // fetch network errors
@@ -180,7 +319,7 @@ async function makeRequest<T>(
 
     if (isNetworkError && retryCount === 0) {
       apiLogger.error("anythingllm.client.network-retry", {
-        endpoint: endpoint.replace(config.baseUrl, ""),
+        endpoint,
         attempt: retryCount + 1,
       });
       // Wait a bit before retry (exponential backoff would be better, but simple delay is fine)
@@ -188,7 +327,14 @@ async function makeRequest<T>(
       return makeRequest<T>(endpoint, options, retryCount + 1);
     }
 
-    // Re-throw other errors
+    // Re-throw other errors, tagging network errors for callers
+    if (isNetworkError) {
+      const err: AnythingLLMUpstreamError =
+        error instanceof Error ? error : new Error(String(error));
+      err.code = err.code ?? "UPSTREAM_ERROR";
+      throw err;
+    }
+
     throw error;
   }
 }
@@ -201,10 +347,10 @@ async function tryEndpoints<T>(
   workspaceSlug: string,
   endpointType: "search" | "chat",
   candidates: readonly string[],
-  requestBody: unknown,
+  requestBody: unknown | ((endpoint: string) => unknown),
   cachedEndpoint?: string
 ): Promise<{ endpoint: string; data: T }> {
-  const config = getConfig();
+  const config = await getConfig();
   
   // If we have a cached endpoint, try it first
   const endpointsToTry = cachedEndpoint 
@@ -213,6 +359,7 @@ async function tryEndpoints<T>(
 
   const triedEndpoints: string[] = [];
   let lastError: Error | null = null;
+  let sawNotFound = false;
 
   for (const endpoint of endpointsToTry) {
     // Skip duplicates
@@ -224,7 +371,9 @@ async function tryEndpoints<T>(
     try {
       const { data } = await makeRequest<T>(endpoint, {
         method: "POST",
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(
+          typeof requestBody === "function" ? requestBody(endpoint) : requestBody
+        ),
       });
 
       // Cache the successful endpoint
@@ -237,45 +386,57 @@ async function tryEndpoints<T>(
       apiLogger.debug("anythingllm.client.endpoint-resolved", {
         workspaceSlug,
         endpointType,
-        endpoint: endpoint.replace(config.baseUrl, ""),
+        endpoint,
       });
 
       return { endpoint, data };
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // If it's a 404, try next endpoint
-      // If it's a network error and we're on the first attempt, the retry logic will handle it
-      // Otherwise, continue to next endpoint
-      if (
-        error instanceof Error &&
-        !error.message.includes("404") &&
-        !error.message.includes("not found") &&
-        !error.message.includes("timeout") &&
-        !error.message.includes("network")
-      ) {
-        // Non-404, non-network error - don't try other endpoints
-        break;
+      const err = error instanceof Error ? error : new Error(String(error));
+      lastError = err;
+
+      const code = (err as AnythingLLMUpstreamError).code;
+
+      // Auth/permission problems are definitive; don't try other endpoints.
+      if (code === "UPSTREAM_UNAUTHORIZED" || code === "UPSTREAM_FORBIDDEN") {
+        throw err;
       }
-      continue;
+
+      // Bad request likely means our payload doesn't match this endpoint.
+      // Trying other endpoints may still work (different contract), so continue.
+      if (code === "UPSTREAM_BAD_REQUEST") {
+        continue;
+      }
+
+      // Not found could be workspace slug OR endpoint mismatch; keep trying.
+      if (code === "UPSTREAM_NOT_FOUND") {
+        sawNotFound = true;
+        continue;
+      }
+
+      // Timeouts/network errors: try next candidate (may not help, but safe).
+      if (code === "UPSTREAM_TIMEOUT" || code === "UPSTREAM_ERROR") {
+        continue;
+      }
+      
+      // Unknown error type: stop early
+      break;
     }
   }
 
-  // All endpoints failed - throw with diagnostics
-  const error = new Error(
-    `All ${endpointType} endpoints failed for workspace: ${workspaceSlug}`
-  ) as Error & {
-    code?: string;
-    details?: {
-      triedEndpoints: string[];
-      baseUrl: string;
-    };
-  };
+  // If we have a typed upstream error, prefer surfacing it.
+  if (lastError && (lastError as AnythingLLMUpstreamError).code && !sawNotFound) {
+    throw lastError;
+  }
 
-  error.code = "UPSTREAM_NOT_FOUND";
-  error.details = {
-    triedEndpoints: triedEndpoints.map(e => e.replace(config.baseUrl, "")),
-    baseUrl: config.baseUrl,
+  // If we saw only not-found-ish responses, throw a not-found error with diagnostics.
+  const notFoundErr: AnythingLLMUpstreamError = new Error(
+    `AnythingLLM ${endpointType} endpoints not found for workspace: ${workspaceSlug}`
+  );
+  notFoundErr.code = "UPSTREAM_NOT_FOUND";
+  notFoundErr.details = {
+    triedEndpoints,
+    apiBase: config.apiBase,
+    baseOrigin: config.baseOrigin,
   };
 
   // Log failure without leaking secrets
@@ -286,7 +447,7 @@ async function tryEndpoints<T>(
     lastError: lastError?.message,
   });
 
-  throw error;
+  throw notFoundErr;
 }
 
 /**
@@ -324,17 +485,22 @@ export async function searchWorkspace(
       workspaceSlug,
       "search",
       SEARCH_ENDPOINT_CANDIDATES,
-      { query, limit },
+      (endpoint: string) => {
+        // AnythingLLM v1 uses /vector-search with { query, topN }
+        if (endpoint.includes("/vector-search")) {
+          return { query, topN: limit };
+        }
+        return { query, topN: limit };
+      },
       cachedEndpoint
     );
 
-    // Normalize response from various possible shapes
     const results = normalizeSearchResults(data);
     return { results };
   } catch (error) {
     // Error already logged in tryEndpoints
-    // Re-throw with proper structure if it's our custom error
-    if (error instanceof Error && "code" in error && error.code === "UPSTREAM_NOT_FOUND") {
+    // Re-throw with proper structure if it's one of our upstream errors
+    if (error instanceof Error && "code" in error && String(error.code).startsWith("UPSTREAM_")) {
       throw error;
     }
 
@@ -446,8 +612,8 @@ export async function chatWorkspace(
     return normalizeChatResponse(data);
   } catch (error) {
     // Error already logged in tryEndpoints
-    // Re-throw with proper structure if it's our custom error
-    if (error instanceof Error && "code" in error && error.code === "UPSTREAM_NOT_FOUND") {
+    // Re-throw with proper structure if it's one of our upstream errors
+    if (error instanceof Error && "code" in error && String(error.code).startsWith("UPSTREAM_")) {
       throw error;
     }
 

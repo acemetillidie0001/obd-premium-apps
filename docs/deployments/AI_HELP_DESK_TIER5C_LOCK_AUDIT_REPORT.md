@@ -1,8 +1,9 @@
 # AI Help Desk — Tier 5C LOCK Audit Report (Final)
 
-**Repo**: OBD (Cursor build)  
-**Audit date**: 2026-01-24  
-**Last verified on**: `main @ d8474f0`  
+**Status:** **LOCKED (maintenance-mode safe)**  
+**Validated on:** `main @ b2fd2470438ef897538c397fde791199a899088c`  
+**Audit date:** 2026-01-24  
+**Repo:** OBD (Cursor build)  
 
 ## Executive summary
 

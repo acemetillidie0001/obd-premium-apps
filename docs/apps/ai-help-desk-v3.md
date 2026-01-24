@@ -2,9 +2,9 @@
 
 ## Status Banner
 
-- **Status**: LOCK-eligible (maintenance-mode safe)
-- **One-liner**: Tenant-safe, draft-only help desk + chat powered by AnythingLLM. No web browsing. No automation.
-- **Last verified**: `main @ d8474f0` (2026-01-24)
+- **Status**: LOCKED (maintenance-mode safe)
+- **Last verified**: `main @ b2fd2470438ef897538c397fde791199a899088c`
+- **One-liner**: Business-scoped Search + Chat powered only by your saved knowledge. No automation.
 
 ## Overview
 

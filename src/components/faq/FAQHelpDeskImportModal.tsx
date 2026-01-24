@@ -27,7 +27,17 @@ interface HelpDeskHandoffPayload {
     businessName: string;
     businessType: string;
     topic: string;
+    businessId?: string;
   };
+}
+
+function toBusinessIdSlug(businessName: string): string {
+  return businessName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**
@@ -124,6 +134,7 @@ export default function FAQHelpDeskImportModal({
         businessName: businessName || "",
         businessType: businessType || "",
         topic: topic || "",
+        businessId: toBusinessIdSlug(businessName || ""),
       },
     };
 
@@ -168,7 +179,7 @@ export default function FAQHelpDeskImportModal({
                   isDark ? "text-white" : "text-slate-900"
                 }`}
               >
-                Add to AI Help Desk Knowledge
+                Send to AI Help Desk
               </h3>
               <button
                 onClick={onClose}
@@ -345,7 +356,7 @@ export default function FAQHelpDeskImportModal({
               onClick={handleConfirm}
               className={SUBMIT_BUTTON_CLASSES}
             >
-              Confirm
+              Send to Help Desk
             </button>
           </div>
         </div>

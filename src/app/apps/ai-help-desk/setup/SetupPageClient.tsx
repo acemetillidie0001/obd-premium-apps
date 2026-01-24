@@ -8,7 +8,17 @@ import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
-import { SUBMIT_BUTTON_CLASSES, getErrorPanelClasses } from "@/lib/obd-framework/layout-helpers";
+import {
+  SUBMIT_BUTTON_CLASSES,
+  getErrorPanelClasses,
+  getSecondaryButtonClasses,
+} from "@/lib/obd-framework/layout-helpers";
+import type { BrandProfile } from "@/lib/brand/brand-profile-types";
+import { loadBrandProfile, saveBrandProfile } from "@/lib/brand/brandProfileStorage";
+import {
+  buildHelpDeskSystemPromptFromBrandKit,
+  extractBrandKitSnapshot,
+} from "@/lib/apps/ai-help-desk/brandKitSystemPrompt";
 
 interface SetupStatus {
   env: {
@@ -39,6 +49,8 @@ interface TestResult {
   searchResultsCount: number;
   chatAnswerPreview: string;
   sourcesCount: number;
+  docsCount?: number;
+  systemPromptIsEmpty?: boolean;
   searchError?: string | null;
   chatError?: string | null;
 }
@@ -105,6 +117,18 @@ export default function AIHelpDeskSetupPage() {
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
 
+  // System prompt (draft-only UI + explicit apply)
+  const [brandProfile, setBrandProfile] = useState<BrandProfile | null>(null);
+  const [brandProfileLoading, setBrandProfileLoading] = useState(false);
+
+  const [appliedSystemPrompt, setAppliedSystemPrompt] = useState<string>("");
+  const [systemPromptDraft, setSystemPromptDraft] = useState<string>("");
+  const [systemPromptDirty, setSystemPromptDirty] = useState(false);
+  const [systemPromptLoading, setSystemPromptLoading] = useState(false);
+  const [systemPromptSaving, setSystemPromptSaving] = useState(false);
+  const [systemPromptSaved, setSystemPromptSaved] = useState(false);
+  const [systemPromptError, setSystemPromptError] = useState<string | null>(null);
+
   // Production readiness check
   const [prodReadiness, setProdReadiness] = useState<ProductionReadinessStatus | null>(null);
   const [prodReadinessLoading, setProdReadinessLoading] = useState(false);
@@ -170,6 +194,129 @@ export default function AIHelpDeskSetupPage() {
       setCurrentMapping(null);
     }
   }, [businessId]);
+
+  const getSystemPromptDraftStorageKey = (id: string) =>
+    `obd.v3.aiHelpDesk.systemPromptDraft.${id}`;
+
+  const loadSystemPromptDraft = (id: string): string | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = window.localStorage.getItem(getSystemPromptDraftStorageKey(id));
+      return typeof stored === "string" ? stored : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const saveSystemPromptDraft = (id: string, value: string): void => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(getSystemPromptDraftStorageKey(id), value);
+    } catch {
+      // Ignore storage errors
+    }
+  };
+
+  // Load Brand Profile (includes kitJson snapshot) using existing suite pattern.
+  useEffect(() => {
+    const id = businessId.trim();
+
+    // Load cached value quickly (scoped if businessId is available)
+    const cached = loadBrandProfile(id || undefined);
+    if (cached) {
+      setBrandProfile(cached);
+    }
+
+    // Always refresh from API (source of truth)
+    const run = async () => {
+      setBrandProfileLoading(true);
+      try {
+        const res = await fetch("/api/brand-profile");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json) return;
+        setBrandProfile(json as BrandProfile);
+        saveBrandProfile(json as BrandProfile, id || undefined);
+      } catch {
+        // Best-effort only
+      } finally {
+        setBrandProfileLoading(false);
+      }
+    };
+
+    run();
+  }, [businessId]);
+
+  // Load the currently applied workspace prompt, but never overwrite user edits silently.
+  useEffect(() => {
+    const id = businessId.trim();
+
+    // Reset per-business state
+    setSystemPromptError(null);
+    setSystemPromptSaved(false);
+    setAppliedSystemPrompt("");
+    setSystemPromptDirty(false);
+
+    if (!id) {
+      setSystemPromptDraft("");
+      return;
+    }
+
+    // Prefer a local draft if present (draft-only, tenant-scoped)
+    const localDraft = loadSystemPromptDraft(id);
+    if (typeof localDraft === "string") {
+      setSystemPromptDraft(localDraft);
+    } else {
+      setSystemPromptDraft("");
+    }
+
+    // Only attempt loading prompt once we have a mapping (otherwise production may error)
+    if (!currentMapping) {
+      return;
+    }
+
+    const run = async () => {
+      setSystemPromptLoading(true);
+      try {
+        const res = await fetch("/api/ai-help-desk/setup/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessId: id,
+            query: "prompt",
+            mode: "meta",
+            includeSystemPrompt: true,
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Failed to load system prompt");
+        }
+
+        const applied =
+          typeof json.data?.systemPrompt === "string" ? json.data.systemPrompt : "";
+
+        setAppliedSystemPrompt(applied);
+
+        // If there is no saved local draft, seed the draft from the applied prompt (one-time per business).
+        if (localDraft === null) {
+          setSystemPromptDraft(applied);
+          saveSystemPromptDraft(id, applied);
+          setSystemPromptDirty(false);
+        }
+      } catch (error) {
+        setSystemPromptError(
+          error instanceof Error ? error.message : "Failed to load system prompt"
+        );
+      } finally {
+        setSystemPromptLoading(false);
+      }
+    };
+
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId, currentMapping?.workspaceSlug]);
 
   // Load setup status
   const loadStatus = async () => {
@@ -392,6 +539,85 @@ export default function AIHelpDeskSetupPage() {
       setTestResult(null);
     } finally {
       setTestLoading(false);
+    }
+  };
+
+  const brandKitSnapshot = extractBrandKitSnapshot(brandProfile);
+  const brandKitReady = !!brandKitSnapshot;
+  const hasAppliedPrompt = appliedSystemPrompt.trim().length > 0;
+
+  const handleGenerateSystemPromptFromBrandKit = () => {
+    const id = businessId.trim();
+    setSystemPromptError(null);
+
+    if (!id) {
+      setSystemPromptError("Please enter a business ID first.");
+      return;
+    }
+
+    if (!brandKitSnapshot) {
+      setSystemPromptError("No complete Brand Kit found. Build your Brand Kit first.");
+      return;
+    }
+
+    const shouldConfirm =
+      systemPromptDirty ||
+      systemPromptDraft.trim().length > 0 ||
+      hasAppliedPrompt;
+
+    if (shouldConfirm) {
+      const ok = window.confirm(
+        "Replace the current draft with a new one generated from your Brand Kit? This will not change AnythingLLM until you click Apply."
+      );
+      if (!ok) return;
+    }
+
+    const nextDraft = buildHelpDeskSystemPromptFromBrandKit({
+      brandKit: brandKitSnapshot,
+      brandProfile,
+    });
+
+    setSystemPromptDraft(nextDraft);
+    setSystemPromptDirty(true);
+    saveSystemPromptDraft(id, nextDraft);
+  };
+
+  const handleApplySystemPrompt = async () => {
+    const id = businessId.trim();
+    setSystemPromptError(null);
+    setSystemPromptSaved(false);
+
+    if (!id) {
+      setSystemPromptError("Please enter a business ID first.");
+      return;
+    }
+
+    setSystemPromptSaving(true);
+    try {
+      const res = await fetch("/api/ai-help-desk/setup/test", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessId: id,
+          systemPrompt: systemPromptDraft,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to apply system prompt");
+      }
+
+      setAppliedSystemPrompt(systemPromptDraft);
+      setSystemPromptDirty(false);
+      setSystemPromptSaved(true);
+      saveSystemPromptDraft(id, systemPromptDraft);
+
+      setTimeout(() => setSystemPromptSaved(false), 2500);
+    } catch (error) {
+      setSystemPromptError(error instanceof Error ? error.message : "Failed to apply system prompt");
+    } finally {
+      setSystemPromptSaving(false);
     }
   };
 
@@ -866,7 +1092,11 @@ export default function AIHelpDeskSetupPage() {
                       }`}>
                         <div className="flex items-center gap-2 mb-3">
                           {testResult.searchOk && testResult.chatOk ? (
-                            <span className="text-green-500 font-bold">✓ Connection Successful</span>
+                            <span className="text-green-500 font-bold">
+                              {testResult.docsCount === 0 || testResult.systemPromptIsEmpty === true
+                                ? "Connection successful. No knowledge yet — upload content to enable answers."
+                                : "✓ Connection Successful"}
+                            </span>
                           ) : (
                             <span className="text-yellow-500 font-bold">⚠ Partial Success</span>
                           )}
@@ -913,6 +1143,131 @@ export default function AIHelpDeskSetupPage() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+            </OBDPanel>
+          )}
+
+          {/* Step 5: System Prompt (Brand Voice) */}
+          {status.db.hasAiWorkspaceMap && businessId.trim() && currentMapping && (
+            <OBDPanel isDark={isDark}>
+              <div className="flex items-start gap-3 mb-4">
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-teal-500/20 text-teal-400 border-2 border-teal-500">
+                  5
+                </div>
+                <div className="flex-1">
+                  <OBDHeading level={2} isDark={isDark} className="mb-2">
+                    System Prompt (Brand Voice)
+                  </OBDHeading>
+                  <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
+                    Creates a starting system prompt in your brand voice. You can edit it anytime.
+                  </p>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm">
+                        <div className={`font-medium ${themeClasses.labelText}`}>
+                          Brand Kit
+                        </div>
+                        <div className={`text-xs ${themeClasses.mutedText}`}>
+                          {brandProfileLoading
+                            ? "Checking…"
+                            : brandKitReady
+                              ? "Ready"
+                              : "Missing or incomplete"}
+                        </div>
+                      </div>
+                      {!brandKitReady && !brandProfileLoading && (
+                        <Link
+                          href="/apps/brand-kit-builder"
+                          className={`text-xs font-medium ${
+                            isDark ? "text-[#29c4a9] hover:text-[#22ad93]" : "text-[#29c4a9] hover:text-[#22ad93]"
+                          }`}
+                        >
+                          Build Brand Kit →
+                        </Link>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleGenerateSystemPromptFromBrandKit}
+                        disabled={
+                          !brandKitReady ||
+                          brandProfileLoading ||
+                          systemPromptLoading ||
+                          systemPromptSaving
+                        }
+                        className={
+                          hasAppliedPrompt
+                            ? getSecondaryButtonClasses(isDark)
+                            : `${SUBMIT_BUTTON_CLASSES} w-auto`
+                        }
+                      >
+                        {hasAppliedPrompt ? "Regenerate from Brand Kit" : "Use Brand Kit voice"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleApplySystemPrompt}
+                        disabled={
+                          systemPromptSaving ||
+                          systemPromptLoading ||
+                          !systemPromptDraft.trim()
+                        }
+                        className={`${SUBMIT_BUTTON_CLASSES} w-auto whitespace-nowrap`}
+                      >
+                        {systemPromptSaving
+                          ? "Applying..."
+                          : systemPromptSaved
+                            ? "✓ Applied"
+                            : "Apply to Workspace"}
+                      </button>
+
+                      <div className={`text-xs ${themeClasses.mutedText}`}>
+                        {systemPromptLoading
+                          ? "Loading current prompt…"
+                          : hasAppliedPrompt
+                            ? "Applied in AnythingLLM: Yes"
+                            : "Applied in AnythingLLM: No"}
+                      </div>
+                    </div>
+
+                    {systemPromptError && (
+                      <div className={getErrorPanelClasses(isDark)}>
+                        <p className="text-sm">{systemPromptError}</p>
+                      </div>
+                    )}
+
+                    <div>
+                      <label
+                        htmlFor="system-prompt-draft"
+                        className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}
+                      >
+                        System prompt draft
+                      </label>
+                      <textarea
+                        id="system-prompt-draft"
+                        value={systemPromptDraft}
+                        onChange={(e) => {
+                          const id = businessId.trim();
+                          const next = e.target.value;
+                          setSystemPromptDraft(next);
+                          setSystemPromptDirty(true);
+                          if (id) {
+                            saveSystemPromptDraft(id, next);
+                          }
+                        }}
+                        rows={12}
+                        className={getInputClasses(isDark, "resize-none font-mono text-xs")}
+                        placeholder="Paste or generate a system prompt…"
+                      />
+                      <p className={`mt-1 text-xs ${themeClasses.mutedText}`}>
+                        This is a draft. Nothing changes in AnythingLLM until you click “Apply to Workspace”.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </OBDPanel>

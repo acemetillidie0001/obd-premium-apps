@@ -18,6 +18,7 @@ interface FAQExportCenterPanelProps {
   isDark: boolean;
   onValidationError: (message: string) => void;
   getActiveFaqs: () => FAQItem[];
+  resolvedBusinessId: string | null;
   businessName: string;
   businessType: string;
   topic: string;
@@ -47,6 +48,7 @@ export default function FAQExportCenterPanel({
   isDark,
   onValidationError,
   getActiveFaqs,
+  resolvedBusinessId,
   businessName,
   businessType,
   topic,
@@ -172,6 +174,45 @@ export default function FAQExportCenterPanel({
     }
   };
 
+  const handleSendToHelpDesk = () => {
+    const activeFaqs = getActiveFaqs();
+    const validationError = validateFAQsForExport(activeFaqs);
+    if (validationError) {
+      onValidationError(validationError);
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      onValidationError("Unable to send handoff in this environment.");
+      return;
+    }
+
+    const now = Date.now();
+    const ttlMs = 10 * 60 * 1000; // 10 minutes
+
+    const envelope = {
+      v: 1 as const,
+      payloadVersion: 1 as const,
+      sourceApp: "ai-faq-generator" as const,
+      createdAt: now,
+      expiresAt: now + ttlMs,
+      businessId: resolvedBusinessId,
+      faqs: activeFaqs.map((faq, idx) => ({
+        id: `faq-${faq.number ?? idx + 1}`,
+        question: faq.question,
+        answer: faq.answer,
+      })),
+    };
+
+    try {
+      sessionStorage.setItem("obd:ai-help-desk:handoff:faq-generator", JSON.stringify(envelope));
+      window.location.href = "/apps/ai-help-desk";
+    } catch (error) {
+      console.error("Failed to write Help Desk handoff:", error);
+      onValidationError("Failed to send to Help Desk. Please try again.");
+    }
+  };
+
   const handleCopy = async (itemId: string, content: string) => {
     // Validate before copying
     const validationError = validateFAQsForExport(faqs);
@@ -275,25 +316,17 @@ export default function FAQExportCenterPanel({
         </div>
       </div>
 
-      {/* Add to AI Help Desk Knowledge */}
+      {/* Send to AI Help Desk */}
       <div>
         <h4 className={`text-sm font-semibold mb-3 ${isDark ? "text-white" : "text-slate-900"}`}>
           AI Help Desk Integration
         </h4>
         <button
-          onClick={() => {
-            const activeFaqs = getActiveFaqs();
-            const validationError = validateFAQsForExport(activeFaqs);
-            if (validationError) {
-              onValidationError(validationError);
-              return;
-            }
-            setShowImportModal(true);
-          }}
+          onClick={handleSendToHelpDesk}
           disabled={!canExport}
           className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed"}
         >
-          Add to AI Help Desk Knowledge
+          Send to Help Desk
         </button>
       </div>
 

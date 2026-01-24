@@ -27,6 +27,7 @@ import FAQImportModal from "./knowledge/components/FAQImportModal";
 import ContentWriterImportBanner from "./knowledge/components/ContentWriterImportBanner";
 import ContentWriterImportModal from "./knowledge/components/ContentWriterImportModal";
 import ContentWriterImportReadyBanner from "./knowledge/components/ContentWriterImportReadyBanner";
+import FirstRunContentGuidancePanel from "./components/FirstRunContentGuidancePanel";
 import { 
   parseHandoffPayload, 
   parseContentWriterHandoffPayload,
@@ -43,8 +44,20 @@ import {
   replaceUrlWithoutReload,
 } from "@/lib/utils/clear-handoff-params";
 
+const FAQ_GENERATOR_HANDOFF_KEY = "obd:ai-help-desk:handoff:faq-generator";
+
 type ViewMode = "search" | "chat";
 type TabMode = "help-desk" | "knowledge" | "insights" | "widget";
+
+type FaqGeneratorHandoffEnvelopeV1 = {
+  v: 1;
+  payloadVersion: 1;
+  sourceApp: "ai-faq-generator";
+  createdAt: number;
+  expiresAt: number;
+  businessId: string | null;
+  faqs: Array<{ id?: string; question: string; answer: string }>;
+};
 
 interface ChatMessage {
   id: string;
@@ -78,6 +91,8 @@ interface ConnectionTestResult {
   searchOk: boolean;
   chatOk: boolean;
   sourcesCount: number;
+  docsCount?: number;
+  systemPromptIsEmpty?: boolean;
   timestamp: number;
   isFallback?: boolean;
 }
@@ -120,16 +135,13 @@ function AIHelpDeskPageContent() {
 
   // Tab mode
   const [tabMode, setTabMode] = useState<TabMode>("help-desk");
-  const tabInitialized = useRef(false);
 
   // Optional: allow deep-linking to a tab (e.g., ?tab=widget) for handoff receivers.
   useEffect(() => {
-    if (tabInitialized.current) return;
     const raw = (searchParams?.get("tab") || "").trim();
     if (raw === "help-desk" || raw === "knowledge" || raw === "insights" || raw === "widget") {
       setTabMode(raw);
     }
-    tabInitialized.current = true;
   }, [searchParams]);
 
   // View mode (search vs chat) - only for help-desk tab
@@ -195,6 +207,10 @@ function AIHelpDeskPageContent() {
   const [showContentWriterImportModal, setShowContentWriterImportModal] = useState(false);
   const [showContentWriterImportReadyBanner, setShowContentWriterImportReadyBanner] = useState(false);
 
+  // FAQ Generator → Help Desk (Tier 5C) sessionStorage handoff state
+  const [faqGeneratorEnvelope, setFaqGeneratorEnvelope] = useState<FaqGeneratorHandoffEnvelopeV1 | null>(null);
+  const [faqGeneratorApplying, setFaqGeneratorApplying] = useState(false);
+
   // Handle CRM integration prefill
   useEffect(() => {
     if (searchParams && typeof window !== "undefined") {
@@ -256,6 +272,17 @@ function AIHelpDeskPageContent() {
       try {
         const payload = parseHandoffPayload(searchParams);
         if (payload && payload.sourceApp === "ai-faq-generator") {
+          // TTL guard (Tier 5C): refuse old handoffs
+          const importedAtMs = Date.parse(payload.importedAt);
+          const ttlMs = 10 * 60 * 1000; // 10 minutes
+          if (!Number.isFinite(importedAtMs) || Date.now() - importedAtMs > ttlMs) {
+            setImportToast("This Help Desk import expired. Please resend from FAQ Generator.");
+            setTimeout(() => setImportToast(null), 3000);
+            const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+            replaceUrlWithoutReload(cleanUrl);
+            return;
+          }
+
           // Compute hash for the payload
           const hash = getHandoffHash(payload);
           setHandoffHash(hash);
@@ -276,6 +303,227 @@ function AIHelpDeskPageContent() {
       }
     }
   }, [searchParams]);
+
+  // Tenant/business guard (Tier 5C): if a payload is for a different businessId, ignore it safely.
+  useEffect(() => {
+    if (!handoffPayload || !businessId.trim()) return;
+    const expected = (handoffPayload as any)?.businessContext?.businessId;
+    if (typeof expected !== "string" || expected.trim().length === 0) {
+      return; // No business scoping provided by sender; allow normal flow.
+    }
+
+    if (expected.trim() !== businessId.trim()) {
+      setShowImportBanner(false);
+      setHandoffPayload(null);
+      setHandoffHash(null);
+      setIsHandoffAlreadyImported(false);
+      setImportToast("This import was created for a different business. Please resend from FAQ Generator.");
+      setTimeout(() => setImportToast(null), 3000);
+      if (typeof window !== "undefined") {
+        const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+        replaceUrlWithoutReload(cleanUrl);
+      }
+    }
+  }, [handoffPayload, businessId]);
+
+  // Receiver: detect FAQ Generator sessionStorage handoff (Tier 5C)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!businessId.trim()) {
+      setFaqGeneratorEnvelope(null);
+      return;
+    }
+
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(FAQ_GENERATOR_HANDOFF_KEY);
+    } catch {
+      raw = null;
+    }
+
+    if (!raw) {
+      setFaqGeneratorEnvelope(null);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<FaqGeneratorHandoffEnvelopeV1> | null;
+      const shouldClear = () => {
+        try {
+          sessionStorage.removeItem(FAQ_GENERATOR_HANDOFF_KEY);
+        } catch {
+          // ignore
+        }
+        setFaqGeneratorEnvelope(null);
+      };
+
+      // Basic structure + version checks
+      if (!parsed || parsed.v !== 1 || parsed.payloadVersion !== 1 || parsed.sourceApp !== "ai-faq-generator") {
+        shouldClear();
+        return;
+      }
+
+      // TTL check
+      if (typeof parsed.expiresAt !== "number" || !Number.isFinite(parsed.expiresAt) || Date.now() > parsed.expiresAt) {
+        shouldClear();
+        return;
+      }
+
+      // Tenant/business guard
+      if (typeof parsed.businessId !== "string" || parsed.businessId.trim().length === 0) {
+        // No tenant marker — refuse per Tier 5C requirements
+        shouldClear();
+        return;
+      }
+      if (parsed.businessId.trim() !== businessId.trim()) {
+        shouldClear();
+        return;
+      }
+
+      // Payload validation: >=1 FAQ with non-empty question+answer
+      const faqs = Array.isArray(parsed.faqs) ? parsed.faqs : [];
+      const normalizedFaqs = faqs
+        .filter((f) => f && typeof f === "object")
+        .map((f) => ({
+          id: typeof (f as any).id === "string" ? ((f as any).id as string) : undefined,
+          question: typeof (f as any).question === "string" ? ((f as any).question as string) : "",
+          answer: typeof (f as any).answer === "string" ? ((f as any).answer as string) : "",
+        }))
+        .map((f) => ({ ...f, question: f.question.trim(), answer: f.answer.trim() }))
+        .filter((f) => f.question.length > 0 && f.answer.length > 0);
+
+      if (normalizedFaqs.length === 0) {
+        shouldClear();
+        return;
+      }
+
+      setFaqGeneratorEnvelope({
+        v: 1,
+        payloadVersion: 1,
+        sourceApp: "ai-faq-generator",
+        createdAt: typeof parsed.createdAt === "number" ? parsed.createdAt : Date.now(),
+        expiresAt: parsed.expiresAt,
+        businessId: parsed.businessId,
+        faqs: normalizedFaqs,
+      });
+    } catch {
+      // Bad JSON — clear once
+      try {
+        sessionStorage.removeItem(FAQ_GENERATOR_HANDOFF_KEY);
+      } catch {
+        // ignore
+      }
+      setFaqGeneratorEnvelope(null);
+    }
+  }, [businessId]);
+
+  const handleApplyFaqGeneratorHandoff = async () => {
+    if (!faqGeneratorEnvelope) return;
+    if (!businessId.trim()) return;
+    if (faqGeneratorApplying) return;
+
+    setFaqGeneratorApplying(true);
+    try {
+      // Fetch existing FAQ entries (for duplicate guard)
+      const params = new URLSearchParams({
+        businessId: businessId.trim(),
+        type: "FAQ",
+        includeInactive: "true",
+      });
+      const listRes = await fetch(`/api/ai-help-desk/knowledge/list?${params.toString()}`);
+      const listJson = await listRes.json();
+      const existing = (listRes.ok && listJson?.ok && Array.isArray(listJson?.data?.entries))
+        ? (listJson.data.entries as Array<{ title?: string; tags?: string[] }>)
+        : [];
+
+      const normalizeQ = (q: string) => q.trim().toLowerCase();
+
+      const existingImportedQuestions = new Set(
+        existing
+          .filter((e) => Array.isArray(e.tags) && e.tags.includes("AI FAQ Generator"))
+          .map((e) => (typeof e.title === "string" ? normalizeQ(e.title) : ""))
+          .filter((q) => q.length > 0)
+      );
+
+      // De-dupe within payload too
+      const uniqueToImport: Array<{ question: string; answer: string }> = [];
+      for (const faq of faqGeneratorEnvelope.faqs) {
+        const normalized = normalizeQ(faq.question);
+        if (!normalized) continue;
+        if (existingImportedQuestions.has(normalized)) continue;
+        if (uniqueToImport.some((x) => normalizeQ(x.question) === normalized)) continue;
+        uniqueToImport.push({ question: faq.question.trim(), answer: faq.answer.trim() });
+      }
+
+      if (uniqueToImport.length === 0) {
+        // Nothing to import; clear the handoff to avoid re-showing
+        try {
+          sessionStorage.removeItem(FAQ_GENERATOR_HANDOFF_KEY);
+        } catch {
+          // ignore
+        }
+        setFaqGeneratorEnvelope(null);
+        setImportToast("No new FAQs to import.");
+        setTimeout(() => setImportToast(null), 2500);
+        return;
+      }
+
+      const importedAtIso = new Date(faqGeneratorEnvelope.createdAt || Date.now()).toISOString();
+
+      await Promise.all(
+        uniqueToImport.map(async (faq) => {
+          const res = await fetch("/api/ai-help-desk/knowledge/upsert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessId: businessId.trim(),
+              type: "FAQ",
+              title: faq.question,
+              content: faq.answer,
+              tags: [
+                "AI FAQ Generator",
+                `importedAt:${importedAtIso}`,
+                "handoff:sessionStorage",
+                "handoffV:1",
+              ],
+              isActive: true,
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) {
+            throw new Error(json.error || "Failed to import FAQ");
+          }
+        })
+      );
+
+      // Clear handoff and refresh list
+      try {
+        sessionStorage.removeItem(FAQ_GENERATOR_HANDOFF_KEY);
+      } catch {
+        // ignore
+      }
+      setFaqGeneratorEnvelope(null);
+      setKnowledgeReloadKey((prev) => prev + 1);
+      setTabMode("knowledge");
+
+      setImportToast(`Imported ${uniqueToImport.length} FAQ${uniqueToImport.length === 1 ? "" : "s"} into Knowledge`);
+      setTimeout(() => setImportToast(null), 3000);
+    } catch (error) {
+      setImportToast(error instanceof Error ? error.message : "Failed to import FAQs");
+      setTimeout(() => setImportToast(null), 3000);
+    } finally {
+      setFaqGeneratorApplying(false);
+    }
+  };
+
+  const handleDismissFaqGeneratorHandoff = () => {
+    try {
+      sessionStorage.removeItem(FAQ_GENERATOR_HANDOFF_KEY);
+    } catch {
+      // ignore
+    }
+    setFaqGeneratorEnvelope(null);
+  };
 
   // Handle Content Writer import handoff
   useEffect(() => {
@@ -451,6 +699,11 @@ function AIHelpDeskPageContent() {
             searchOk: json.data.searchOk || false,
             chatOk: json.data.chatOk || false,
             sourcesCount: json.data.sourcesCount || 0,
+            docsCount: typeof json.data.docsCount === "number" ? json.data.docsCount : undefined,
+            systemPromptIsEmpty:
+              typeof json.data.systemPromptIsEmpty === "boolean"
+                ? json.data.systemPromptIsEmpty
+                : undefined,
             timestamp: Date.now(),
             isFallback: json.data.isFallback || false,
           };
@@ -786,6 +1039,67 @@ function AIHelpDeskPageContent() {
           />
         </div>
       )}
+
+      {/* Receiver: FAQs ready to apply (FAQ Generator handoff) */}
+      {canShowMainUI && currentMapping && faqGeneratorEnvelope && (
+        <OBDPanel isDark={isDark} className="mt-6">
+          <div
+            className={`p-4 rounded-xl border ${
+              isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <OBDHeading level={2} isDark={isDark} className="mb-2">
+                  FAQs ready to add to your Help Desk
+                </OBDHeading>
+                <p className={`text-sm ${themeClasses.mutedText}`}>
+                  Review and apply to import these as new knowledge items. This won’t overwrite anything.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={handleApplyFaqGeneratorHandoff}
+                disabled={faqGeneratorApplying}
+                className={`${SUBMIT_BUTTON_CLASSES} w-full sm:w-auto`}
+              >
+                {faqGeneratorApplying ? "Applying…" : "Apply"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissFaqGeneratorHandoff}
+                disabled={faqGeneratorApplying}
+                className={`${getSubtleButtonMediumClasses(isDark)} w-full sm:w-auto`}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </OBDPanel>
+      )}
+
+      {/* First-run guidance: connected workspace has no knowledge yet */}
+      {canShowMainUI &&
+        currentMapping &&
+        connectionStatus !== "checking" &&
+        connectionStatus !== "red" &&
+        lastTestResult && (
+          <FirstRunContentGuidancePanel
+            isDark={isDark}
+            businessId={businessId}
+            workspaceSlug={currentMapping.workspaceSlug}
+            anythingLLMWorkspaceUrl={
+              setupStatus?.env.baseUrlPreview
+                ? `${setupStatus.env.baseUrlPreview}/workspace/${currentMapping.workspaceSlug}`
+                : null
+            }
+            docsCount={lastTestResult.docsCount}
+            systemPromptIsEmpty={lastTestResult.systemPromptIsEmpty}
+          />
+        )}
 
       {/* Setup Status Loading */}
       {setupLoading && (

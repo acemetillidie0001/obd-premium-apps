@@ -80,7 +80,7 @@ export default function FAQNextStepsPanel({
                   : "text-slate-400 cursor-not-allowed"
               }`}
             >
-              Add these FAQs to your AI Help Desk
+              Send these FAQs to your Help Desk
             </button>
             {!canExport && (
               <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
@@ -95,7 +95,7 @@ export default function FAQNextStepsPanel({
             disabled={!canExport}
             className={getSecondaryButtonClasses(isDark) + " disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"}
           >
-            Add
+            Send
           </button>
         </div>
 

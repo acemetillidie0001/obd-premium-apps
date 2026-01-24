@@ -11,7 +11,14 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getWorkspaceSlugForBusiness } from "@/lib/integrations/anythingllm/scoping";
-import { listWorkspaces, searchWorkspace, chatWorkspace } from "@/lib/integrations/anythingllm/client";
+import {
+  listWorkspaces,
+  searchWorkspace,
+  chatWorkspace,
+  getWorkspaceMeta,
+  getWorkspacePromptState,
+  setWorkspaceSystemPrompt,
+} from "@/lib/integrations/anythingllm/client";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -41,6 +48,13 @@ function classifyAnythingLLMError(err: unknown): {
 const testRequestSchema = z.object({
   businessId: z.string().min(1, "Business ID is required"),
   query: z.string().max(200).optional().default("hours"),
+  mode: z.enum(["full", "meta"]).optional().default("full"),
+  includeSystemPrompt: z.boolean().optional().default(false),
+});
+
+const setPromptSchema = z.object({
+  businessId: z.string().min(1, "Business ID is required"),
+  systemPrompt: z.string().max(20000, "System prompt is too long"),
 });
 
 function toApiErrorCode(code: UpstreamCode | undefined):
@@ -110,7 +124,7 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, query } = validationResult.data;
+    const { businessId, query, mode, includeSystemPrompt } = validationResult.data;
 
     // Get workspace slug for business (includes fallback in dev)
     const workspaceResult = await getWorkspaceSlugForBusiness(businessId);
@@ -228,6 +242,34 @@ export async function POST(request: NextRequest) {
           },
         }
       );
+    }
+
+    // Meta-only mode: read system prompt + docs count (no search/chat).
+    if (mode === "meta") {
+      try {
+        const promptState = await getWorkspacePromptState(workspaceSlug);
+        return apiSuccessResponse({
+          mode: "meta",
+          workspaceSlug,
+          isFallback,
+          docsCount: promptState.docsCount,
+          systemPromptIsEmpty: promptState.systemPromptIsEmpty,
+          systemPrompt: includeSystemPrompt ? promptState.systemPrompt : "",
+        });
+      } catch (error) {
+        const classified = classifyAnythingLLMError(error);
+        return apiErrorResponse(
+          classified.message || "Failed to load workspace prompt",
+          toApiErrorCode(classified.code),
+          502,
+          {
+            workspaceSlug,
+            friendlyMessage:
+              "Failed to load workspace prompt. Verify AnythingLLM connectivity and permissions.",
+            upstream: classified.details ?? null,
+          }
+        );
+      }
     }
 
     // Test search
@@ -420,6 +462,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Fetch workspace metadata (docs count + system prompt) for "empty knowledge" guidance
+    // This is best-effort and should not fail the connection test if the workspace is otherwise usable.
+    let docsCount: number | undefined;
+    let systemPromptIsEmpty: boolean | undefined;
+    let systemPrompt: string | undefined;
+    try {
+      const meta = await getWorkspaceMeta(workspaceSlug);
+      docsCount = typeof meta.docsCount === "number" ? meta.docsCount : undefined;
+      systemPromptIsEmpty =
+        typeof meta.systemPromptIsEmpty === "boolean" ? meta.systemPromptIsEmpty : undefined;
+
+      if (includeSystemPrompt) {
+        try {
+          const state = await getWorkspacePromptState(workspaceSlug);
+          systemPrompt = state.systemPrompt;
+        } catch {
+          systemPrompt = undefined;
+        }
+      }
+    } catch {
+      // Swallow errors: many instances restrict certain endpoints or return non-standard shapes.
+      // The caller will treat undefined as "unknown" and avoid showing the guidance panel.
+      docsCount = undefined;
+      systemPromptIsEmpty = undefined;
+      systemPrompt = undefined;
+    }
+
     // If both search and chat failed, return a single actionable failure (instead of ok:true with partial flags).
     if (!searchOk && !chatOk) {
       const primaryCode = chatCode || searchCode || "UPSTREAM_ERROR";
@@ -452,8 +521,48 @@ export async function POST(request: NextRequest) {
       searchResultsCount,
       chatAnswerPreview,
       sourcesCount,
+      docsCount,
+      systemPromptIsEmpty,
+      systemPrompt: includeSystemPrompt ? systemPrompt ?? "" : "",
       searchError: searchError || null,
       chatError: chatError || null,
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  // Block demo mode mutations (read-only)
+  const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
+  const demoBlock = assertNotDemoRequest(request);
+  if (demoBlock) return demoBlock;
+
+  // Require premium access
+  const guard = await requirePremiumAccess();
+  if (guard) return guard;
+
+  // Check rate limit
+  const rateLimitCheck = await checkRateLimit(request);
+  if (rateLimitCheck) return rateLimitCheck;
+
+  try {
+    const body = await request.json();
+    const validationResult = setPromptSchema.safeParse(body);
+
+    if (!validationResult.success) {
+      return validationErrorResponse(validationResult.error);
+    }
+
+    const { businessId, systemPrompt } = validationResult.data;
+
+    const workspaceResult = await getWorkspaceSlugForBusiness(businessId.trim());
+    await setWorkspaceSystemPrompt(workspaceResult.workspaceSlug, systemPrompt);
+
+    return apiSuccessResponse({
+      workspaceSlug: workspaceResult.workspaceSlug,
+      isFallback: workspaceResult.isFallback,
+      systemPromptIsEmpty: systemPrompt.trim().length === 0,
     });
   } catch (error) {
     return handleApiError(error);

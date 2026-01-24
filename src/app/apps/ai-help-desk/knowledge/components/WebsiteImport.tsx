@@ -529,11 +529,12 @@ export default function WebsiteImport({
   }, [isDragOver]);
 
   return (
-    <OBDPanel isDark={isDark}>
-      <div className="space-y-4">
-        <OBDHeading level={2} isDark={isDark}>
-          Import from Website
-        </OBDHeading>
+    <div id="obd-helpdesk-website-import">
+      <OBDPanel isDark={isDark}>
+        <div className="space-y-4">
+          <OBDHeading level={2} isDark={isDark}>
+            Import from Website
+          </OBDHeading>
 
         {/* URL Input */}
         <div>
@@ -765,8 +766,9 @@ export default function WebsiteImport({
             </div>
           </div>
         )}
-      </div>
-    </OBDPanel>
+        </div>
+      </OBDPanel>
+    </div>
   );
 }
 

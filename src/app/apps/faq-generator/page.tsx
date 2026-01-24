@@ -16,6 +16,7 @@ import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
 import { parseHelpDeskHandoffPayload } from "@/lib/apps/faq-generator/handoff-parser";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -68,6 +69,9 @@ function FAQGeneratorPageContent() {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editQuestion, setEditQuestion] = useState("");
   const [editAnswer, setEditAnswer] = useState("");
+
+  // Tenant-safe businessId from existing context (demo cookie or ?businessId=)
+  const resolvedBusinessId = useMemo(() => resolveBusinessId(searchParams), [searchParams]);
 
   // Brand Profile auto-apply toggle
   const [useBrandProfile, setUseBrandProfile] = useState(() => {
@@ -1294,6 +1298,7 @@ function FAQGeneratorPageContent() {
                     isDark={isDark}
                     onValidationError={showToast}
                     getActiveFaqs={getActiveFaqs}
+                    resolvedBusinessId={resolvedBusinessId}
                     businessName={businessName}
                     businessType={businessType}
                     topic={topic}

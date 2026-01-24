@@ -248,6 +248,129 @@ export async function listWorkspaces(): Promise<unknown> {
   return data;
 }
 
+export interface AnythingLLMWorkspaceMeta {
+  docsCount: number;
+  systemPromptIsEmpty: boolean;
+}
+
+function extractWorkspaceSystemPrompt(workspace: Record<string, unknown>): string {
+  const rawPrompt =
+    typeof (workspace as any).openAiPrompt === "string"
+      ? ((workspace as any).openAiPrompt as string)
+      : typeof (workspace as any).openAIPrompt === "string"
+        ? ((workspace as any).openAIPrompt as string)
+        : typeof (workspace as any).systemPrompt === "string"
+          ? ((workspace as any).systemPrompt as string)
+          : "";
+
+  return typeof rawPrompt === "string" ? rawPrompt : "";
+}
+
+function extractWorkspaceObject(data: unknown): Record<string, unknown> | null {
+  if (!data || typeof data !== "object") return null;
+
+  // Common shapes:
+  // - { workspace: { ... } }
+  // - { data: { ... } }
+  // - { ...workspaceFields }
+  const asRecord = data as Record<string, unknown>;
+
+  const maybeWorkspace = asRecord.workspace;
+  if (maybeWorkspace && typeof maybeWorkspace === "object") {
+    return maybeWorkspace as Record<string, unknown>;
+  }
+
+  const maybeData = asRecord.data;
+  if (maybeData && typeof maybeData === "object") {
+    return maybeData as Record<string, unknown>;
+  }
+
+  return asRecord;
+}
+
+/**
+ * Get workspace metadata used by OBD (docs count + system prompt).
+ *
+ * AnythingLLM developer API (v1):
+ * - GET /v1/workspace/:slug
+ * Returns workspace config including `documents` and `openAiPrompt`.
+ */
+export async function getWorkspaceMeta(
+  workspaceSlug: string
+): Promise<AnythingLLMWorkspaceMeta> {
+  const { data } = await makeRequest<unknown>(
+    `/workspace/${encodeURIComponent(workspaceSlug)}`,
+    { method: "GET" }
+  );
+
+  const workspace = extractWorkspaceObject(data) || {};
+
+  const rawDocuments = (workspace as any).documents;
+  const documents = Array.isArray(rawDocuments) ? rawDocuments : [];
+
+  const prompt = extractWorkspaceSystemPrompt(workspace);
+  const systemPromptIsEmpty = prompt.trim().length === 0;
+
+  return {
+    docsCount: documents.length,
+    systemPromptIsEmpty,
+  };
+}
+
+export interface AnythingLLMWorkspacePromptState {
+  systemPrompt: string;
+  systemPromptIsEmpty: boolean;
+  docsCount: number;
+}
+
+/**
+ * Read the workspace system prompt (openAiPrompt) and docs count.
+ * Uses the same workspace endpoint as `getWorkspaceMeta`, but returns the prompt string.
+ */
+export async function getWorkspacePromptState(
+  workspaceSlug: string
+): Promise<AnythingLLMWorkspacePromptState> {
+  const { data } = await makeRequest<unknown>(
+    `/workspace/${encodeURIComponent(workspaceSlug)}`,
+    { method: "GET" }
+  );
+
+  const workspace = extractWorkspaceObject(data) || {};
+
+  const rawDocuments = (workspace as any).documents;
+  const documents = Array.isArray(rawDocuments) ? rawDocuments : [];
+
+  const systemPrompt = extractWorkspaceSystemPrompt(workspace);
+  const systemPromptIsEmpty = systemPrompt.trim().length === 0;
+
+  return {
+    systemPrompt,
+    systemPromptIsEmpty,
+    docsCount: documents.length,
+  };
+}
+
+/**
+ * Update AnythingLLM workspace system prompt.
+ *
+ * AnythingLLM frontend uses POST `/workspace/:slug/update` with a partial settings payload.
+ * We send only `openAiPrompt` to avoid accidental changes to other workspace settings.
+ */
+export async function setWorkspaceSystemPrompt(
+  workspaceSlug: string,
+  systemPrompt: string
+): Promise<void> {
+  await makeRequest<unknown>(
+    `/workspace/${encodeURIComponent(workspaceSlug)}/update`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        openAiPrompt: systemPrompt,
+      }),
+    }
+  );
+}
+
 /**
  * Make a request to AnythingLLM API with timeout, retry, and error handling
  */

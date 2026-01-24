@@ -200,20 +200,21 @@ export default function KnowledgeList({
   };
 
   return (
-    <OBDPanel isDark={isDark}>
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <OBDHeading level={2} isDark={isDark}>
-            Knowledge Base
-          </OBDHeading>
-          <div className="flex items-center gap-3">
-            <KnowledgeCoverageBadge isDark={isDark} entries={entries} />
-            <div className="text-sm text-slate-500">
-              {entries.length} {entries.length === 1 ? "entry" : "entries"}
+    <div id="obd-helpdesk-docs">
+      <OBDPanel isDark={isDark}>
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <OBDHeading level={2} isDark={isDark}>
+              Knowledge Base
+            </OBDHeading>
+            <div className="flex items-center gap-3">
+              <KnowledgeCoverageBadge isDark={isDark} entries={entries} />
+              <div className="text-sm text-slate-500">
+                {entries.length} {entries.length === 1 ? "entry" : "entries"}
+              </div>
             </div>
           </div>
-        </div>
 
         {/* Filters */}
         <div className="space-y-3">
@@ -394,8 +395,9 @@ export default function KnowledgeList({
             ))}
           </div>
         )}
-      </div>
-    </OBDPanel>
+        </div>
+      </OBDPanel>
+    </div>
   );
 }
 

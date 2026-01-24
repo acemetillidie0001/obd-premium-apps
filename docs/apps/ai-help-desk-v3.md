@@ -2,9 +2,9 @@
 
 ## Status Banner
 
-- **Status**: LOCKED (maintenance-mode safe)
-- **Last verified**: `main @ b2fd2470438ef897538c397fde791199a899088c`
-- **One-liner**: Business-scoped Search + Chat powered only by your saved knowledge. No automation.
+Status: LOCKED (maintenance-mode safe)
+Last verified: main @ b2fd2470438ef897538c397fde791199a899088c
+Business-scoped Search + Chat powered only by your saved knowledge. No automation.
 
 ## Overview
 

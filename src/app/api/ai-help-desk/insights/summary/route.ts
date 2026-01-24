@@ -9,13 +9,13 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 // Zod schema for request validation
 const summaryRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
   days: z.number().int().min(1).max(365).optional().default(30),
   limit: z.number().int().min(1).max(100).optional().default(20),
 });
@@ -27,13 +27,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
     const days = searchParams.get("days") ? parseInt(searchParams.get("days")!, 10) : 30;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!, 10) : 20;
 
     // Validate request
     const validationResult = summaryRequestSchema.safeParse({
-      businessId,
       days,
       limit,
     });
@@ -42,18 +40,21 @@ export async function GET(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId: validatedBusinessId, days: validatedDays, limit: validatedLimit } = validationResult.data;
+    const { days: validatedDays, limit: validatedLimit } = validationResult.data;
 
-    // Tenant safety: Ensure businessId is provided
-    if (!validatedBusinessId || !validatedBusinessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
+    // TENANT SAFETY: Derive businessId from authenticated membership (deny-by-default)
+    let trimmedBusinessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      trimmedBusinessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
-
-    const trimmedBusinessId = validatedBusinessId.trim();
     const daysAgo = new Date();
     daysAgo.setDate(daysAgo.getDate() - validatedDays);
 

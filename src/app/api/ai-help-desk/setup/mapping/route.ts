@@ -11,15 +11,15 @@ import { NextRequest } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
-import { handleApiError, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 // Zod schema for POST request validation
 const mappingRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required").max(200),
   workspaceSlug: z.string().min(1, "Workspace slug is required").max(200),
 });
 
@@ -30,19 +30,17 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
-
-    if (!businessId) {
-      return validationErrorResponse(
-        new z.ZodError([
-          {
-            code: "custom",
-            path: ["businessId"],
-            message: "businessId query parameter is required",
-          },
-        ])
-      );
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
 
     // Query the mapping
@@ -88,6 +86,19 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const validationResult = mappingRequestSchema.safeParse(body);
@@ -96,7 +107,7 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, workspaceSlug } = validationResult.data;
+    const { workspaceSlug } = validationResult.data;
 
     // Upsert the mapping
     const mapping = await prisma.aiWorkspaceMap.upsert({

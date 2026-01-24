@@ -7,17 +7,16 @@
 
 import { NextRequest } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
-import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 // Zod schema for request validation
 const listRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
   type: z.enum(["FAQ", "SERVICE", "POLICY", "NOTE"]).optional(),
   search: z.string().optional(),
   includeInactive: z.boolean().optional().default(false),
@@ -30,14 +29,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
     const type = searchParams.get("type");
     const search = searchParams.get("search");
     const includeInactive = searchParams.get("includeInactive") === "true";
 
     // Validate request
     const validationResult = listRequestSchema.safeParse({
-      businessId,
       type: type ? (type as "FAQ" | "SERVICE" | "POLICY" | "NOTE") : undefined,
       search: search || undefined,
       includeInactive,
@@ -47,15 +44,20 @@ export async function GET(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId: validatedBusinessId, type: validatedType, search: validatedSearch } = validationResult.data;
+    const { type: validatedType, search: validatedSearch } = validationResult.data;
 
-    // Tenant safety: Ensure businessId is provided
-    if (!validatedBusinessId || !validatedBusinessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
+    // TENANT SAFETY: Derive businessId from authenticated membership (deny-by-default)
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
 
     // Build where clause
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
         content?: { contains: string; mode?: "insensitive" };
       }>;
     } = {
-      businessId: validatedBusinessId.trim(),
+      businessId,
     };
 
     if (validatedType) {

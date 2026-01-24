@@ -12,13 +12,13 @@ import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateWidgetKey } from "@/lib/api/widgetAuth";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 // Zod schema for POST request validation
 const widgetSettingsSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
   enabled: z.boolean().optional(),
   brandColor: z.string().optional(),
   greeting: z.string().max(200).optional(),
@@ -34,19 +34,17 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
-
-    if (!businessId) {
-      return validationErrorResponse(
-        new z.ZodError([
-          {
-            code: "custom",
-            path: ["businessId"],
-            message: "businessId query parameter is required",
-          },
-        ])
-      );
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
 
     // Get or create widget key
@@ -95,6 +93,19 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const validationResult = widgetSettingsSchema.safeParse(body);
@@ -103,23 +114,14 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, enabled, brandColor, greeting, position, assistantAvatarUrl, allowedDomains } = validationResult.data;
-
-    // Tenant safety: Ensure businessId is provided
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
-    }
+    const { enabled, brandColor, greeting, position, assistantAvatarUrl, allowedDomains } = validationResult.data;
 
     // Get or create widget key
-    const publicKey = await getOrCreateWidgetKey(businessId.trim());
+    const publicKey = await getOrCreateWidgetKey(businessId);
 
     // Upsert settings
     const settings = await prisma.aiHelpDeskWidgetSettings.upsert({
-      where: { businessId: businessId.trim() },
+      where: { businessId },
       update: {
         ...(enabled !== undefined && { enabled }),
         ...(brandColor !== undefined && { brandColor }),
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
         updatedAt: new Date(),
       },
       create: {
-        businessId: businessId.trim(),
+        businessId,
         enabled: enabled ?? false,
         brandColor: brandColor ?? "#29c4a9",
         greeting: greeting ?? "Hi! How can I help you today?",

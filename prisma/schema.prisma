@@ -19,8 +19,59 @@ model User {
   accounts      Account[]
   brandProfile  BrandProfile?
   sessions      Session[]
+  businessMemberships BusinessUser[]
 
   @@index([email])
+}
+
+model Business {
+  // IMPORTANT: This is the existing tenant key (V3 businessId == userId)
+  id        String       @id
+  name      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  memberships BusinessUser[]
+  invites     TeamInvite[]
+}
+
+model BusinessUser {
+  id        String   @id @default(cuid())
+  businessId String
+  userId     String
+  role      TeamRole @default(OWNER)
+  status    String   @default("ACTIVE")
+  lastActiveAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([businessId])
+  @@index([userId])
+}
+
+model TeamInvite {
+  id              String   @id @default(cuid())
+  businessId       String
+  email            String
+  role             TeamRole @default(STAFF)
+  tokenHash        String
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  canceledAt       DateTime?
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([email])
+  // NOTE: enforce one active invite per email per business in code (preferred)
+  // @@unique([businessId, email])
 }
 
 model Account {
@@ -586,6 +637,12 @@ model SchedulerCalendarConnection {
 enum ReviewRequestChannel {
   EMAIL
   SMS
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  STAFF
 }
 
 enum ReviewRequestVariant {

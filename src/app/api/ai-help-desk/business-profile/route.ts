@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { apiSuccessResponse, handleApiError, apiErrorResponse } from "@/lib/api/errorHandler";
 import { apiLogger } from "@/lib/api/logger";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,15 +30,18 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
-
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "businessId is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
+    // TENANT SAFETY: Derive businessId from authenticated membership (deny-by-default)
+    let businessId: string;
+    try {
+      const ctx = await requireBusinessContext();
+      businessId = ctx.businessId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
 
     // TODO: If business website URL is stored in a database table in the future,
@@ -52,7 +56,7 @@ export async function GET(request: NextRequest) {
     const websiteUrl: string | null = null;
 
     apiLogger.info("ai-help-desk.business-profile.get", {
-      businessId: businessId.trim(),
+      businessId,
       hasWebsiteUrl: !!websiteUrl,
     });
 

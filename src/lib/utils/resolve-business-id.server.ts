@@ -9,8 +9,11 @@
  * If the demo cookie is present, this function ALWAYS returns the demo business ID.
  */
 
+import "server-only";
+
 import { hasDemoCookie } from "@/lib/demo/demo-cookie";
 import { getDemoBusinessId } from "@/lib/demo/demo-context";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { cookies } from "next/headers";
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
@@ -20,6 +23,9 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
  * 
  * CRITICAL TENANT SAFETY: If demo cookie is present, immediately returns demo business ID.
  * Demo mode must never access real tenants - this check happens FIRST, before any other resolution.
+ * 
+ * DENY-BY-DEFAULT: For real users, businessId is derived from active membership (BusinessUser).
+ * `?businessId=` is only accepted if it matches a business the authenticated user belongs to.
  * 
  * @param cookieStore - Next.js cookies instance from `await cookies()`
  * @param searchParams - Optional URL search params object (e.g., from request.nextUrl.searchParams)
@@ -35,20 +41,28 @@ export async function resolveBusinessIdServer(
     return getDemoBusinessId();
   }
 
-  // Priority 1: URL search params (if provided)
-  if (searchParams) {
-    const businessIdFromUrl = searchParams.get("businessId");
-    if (businessIdFromUrl && businessIdFromUrl.trim().length > 0) {
-      return businessIdFromUrl.trim();
+  // PRIORITY 1: Authenticated membership-derived businessId
+  // Optional: allow ?businessId= only if it matches a business the user belongs to.
+  const requestedBusinessId = searchParams?.get("businessId")?.trim() || null;
+
+  try {
+    const ctx = await requireBusinessContext({ requestedBusinessId });
+    return ctx.businessId;
+  } catch (err) {
+    // Deny-by-default: if we can't safely resolve membership, return null.
+    // Callers should treat null as "no tenant context" and refuse the request.
+    const message = err instanceof Error ? err.message : String(err);
+    const status =
+      err instanceof BusinessContextError ? err.status : undefined;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[resolveBusinessIdServer] Unable to resolve business context", {
+        status,
+        message,
+      });
     }
+
+    return null;
   }
-
-  // Priority 2: Future - Session/user object
-  // TODO: When session access is available server-side, check session.user.id
-
-  // Priority 3: Future - Business context provider
-  // TODO: When a global business context is implemented, check it here
-
-  return null;
 }
 

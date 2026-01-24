@@ -60,6 +60,19 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
                 <span className="flex-shrink-0">🎨</span>
                 <span>Brand Profile</span>
               </Link>
+              <Link
+                href="/apps/teams-users"
+                className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${
+                  pathname === "/apps/teams-users"
+                    ? "text-[#29c4a9] font-semibold border-l-4 border-[#29c4a9] pl-4 bg-transparent"
+                    : isDark
+                    ? "text-slate-500 hover:bg-slate-800/60"
+                    : "text-slate-500 hover:bg-slate-100/70"
+                }`}
+              >
+                <span className="flex-shrink-0">👥</span>
+                <span>Teams &amp; Users</span>
+              </Link>
             </div>
           </div>
 

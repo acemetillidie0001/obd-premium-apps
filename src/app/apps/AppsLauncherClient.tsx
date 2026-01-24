@@ -69,9 +69,10 @@ const APP_SECTIONS: AppSection[] = [
       {
         title: "Team & Users",
         description: "Manage team members and user access",
-        buttonLabel: "Coming Soon",
+        href: "/apps/teams-users",
+        buttonLabel: "Open Tool",
         icon: Users,
-        comingSoon: true,
+        comingSoon: false,
       },
     ],
   },

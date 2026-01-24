@@ -168,11 +168,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
-- **AI Help Desk — Tier 5B + Tier 5C (2026-01-24)**
-  - Tier 5B: first-run guidance panel (empty knowledge: 0 docs and/or empty system prompt; dismissible; localStorage keyed by businessId + workspaceSlug)
-  - Tier 5B: test connection success message polish when empty knowledge
-  - Tier 5C: FAQ Generator → Help Desk apply-only handoff (sessionStorage TTL + tenant guard + additive import)
-  - Tier 5C: Brand Kit voice → system prompt draft + explicit apply to AnythingLLM prompt
+- **AI Help Desk — Tier 5 consistency pass + dismissal key standardization (2026-01-24)**
+  - Added draft-only trust microcopy near chat/search inputs and in the widget (no automation; nothing is published or sent automatically).
+  - Added read-only Knowledge status indicator (Empty | Partial | Ready) derived deterministically from existing data only.
+  - Added dismissible Next Steps panel (link-only) to AI FAQ Generator, AI Content Writer, Business Schema Generator; session-only TTL dismissal; no payloads.
+  - Added Insights sub-label “Customer Questions (Insights)” (copy-only).
+  - Standardized dismissal keys to Tier 5 naming; dismissals use sessionStorage; legacy key migration is session-only; TTL unchanged.
+  - Tier 5C: FAQ Generator → Help Desk apply-only handoff (sessionStorage TTL + tenant guard + additive import).
+  - Tier 5C: Brand Kit voice → system prompt draft + explicit apply to AnythingLLM prompt.
   - Status: LOCK-eligible (maintenance-mode safe).
 
 - **Social Auto-Poster — Tier 5A + Tier 5B + Tier 5C (2026-01-XX)**

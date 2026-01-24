@@ -4,10 +4,30 @@
 
 - **Status**: LOCK-eligible (maintenance-mode safe)
 - **One-liner**: Tenant-safe, draft-only help desk + chat powered by AnythingLLM. No web browsing. No automation.
+- **Last verified**: `main @ d8474f0` (2026-01-24)
 
 ## Overview
 
 OBD AI Help Desk provides a workspace-mapped, tenant-scoped search + Q&A experience powered by AnythingLLM.
+
+## Trust & Safety (User-facing microcopy)
+
+- **Draft-only / no automation**: The app and the widget both include an explicit trust line: answers are generated only from the business’s saved knowledge, and nothing is published or sent automatically.
+
+## Knowledge status indicator (Empty / Partial / Ready)
+
+The UI shows a deterministic **Knowledge status** chip derived from existing connection-test data:
+
+- **Empty**: \(docsCount = 0\) AND system prompt is empty (or no business/workspace context yet)
+- **Ready**: \(docsCount > 0\) AND system prompt is non-empty
+- **Partial**: all other combinations (e.g., docs exist but prompt is empty; prompt exists but docs are 0)
+
+This indicator is **read-only** and does not mutate data.
+
+## Next Steps panel (link-only)
+
+- The **Next Steps** panel is **link-only** navigation to other OBD apps (no payload transfer).
+- Dismissal is **session-only** using `sessionStorage` with a TTL envelope (so the panel can reappear later without “persistent nagging”).
 
 ## What this app IS
 
@@ -365,7 +385,7 @@ The client normalizes responses from various AnythingLLM response shapes to a co
 - Shows a **dismissible** panel when the connected workspace is “empty”:
   - **0 documents**, and/or
   - **system prompt is empty**
-- Dismissal is stored in `localStorage`, **scoped per business + workspace** (`businessId` + `workspaceSlug`), so it does not bleed across tenants/workspaces.
+- Dismissal is stored in `sessionStorage`, **scoped per business + workspace** (`businessId` + `workspaceSlug`), so it does not bleed across tenants/workspaces (and it resets between browser sessions).
 
 ### “Test Connection” success copy (empty knowledge)
 
@@ -481,11 +501,10 @@ The Insights Dashboard provides analytics on questions asked and identifies know
 
 ### Features
 
-- **Question Logging:** All chat questions are logged to `AiHelpDeskQuestionLog`
-- **Source Tracking:** Logs `hasSources`, `sourcesCount`, `responseQuality`
+- **Copy-only subtitle:** The UI label “Customer Questions (Insights)” is purely a display label and does not change behavior.
+- **Summary reads from existing data:** The summary endpoint reads from `AiHelpDeskQuestionLog` (if present/populated) to compute totals, top questions, and “knowledge gaps”.
 - **Top Questions:** Identifies frequently asked questions (top 20)
 - **Knowledge Gaps:** Highlights questions with no sources or low quality
-- **"Turn into FAQ":** Converts logged questions into FAQ entries
 - **Period Filtering:** 7/30/60/90 day periods
 
 ### API Endpoints

@@ -1,12 +1,28 @@
 # OBD AI Help Desk (V3) Documentation
 
+## Status Banner
+
+- **Status**: LOCK-eligible (maintenance-mode safe)
+- **One-liner**: Tenant-safe, draft-only help desk + chat powered by AnythingLLM. No web browsing. No automation.
+
 ## Overview
 
-The OBD AI Help Desk is a standalone, OBD-branded Help Desk application that provides:
-1. **Search-first** functionality (business-specific results only)
-2. **Chat-second** functionality (AnythingLLM-powered, scoped to the same business)
-3. Fully controlled UI/UX inside OBD (colors, layout, components)
-4. Safe and tenant-scoped operations (no cross-business leakage)
+OBD AI Help Desk provides a workspace-mapped, tenant-scoped search + Q&A experience powered by AnythingLLM.
+
+## What this app IS
+
+- **Workspace-mapped, tenant-scoped knowledge + Q&A**: every request is scoped by `businessId → workspaceSlug` mapping.
+- **User-controlled ingestion**: content is added explicitly (documents/uploads in AnythingLLM, in-app website import / curated entries).
+- **Deterministic UI**: explicit actions only; no background mutations and no silent overwrites of user-edited drafts.
+
+## What this app is NOT
+
+- Not a live website sync/crawler
+- Not an auto-publisher
+- Not a background job / scheduler / automation system
+- Not cross-tenant knowledge
+- Not web-browsing / not live internet answers
+- Not pushing updates to Google/Meta/etc.
 
 ## V3 Scope
 
@@ -19,14 +35,15 @@ The OBD AI Help Desk is a standalone, OBD-branded Help Desk application that pro
 - Server-side API proxy to AnythingLLM (no browser exposure of secrets)
 - Sources tracking for assistant responses
 - Responsive layout (split view on desktop, tabs on mobile)
+- In-app knowledge management (curated entries + website import)
+- Guided first-run value discovery (empty knowledge guidance)
 
 ### Out of Scope (V3)
 
-- Content ingestion UI
-- Website crawling
-- CRM/booking integrations
-- Memory across businesses
-- Cross-business search/chat
+- Live website crawling/sync (automatic)
+- Any automation/scheduler/background sync
+- Cross-business (cross-tenant) search/chat
+- “Web browsing” claims or live internet answers
 
 ## Architecture
 
@@ -341,11 +358,52 @@ The client normalizes responses from various AnythingLLM response shapes to a co
 - API error messages displayed in error panels
 - Graceful handling of no results / no sources
 
-## Tier 5B Enhancements
+## Tier 5B — Guided Value Discovery
 
-- Knowledge Coverage indicator: Badge with progress bar showing coverage status (Strong/Partial/Needs improvement/Unknown) in Knowledge tab header (client-side only, no fetching)
-- Search→Chat bridge: CTA "Ask this as a question →" appears below search results and in empty state, transitions to chat with toast notification (reuses handleUseInChat)
-- Insights question clustering: Topic-based clusters (Pricing, Availability, Hours & Location, Services, Policies, Other) with filtering capability, clear filter button, and guardrails (client-side only, max 6 clusters)
+### First-run guidance panel (empty knowledge)
+
+- Shows a **dismissible** panel when the connected workspace is “empty”:
+  - **0 documents**, and/or
+  - **system prompt is empty**
+- Dismissal is stored in `localStorage`, **scoped per business + workspace** (`businessId` + `workspaceSlug`), so it does not bleed across tenants/workspaces.
+
+### “Test Connection” success copy (empty knowledge)
+
+- The Setup “Test Connection” UI uses improved success copy when the workspace is reachable but has no documents and/or an empty system prompt (guides users to upload/import content first).
+
+## Tier 5C — Ecosystem Awareness
+
+### AI FAQ Generator → Help Desk handoff
+
+- **Transport**: `sessionStorage` (one-time) envelope under key `obd:ai-help-desk:handoff:faq-generator`
+- **TTL**: short-lived handoff (expires; receiver ignores stale payloads)
+- **Tenant guard**: payload includes a `businessId` hint; receiver refuses mismatched tenants when a business context is available.
+- **Receiver UI**: Help Desk shows an apply/dismiss banner; user explicitly chooses to import.
+- **Deterministic import**:
+  - Additive import only (no destructive replace)
+  - Minimal de-dupe + “already imported” guard to prevent repeated imports
+  - Imported items persist as normal knowledge entries and are not wiped by future regenerations
+
+### Brand Kit → Help Desk system prompt draft (“Use Brand Kit voice”)
+
+- **Source**: reads the tenant’s Brand Kit snapshot from Brand Profile `kitJson`
+- **Generation**: generates a single “brand voice” system prompt string (draft)
+- **Draft-only + editable**: user can edit freely; draft is stored locally and not auto-overwritten
+- **Explicit apply**: user clicks Apply to write the prompt to AnythingLLM workspace `openAiPrompt`
+- **No silent re-sync**: regeneration is explicit; user edits always win unless they click regenerate
+
+## Integrations / Data Flow (high-level)
+
+- **AnythingLLM connection & workspace mapping**
+  - Mapping: `AiWorkspaceMap` (`businessId → workspaceSlug`)
+  - Scoping logic: server-side lookup + tenant safety guardrails (blocks global/default workspace slugs)
+- **Knowledge items (storage approach)**
+  - Curated/in-app knowledge entries are stored tenant-scoped as `AiHelpDeskEntry` rows (Prisma).
+  - Search/chat queries are executed against the mapped AnythingLLM workspace.
+- **Handoff safety**
+  - Short TTL + tenant guard
+  - Apply-only receiver UI (no auto-import)
+  - Additive import + dedupe/“already imported” guardrails
 
 ## Security
 

@@ -168,10 +168,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AI Content Writer → AI Help Desk**: one-click import of article + FAQs into Knowledge Manager with fingerprint-based duplicate prevention.
 
-- **AI Help Desk — Tier 5B (2026-01-05)**
-  - Knowledge Coverage badge with progress bar in Knowledge tab header (client-side only, no fetching)
-  - Search→Chat bridge CTA with toast notification (reuses handleUseInChat)
-  - Insights question clustering with filter capability and guardrails (client-side only)
+- **AI Help Desk — Tier 5B + Tier 5C (2026-01-24)**
+  - Tier 5B: first-run guidance panel (empty knowledge: 0 docs and/or empty system prompt; dismissible; localStorage keyed by businessId + workspaceSlug)
+  - Tier 5B: test connection success message polish when empty knowledge
+  - Tier 5C: FAQ Generator → Help Desk apply-only handoff (sessionStorage TTL + tenant guard + additive import)
+  - Tier 5C: Brand Kit voice → system prompt draft + explicit apply to AnythingLLM prompt
+  - Status: LOCK-eligible (maintenance-mode safe).
 
 - **Social Auto-Poster — Tier 5A + Tier 5B + Tier 5C (2026-01-XX)**
   - **Tier 5A Connection State Clarity:**

@@ -11,6 +11,7 @@ export const APP_KEYS = [
   "BUSINESS_DESCRIPTION_WRITER",
   "OBD_CRM",
   "OBD_SCHEDULER",
+  "LOCAL_KEYWORD_RESEARCH",
   "LOCAL_SEO_PAGE_BUILDER",
   "BUSINESS_SCHEMA_GENERATOR",
   "SEO_AUDIT_ROADMAP",
@@ -171,6 +172,19 @@ const PERMISSIONS: Record<AppKey, Partial<Record<ActionKey, readonly TeamRole[]>
     MANAGE_BILLING: NONE,
   },
 
+  LOCAL_KEYWORD_RESEARCH: {
+    VIEW: ALL,
+    // Draft-oriented research tool; allow staff to generate drafts, keep exports owner/admin by default.
+    GENERATE_DRAFT: ALL,
+    EDIT_DRAFT: ALL,
+    EXPORT: OWNER_ADMIN,
+    APPLY: NONE,
+    DELETE: NONE,
+    MANAGE_SETTINGS: NONE,
+    MANAGE_TEAM: NONE,
+    MANAGE_BILLING: NONE,
+  },
+
   LOCAL_SEO_PAGE_BUILDER: {
     VIEW: ALL,
     GENERATE_DRAFT: ALL,
@@ -226,6 +240,39 @@ export function canUser(role: TeamRole, app: AppKey, action: ActionKey): boolean
   const allowed = PERMISSIONS[app]?.[action];
   if (!allowed) return false; // deny-by-default
   return allowed.includes(role);
+}
+
+export type RoleCapabilitySummary = {
+  view: boolean;
+  createDrafts: boolean;
+  editDrafts: boolean;
+  apply: boolean;
+  export: boolean;
+  manageTeam: boolean;
+  manageSettings: boolean;
+};
+
+function hasAnyPermission(role: TeamRole, action: ActionKey): boolean {
+  return APP_KEYS.some((app) => canUser(role, app, action));
+}
+
+/**
+ * High-level, read-only capability summary for UI display.
+ *
+ * IMPORTANT:
+ * - This is intentionally NOT per-app granular in v1.
+ * - A capability is considered available if the role has that action in at least one area of the product.
+ */
+export function getRoleCapabilitySummary(role: TeamRole): RoleCapabilitySummary {
+  return {
+    view: hasAnyPermission(role, "VIEW"),
+    createDrafts: hasAnyPermission(role, "GENERATE_DRAFT"),
+    editDrafts: hasAnyPermission(role, "EDIT_DRAFT"),
+    apply: hasAnyPermission(role, "APPLY"),
+    export: hasAnyPermission(role, "EXPORT"),
+    manageTeam: canUser(role, "TEAMS_USERS", "MANAGE_TEAM"),
+    manageSettings: hasAnyPermission(role, "MANAGE_SETTINGS"),
+  };
 }
 
 export type PermissionContextSelector = {

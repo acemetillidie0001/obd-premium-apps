@@ -331,9 +331,7 @@ export async function POST(req: NextRequest) {
   void role;
   void userId;
 
-  // NOTE: LOCAL_KEYWORD_RESEARCH does not exist as an AppKey today.
-  // Use the closest existing permission bucket for draft-style SEO tooling.
-  await requirePermission("SEO_AUDIT_ROADMAP", "GENERATE_DRAFT");
+  await requirePermission("LOCAL_KEYWORD_RESEARCH", "GENERATE_DRAFT");
   const requestId = generateRequestId();
 
   // Prune old entries periodically (more frequent if map is large)

@@ -10,9 +10,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { z } from "zod";
 import { sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -128,14 +130,13 @@ export async function POST(
   const rateLimitCheck = await checkRateLimit(request, "obd-scheduler:action");
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const prisma = getPrisma();
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    await requirePermission("OBD_SCHEDULER", "EDIT_DRAFT");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -359,7 +360,7 @@ export async function POST(
       const auditWarning = await logStatusChange(
         businessId,
         id,
-        businessId, // actorUserId (using businessId as userId in V3)
+        userId,
         body.action,
         currentStatus,
         newStatus,
@@ -377,7 +378,7 @@ export async function POST(
     let businessName = "Business";
     try {
       const brandProfile = await prisma.brandProfile.findUnique({
-        where: { userId: businessId },
+        where: { userId },
         select: { businessName: true },
       });
       if (brandProfile?.businessName) {
@@ -459,6 +460,10 @@ export async function POST(
       ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

@@ -4,7 +4,9 @@ import { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
-import { requireUserSession } from "@/lib/auth/requireUserSession";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { withOpenAITimeout } from "@/lib/openai-timeout";
 import type {
   LocalKeywordRequest,
@@ -322,36 +324,17 @@ export async function POST(req: NextRequest) {
   const demoBlock = assertNotDemoRequest(req);
   if (demoBlock) return demoBlock;
 
-  // Auth + tenant scoping (repo canonical pattern: session.user.id is businessId)
-  const session = await requireUserSession();
-  if (!session?.userId) {
-    return apiErrorResponse(
-      "Authentication required. Please log in to use this tool.",
-      "UNAUTHORIZED",
-      401
-    );
-  }
-  const businessId = session.userId;
-  const requestId = generateRequestId();
+  warnIfBusinessIdParamPresent(req);
 
-  // Reject attempts to override business/tenant scope via query params
-  const urlBusinessId = (req.nextUrl?.searchParams?.get("businessId") || "").trim();
-  if (urlBusinessId && urlBusinessId !== businessId) {
-    return apiErrorResponse(
-      "Business access denied",
-      "FORBIDDEN",
-      403
-    );
-  }
-  const urlTenantId = (req.nextUrl?.searchParams?.get("tenantId") || "").trim();
-  if (urlTenantId) {
-    // Tenant IDs are not currently supported for LKRT. Reject to prevent scope confusion.
-    return apiErrorResponse(
-      "Tenant access denied",
-      "FORBIDDEN",
-      403
-    );
-  }
+  // Canonical tenant scoping (membership-derived)
+  const { businessId, role, userId } = await requireTenant();
+  void role;
+  void userId;
+
+  // NOTE: LOCAL_KEYWORD_RESEARCH does not exist as an AppKey today.
+  // Use the closest existing permission bucket for draft-style SEO tooling.
+  await requirePermission("SEO_AUDIT_ROADMAP", "GENERATE_DRAFT");
+  const requestId = generateRequestId();
 
   // Prune old entries periodically (more frequent if map is large)
   if (rateLimitMap.size > 1000 || Math.random() < 0.1) {
@@ -375,19 +358,8 @@ export async function POST(req: NextRequest) {
       return apiErrorResponse("Invalid request body.", "VALIDATION_ERROR", 400);
     }
 
-    // Reject attempts to override business/tenant scope via body
-    // LKRT does not accept tenantId today; if present, reject.
-    if (Object.prototype.hasOwnProperty.call(body, "tenantId")) {
-      return apiErrorResponse("Tenant access denied", "FORBIDDEN", 403);
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "businessId")) {
-      const bodyBusinessId = (body as any)?.businessId;
-      const normalized = typeof bodyBusinessId === "string" ? bodyBusinessId.trim() : "";
-      if (!normalized || normalized !== businessId) {
-        return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
-      }
-      // If it matches, allow (but LKRT does not rely on it).
-    }
+    // Back-compat: if clients send businessId/tenantId, ignore for scoping.
+    // (Optional strictness would 403 on mismatch; we avoid breaking clients.)
 
     if (!body?.businessType || !body?.services) {
       return apiErrorResponse(
@@ -711,6 +683,10 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    if (err instanceof BusinessContextError) {
+      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(err.message, code, err.status);
+    }
     if (err instanceof Error && err.name === "AbortError") {
       return apiErrorResponse(
         "Keyword generation timed out. Please try again.",

@@ -11,11 +11,13 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { verifyCrmDatabaseSetup, selfTestErrorResponse } from "@/lib/apps/obd-crm/devSelfTest";
 import { handleCrmDatabaseError } from "@/lib/apps/obd-crm/dbErrorHandler";
 import { z } from "zod";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import type {
   CrmTag,
   CreateTagRequest,
@@ -49,6 +51,8 @@ export async function GET(request: NextRequest) {
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
+  warnIfBusinessIdParamPresent(request);
+
   // Dev-only self-test: Verify database connectivity and required tables
   const selfTest = await verifyCrmDatabaseSetup();
   if (!selfTest.ok) {
@@ -56,12 +60,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_CRM", "VIEW");
 
     const tags = await prisma.crmTag.findMany({
       where: {
@@ -79,6 +81,10 @@ export async function GET(request: NextRequest) {
       count: formattedTags.length,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     // Check for database-specific errors first
     const dbError = handleCrmDatabaseError(error);
     if (dbError) {
@@ -110,13 +116,13 @@ export async function POST(request: NextRequest) {
     return selfTestErrorResponse(selfTest);
   }
 
-  try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
+  warnIfBusinessIdParamPresent(request);
 
-    const businessId = user.id; // V3: userId = businessId
+  try {
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_CRM", "MANAGE_SETTINGS");
 
     const json = await request.json().catch(() => null);
     if (!json) {
@@ -162,6 +168,10 @@ export async function POST(request: NextRequest) {
 
     return apiSuccessResponse(formattedTag, 201);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     // Check for database-specific errors first
     const dbError = handleCrmDatabaseError(error);
     if (dbError) {
@@ -187,6 +197,8 @@ export async function DELETE(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   // Dev-only safety check
   if (process.env.NODE_ENV !== "production") {
     if (!prisma?.crmTag) {
@@ -196,12 +208,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_CRM", "DELETE");
 
     const { searchParams } = new URL(request.url);
     const tagId = searchParams.get("id");
@@ -231,6 +241,10 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccessResponse({ success: true });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     // Check for database-specific errors first
     const dbError = handleCrmDatabaseError(error);
     if (dbError) {

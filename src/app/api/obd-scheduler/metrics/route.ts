@@ -10,9 +10,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant } from "@/lib/auth/tenant";
 import { BookingStatus as PrismaBookingStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -57,12 +59,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const prisma = getPrisma();
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "VIEW");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -250,6 +250,11 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(metrics);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

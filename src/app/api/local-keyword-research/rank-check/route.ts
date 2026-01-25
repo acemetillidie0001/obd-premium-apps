@@ -3,10 +3,12 @@
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
 import { checkRank } from "@/lib/local-rank-check";
 import type { RankCheckResult } from "../types";
-import { requireUserSession } from "@/lib/auth/requireUserSession";
 import { NextResponse } from "next/server";
 import * as dns from "node:dns";
 import * as net from "node:net";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 
 /**
  * Check if a hostname is an IP literal (IPv4 or IPv6)
@@ -166,35 +168,22 @@ export async function POST(req: Request) {
   const demoBlock = assertNotDemoRequest(req as any);
   if (demoBlock) return demoBlock;
 
-  // Auth + tenant scoping (repo canonical pattern: session.user.id is businessId)
-  const session = await requireUserSession();
-  if (!session?.userId) {
-    return apiErrorResponse(
-      "Authentication required. Please log in to use this tool.",
-      "UNAUTHORIZED",
-      401
-    );
-  }
-  const businessId = session.userId;
-
   try {
+    warnIfBusinessIdParamPresent(req);
+
+    // Canonical tenant scoping (membership-derived)
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("LOCAL_KEYWORD_RESEARCH", "VIEW");
+
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return apiErrorResponse("Invalid request body.", "VALIDATION_ERROR", 400);
     }
 
-    // Reject attempts to override business/tenant scope via body
-    if (Object.prototype.hasOwnProperty.call(body, "tenantId")) {
-      return apiErrorResponse("Tenant access denied", "FORBIDDEN", 403);
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "businessId")) {
-      const bodyBusinessId = (body as any)?.businessId;
-      const normalized = typeof bodyBusinessId === "string" ? bodyBusinessId.trim() : "";
-      if (!normalized || normalized !== businessId) {
-        return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
-      }
-      // If it matches, allow (but rank-check does not rely on it).
-    }
+    // Back-compat: if clients send tenantId/businessId, ignore for scoping.
+    // (We always use membership-derived businessId from requireTenant().)
 
     // Validate required fields
     if (!body?.keyword || typeof body.keyword !== "string" || !body.keyword.trim()) {
@@ -276,6 +265,12 @@ export async function POST(req: Request) {
       { status: 200 }
     );
   } catch (err) {
+    if (err instanceof BusinessContextError) {
+      const code =
+        err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(err.message, code, err.status);
+    }
+
     // Handle timeout specifically
     if (err instanceof Error && err.message === "TIMEOUT") {
       return apiErrorResponse(

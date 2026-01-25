@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { TeamRole } from "@prisma/client";
+
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import OBDTableWrapper from "@/components/obd/OBDTableWrapper";
 import OBDToast from "@/components/obd/OBDToast";
 import type { OBDToastType } from "@/components/obd/toastTypes";
+import { canUser } from "@/lib/auth/permissions";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
 
@@ -31,6 +34,15 @@ type Invite = {
   createdByUserId: string;
 };
 
+type AuditLogItem = {
+  createdAt: string;
+  action: string;
+  actorUserId: string;
+  targetUserId: string | null;
+  targetEmail: string | null;
+  metaJson: unknown | null;
+};
+
 type ApiOk<T> = { ok: true; data: T };
 type ApiErr = { ok: false; error: string; code: string; details?: unknown };
 
@@ -42,15 +54,24 @@ function isErr(x: unknown): x is ApiErr {
   return !!x && typeof x === "object" && (x as any).ok === false && typeof (x as any).error === "string";
 }
 
-function canManage(role: string | null | undefined): boolean {
-  return role === "OWNER" || role === "ADMIN";
-}
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString();
+}
+
+function formatShortDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatRoleLabel(role: unknown): string | null {
+  if (role === "OWNER") return "Owner";
+  if (role === "ADMIN") return "Admin";
+  if (role === "STAFF") return "Staff";
+  return typeof role === "string" && role.trim() ? role.trim() : null;
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -90,6 +111,9 @@ export default function TeamsUsersPage() {
 
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,8 +126,11 @@ export default function TeamsUsersPage() {
     return members.find((m) => m.userId === sessionUserId) ?? null;
   }, [members, sessionUserId]);
 
-  const myRole = myMember?.role ?? "STAFF";
-  const iCanManage = canManage(myRole);
+  const myRoleRaw = myMember?.role ?? "STAFF";
+  const myRole: TeamRole =
+    myRoleRaw === "OWNER" || myRoleRaw === "ADMIN" || myRoleRaw === "STAFF" ? (myRoleRaw as TeamRole) : "STAFF";
+
+  const canManageTeam = canUser(myRole, "TEAMS_USERS", "MANAGE_TEAM");
 
   const activeOwnerCount = useMemo(() => {
     return members.filter((m) => m.role === "OWNER" && m.status === "ACTIVE").length;
@@ -113,15 +140,18 @@ export default function TeamsUsersPage() {
     const res = await fetch("/api/debug/session", { cache: "no-store" });
     const data = (await res.json().catch(() => null)) as any;
     const user = data?.user ?? null;
-    setSessionUserId(user?.id ?? null);
-    setSessionEmail(user?.email ?? null);
+    const id = user?.id ?? null;
+    const email = user?.email ?? null;
+    setSessionUserId(id);
+    setSessionEmail(email);
+    return { id, email };
   }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      await loadSession();
+      const sess = await loadSession();
 
       const [mRes, iRes] = await Promise.all([
         fetch("/api/teams-users/members", { cache: "no-store" }),
@@ -143,8 +173,42 @@ export default function TeamsUsersPage() {
       if (!isOk<Member[]>(mJson)) throw new Error("Unexpected members response.");
       if (!isOk<Invite[]>(iJson)) throw new Error("Unexpected invites response.");
 
-      setMembers(mJson.data);
-      setInvites(iJson.data);
+      const nextMembers = mJson.data;
+      const nextInvites = iJson.data;
+      setMembers(nextMembers);
+      setInvites(nextInvites);
+
+      // Load audit log only for managers (Owner/Admin).
+      // Compute capability from freshly fetched members (avoid stale role decisions).
+      const my = sess?.id ? nextMembers.find((m) => m.userId === sess.id) ?? null : null;
+      const roleRaw = my?.role ?? "STAFF";
+      const role: TeamRole =
+        roleRaw === "OWNER" || roleRaw === "ADMIN" || roleRaw === "STAFF" ? (roleRaw as TeamRole) : "STAFF";
+      const canManage = canUser(role, "TEAMS_USERS", "MANAGE_TEAM");
+
+      if (!canManage) {
+        setAuditLogs([]);
+        setAuditError(null);
+        setAuditLoading(false);
+      } else {
+        setAuditLoading(true);
+        setAuditError(null);
+        try {
+          const aRes = await fetch("/api/teams-users/audit", { cache: "no-store" });
+          const aJson = await aRes.json().catch(() => null);
+          if (!aRes.ok) {
+            const msg = isErr(aJson) ? aJson.error : "Failed to load recent changes.";
+            throw new Error(msg);
+          }
+          if (!isOk<AuditLogItem[]>(aJson)) throw new Error("Unexpected audit response.");
+          setAuditLogs(aJson.data);
+        } catch (err) {
+          setAuditError(err instanceof Error ? err.message : "Failed to load recent changes.");
+          setAuditLogs([]);
+        } finally {
+          setAuditLoading(false);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -160,9 +224,10 @@ export default function TeamsUsersPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"STAFF" | "ADMIN">("STAFF");
   const [inviteCreating, setInviteCreating] = useState(false);
+  const [inviteRefreshingId, setInviteRefreshingId] = useState<string | null>(null);
 
   const createInvite = useCallback(async () => {
-    if (!iCanManage) return;
+    if (!canManageTeam) return;
     const email = inviteEmail.trim().toLowerCase();
     if (!email) {
       showToast("Enter an email address to invite.", "warning");
@@ -193,11 +258,11 @@ export default function TeamsUsersPage() {
     } finally {
       setInviteCreating(false);
     }
-  }, [iCanManage, inviteEmail, inviteRole, loadAll, showToast]);
+  }, [canManageTeam, inviteEmail, inviteRole, loadAll, showToast]);
 
   const cancelInvite = useCallback(
     async (inviteId: string) => {
-      if (!iCanManage) return;
+      if (!canManageTeam) return;
       try {
         const res = await fetch(`/api/teams-users/invites?id=${encodeURIComponent(inviteId)}`, {
           method: "DELETE",
@@ -213,12 +278,42 @@ export default function TeamsUsersPage() {
         showToast(err instanceof Error ? err.message : "Failed to cancel invite.", "error");
       }
     },
-    [iCanManage, loadAll, showToast]
+    [canManageTeam, loadAll, showToast]
+  );
+
+  const refreshInviteLink = useCallback(
+    async (inviteId: string, email: string) => {
+      if (!canManageTeam) return;
+      setInviteRefreshingId(inviteId);
+      try {
+        const res = await fetch("/api/teams-users/invites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, mode: "resend" }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) {
+          const msg = isErr(json) ? json.error : "Failed to refresh invite link.";
+          throw new Error(msg);
+        }
+        if (!isOk<any>(json)) throw new Error("Unexpected resend response.");
+
+        const updated = json.data as { id: string; inviteLink: string; email: string; expiresAt: string };
+        setInviteLinksById((prev) => ({ ...prev, [updated.id]: updated.inviteLink }));
+        showToast(`Invite link refreshed for ${updated.email}.`, "success");
+        await loadAll();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Failed to refresh invite link.", "error");
+      } finally {
+        setInviteRefreshingId(null);
+      }
+    },
+    [canManageTeam, loadAll, showToast]
   );
 
   const updateMember = useCallback(
     async (targetUserId: string, patch: { role?: "ADMIN" | "STAFF"; status?: "ACTIVE" | "SUSPENDED" }) => {
-      if (!iCanManage) return;
+      if (!canManageTeam) return;
       try {
         const res = await fetch("/api/teams-users/members", {
           method: "PATCH",
@@ -236,12 +331,12 @@ export default function TeamsUsersPage() {
         showToast(err instanceof Error ? err.message : "Update failed.", "error");
       }
     },
-    [iCanManage, loadAll, showToast]
+    [canManageTeam, loadAll, showToast]
   );
 
   const removeMember = useCallback(
     async (targetUserId: string) => {
-      if (!iCanManage) return;
+      if (!canManageTeam) return;
       try {
         const res = await fetch(`/api/teams-users/members?userId=${encodeURIComponent(targetUserId)}`, {
           method: "DELETE",
@@ -257,7 +352,7 @@ export default function TeamsUsersPage() {
         showToast(err instanceof Error ? err.message : "Remove failed.", "error");
       }
     },
-    [iCanManage, loadAll, showToast]
+    [canManageTeam, loadAll, showToast]
   );
 
   const staffTooltip =
@@ -265,6 +360,54 @@ export default function TeamsUsersPage() {
 
   const selfTooltip =
     "For safety, your own access can’t be changed here. Ask another owner/admin if you need a change.";
+
+  const memberLabelByUserId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members) {
+      const label = (m.name && m.name.trim()) || (m.email && m.email.trim()) || m.userId;
+      map.set(m.userId, label);
+    }
+    return map;
+  }, [members]);
+
+  const formatAuditLine = useCallback(
+    (log: AuditLogItem): string => {
+      const meta = log.metaJson && typeof log.metaJson === "object" ? (log.metaJson as any) : null;
+      const targetEmail = log.targetEmail?.trim() || null;
+      const targetUser = log.targetUserId ? memberLabelByUserId.get(log.targetUserId) ?? log.targetUserId : null;
+
+      if (log.action === "INVITE_CREATED") {
+        const role = formatRoleLabel(meta?.role) || "Staff";
+        return `Invite created for ${targetEmail ?? "a teammate"} (${role})`;
+      }
+      if (log.action === "INVITE_RESENT") {
+        return `Invite link refreshed for ${targetEmail ?? "a teammate"}`;
+      }
+      if (log.action === "INVITE_CANCELED") {
+        return `Invite canceled for ${targetEmail ?? "a teammate"}`;
+      }
+      if (log.action === "INVITE_ACCEPTED") {
+        return `Invite accepted by ${targetEmail ?? targetUser ?? "a teammate"}`;
+      }
+      if (log.action === "MEMBER_ROLE_CHANGED") {
+        const fromRole = formatRoleLabel(meta?.fromRole) ?? "Staff";
+        const toRole = formatRoleLabel(meta?.toRole) ?? "Staff";
+        return `Role changed: ${fromRole} → ${toRole} for ${targetUser ?? "a teammate"}`;
+      }
+      if (log.action === "MEMBER_SUSPENDED") {
+        return `Member suspended: ${targetUser ?? "a teammate"}`;
+      }
+      if (log.action === "MEMBER_REACTIVATED") {
+        return `Member re-activated: ${targetUser ?? "a teammate"}`;
+      }
+      if (log.action === "MEMBER_REMOVED") {
+        return `Member removed: ${targetUser ?? "a teammate"}`;
+      }
+
+      return log.action.replace(/_/g, " ").toLowerCase();
+    },
+    [memberLabelByUserId]
+  );
 
   return (
     <OBDPageContainer
@@ -294,7 +437,7 @@ export default function TeamsUsersPage() {
             </p>
             <p className={`mt-2 text-xs ${themeClasses.mutedText}`}>
               Signed in as: <span className={themeClasses.headingText}>{sessionEmail ?? "…"}</span> · Role:{" "}
-              <span className={themeClasses.headingText}>{myRole}</span>
+              <span className={themeClasses.headingText}>{myRoleRaw}</span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -366,8 +509,8 @@ export default function TeamsUsersPage() {
                       const isOwner = m.role === "OWNER";
                       const isLastOwner = isOwner && m.status === "ACTIVE" && activeOwnerCount <= 1;
 
-                      const disableManage = !iCanManage || isSelf;
-                      const manageTitle = !iCanManage ? staffTooltip : isSelf ? selfTooltip : undefined;
+                      const disableManage = !canManageTeam || isSelf;
+                      const manageTitle = !canManageTeam ? staffTooltip : isSelf ? selfTooltip : undefined;
 
                       const canSuspend = !disableManage && !(isLastOwner && m.status === "ACTIVE");
                       const canRemove = !disableManage && (!isOwner || activeOwnerCount > 1);
@@ -420,7 +563,7 @@ export default function TeamsUsersPage() {
                                 }`}
                                 disabled={!canSuspend}
                                 title={
-                                  !iCanManage ? staffTooltip : isSelf ? selfTooltip : isLastOwner ? "You can’t suspend the last active owner." : undefined
+                                  !canManageTeam ? staffTooltip : isSelf ? selfTooltip : isLastOwner ? "You can’t suspend the last active owner." : undefined
                                 }
                                 onClick={() =>
                                   updateMember(m.userId, { status: m.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE" })
@@ -437,7 +580,7 @@ export default function TeamsUsersPage() {
                                 }`}
                                 disabled={!canRemove}
                                 title={
-                                  !iCanManage ? staffTooltip : isSelf ? selfTooltip : isOwner && activeOwnerCount <= 1 ? "You can’t remove the last owner." : undefined
+                                  !canManageTeam ? staffTooltip : isSelf ? selfTooltip : isOwner && activeOwnerCount <= 1 ? "You can’t remove the last owner." : undefined
                                 }
                                 onClick={() => removeMember(m.userId)}
                               >
@@ -460,8 +603,8 @@ export default function TeamsUsersPage() {
                 const isOwner = m.role === "OWNER";
                 const isLastOwner = isOwner && m.status === "ACTIVE" && activeOwnerCount <= 1;
 
-                const disableManage = !iCanManage || isSelf;
-                const manageTitle = !iCanManage ? staffTooltip : isSelf ? selfTooltip : undefined;
+                const disableManage = !canManageTeam || isSelf;
+                const manageTitle = !canManageTeam ? staffTooltip : isSelf ? selfTooltip : undefined;
 
                 const canSuspend = !disableManage && !(isLastOwner && m.status === "ACTIVE");
                 const canRemove = !disableManage && (!isOwner || activeOwnerCount > 1);
@@ -520,7 +663,7 @@ export default function TeamsUsersPage() {
                         }`}
                         disabled={!canSuspend}
                         title={
-                          !iCanManage ? staffTooltip : isSelf ? selfTooltip : isLastOwner ? "You can’t suspend the last active owner." : undefined
+                          !canManageTeam ? staffTooltip : isSelf ? selfTooltip : isLastOwner ? "You can’t suspend the last active owner." : undefined
                         }
                         onClick={() => updateMember(m.userId, { status: m.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE" })}
                       >
@@ -538,7 +681,7 @@ export default function TeamsUsersPage() {
                         }`}
                         disabled={!canRemove}
                         title={
-                          !iCanManage ? staffTooltip : isSelf ? selfTooltip : isOwner && activeOwnerCount <= 1 ? "You can’t remove the last owner." : undefined
+                          !canManageTeam ? staffTooltip : isSelf ? selfTooltip : isOwner && activeOwnerCount <= 1 ? "You can’t remove the last owner." : undefined
                         }
                         onClick={() => removeMember(m.userId)}
                       >
@@ -576,8 +719,8 @@ export default function TeamsUsersPage() {
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="teammate@domain.com"
                 className={getInputClasses(isDark)}
-                disabled={!iCanManage}
-                title={!iCanManage ? staffTooltip : undefined}
+                disabled={!canManageTeam}
+                title={!canManageTeam ? staffTooltip : undefined}
               />
             </div>
             <div className="md:col-span-3">
@@ -586,8 +729,8 @@ export default function TeamsUsersPage() {
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as "STAFF" | "ADMIN")}
                 className={getInputClasses(isDark)}
-                disabled={!iCanManage}
-                title={!iCanManage ? staffTooltip : undefined}
+                disabled={!canManageTeam}
+                title={!canManageTeam ? staffTooltip : undefined}
               >
                 <option value="STAFF">STAFF</option>
                 <option value="ADMIN">ADMIN</option>
@@ -597,13 +740,13 @@ export default function TeamsUsersPage() {
               <button
                 type="button"
                 className={`w-full px-4 py-2.5 rounded-lg text-sm font-semibold transition ${
-                  iCanManage
+                  canManageTeam
                     ? (isDark ? "bg-[#29c4a9] hover:bg-[#22ad93] text-white" : "bg-[#29c4a9] hover:bg-[#22ad93] text-white")
                     : (isDark ? "bg-slate-900 text-slate-600" : "bg-slate-100 text-slate-400")
                 }`}
                 onClick={createInvite}
-                disabled={!iCanManage || inviteCreating}
-                title={!iCanManage ? staffTooltip : undefined}
+                disabled={!canManageTeam || inviteCreating}
+                title={!canManageTeam ? staffTooltip : undefined}
               >
                 {inviteCreating ? "Creating…" : "Create Invite"}
               </button>
@@ -611,7 +754,7 @@ export default function TeamsUsersPage() {
           </div>
 
           <p className={`mt-3 text-xs ${themeClasses.mutedText}`}>
-            Note: for security, the full invite link is shown only when you create it. Older invites can be canceled here, but their token can’t be re-shown.
+            Note: for security, invite links are only shown when you create or refresh them. Older invites can be canceled here, but their token can’t be re-shown without refreshing.
           </p>
         </div>
 
@@ -634,6 +777,9 @@ export default function TeamsUsersPage() {
               const copyTitle = canCopy
                 ? "Copy invite link"
                 : "For security, invite links are only shown once at creation time.";
+              const refreshTitle = !canManageTeam
+                ? staffTooltip
+                : "Refresh link (rotates token + extends expiration)";
 
               return (
                 <div
@@ -670,12 +816,25 @@ export default function TeamsUsersPage() {
                     <button
                       type="button"
                       className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
-                        iCanManage
+                        canManageTeam
+                          ? (isDark ? "bg-slate-800 hover:bg-slate-700 text-slate-100" : "bg-slate-100 hover:bg-slate-200 text-slate-900")
+                          : (isDark ? "bg-slate-900 text-slate-600" : "bg-slate-100 text-slate-400")
+                      }`}
+                      disabled={!canManageTeam || inviteRefreshingId === i.id}
+                      title={refreshTitle}
+                      onClick={() => refreshInviteLink(i.id, i.email)}
+                    >
+                      {inviteRefreshingId === i.id ? "Refreshing…" : "Refresh link"}
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold transition ${
+                        canManageTeam
                           ? (isDark ? "bg-red-950/40 hover:bg-red-950/60 text-red-200 border border-red-900/40" : "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200")
                           : (isDark ? "bg-slate-900 text-slate-600 border border-slate-800" : "bg-slate-100 text-slate-400 border border-slate-200")
                       }`}
-                      disabled={!iCanManage}
-                      title={!iCanManage ? staffTooltip : "Cancel invite"}
+                      disabled={!canManageTeam}
+                      title={!canManageTeam ? staffTooltip : "Cancel invite"}
                       onClick={() => cancelInvite(i.id)}
                     >
                       Cancel
@@ -708,6 +867,50 @@ export default function TeamsUsersPage() {
           </p>
         </div>
       </OBDPanel>
+
+      {/* Recent changes */}
+      {canManageTeam ? (
+        <OBDPanel isDark={isDark} className="mt-7">
+          <OBDHeading level={2} isDark={isDark} className="text-xl">
+            Recent changes
+          </OBDHeading>
+          <p className={`mt-1 text-sm ${themeClasses.mutedText}`}>
+            A lightweight audit trail of team access changes for this business.
+          </p>
+
+          {auditLoading ? (
+            <div className={`mt-5 text-sm ${themeClasses.mutedText}`}>Loading recent changes…</div>
+          ) : auditError ? (
+            <div
+              className={`mt-5 rounded-lg border p-4 ${
+                isDark ? "border-red-800/50 bg-red-950/20 text-red-200" : "border-red-200 bg-red-50 text-red-800"
+              }`}
+            >
+              <div className="font-semibold mb-1">We couldn’t load recent changes.</div>
+              <div className="text-sm">{auditError}</div>
+            </div>
+          ) : auditLogs.length === 0 ? (
+            <div className="mt-5">
+              <div className={`text-sm ${themeClasses.mutedText}`}>No recent access changes yet.</div>
+            </div>
+          ) : (
+            <div className="mt-5 space-y-2">
+              {auditLogs.map((log) => (
+                <div
+                  key={`${log.createdAt}-${log.action}-${log.actorUserId}-${log.targetUserId ?? log.targetEmail ?? ""}`}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    isDark ? "border-slate-800 bg-slate-950/40" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <span className={`${themeClasses.mutedText}`}>{formatShortDay(log.createdAt)}</span>
+                  <span className={`${themeClasses.mutedText}`}>{" \u2022 "}</span>
+                  <span className={themeClasses.headingText}>{formatAuditLine(log)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </OBDPanel>
+      ) : null}
     </OBDPageContainer>
   );
 }

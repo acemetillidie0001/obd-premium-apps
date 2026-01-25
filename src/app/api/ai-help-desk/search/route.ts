@@ -12,6 +12,9 @@ import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getWorkspaceSlugForBusiness } from "@/lib/integrations/anythingllm/scoping";
 import { searchWorkspace } from "@/lib/integrations/anythingllm/client";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { z } from "zod";
 import type { SearchRequest, SearchResponse } from "@/lib/apps/ai-help-desk/types";
 
@@ -19,7 +22,8 @@ export const runtime = "nodejs";
 
 // Zod schema for request validation
 const searchRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
+  // Transitional: clients may still send businessId. It is ignored for tenant scoping.
+  businessId: z.string().optional(),
   query: z.string().min(1, "Query is required").max(500, "Query is too long"),
   limit: z.number().int().min(1).max(50).optional().default(10),
 });
@@ -38,7 +42,14 @@ export async function POST(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("AI_HELP_DESK", "VIEW");
+
     // Parse and validate request body
     const body = await request.json();
     const validationResult = searchRequestSchema.safeParse(body);
@@ -47,16 +58,9 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, query, limit } = validationResult.data as SearchRequest;
-
-    // Tenant safety: Ensure businessId is provided (validation should catch this, but double-check for safety)
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
-    }
+    const { query, limit } = validationResult.data as Omit<SearchRequest, "businessId"> & {
+      businessId?: string;
+    };
 
     // Get workspace slug for business (includes fallback in dev, but requires mapping in production)
     const workspaceResult = await getWorkspaceSlugForBusiness(businessId.trim());
@@ -76,6 +80,10 @@ export async function POST(request: NextRequest) {
     return apiSuccessResponse(response.data);
 
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

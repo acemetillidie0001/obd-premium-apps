@@ -11,6 +11,9 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getWorkspaceSlugForBusiness } from "@/lib/integrations/anythingllm/scoping";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import {
   listWorkspaces,
   searchWorkspace,
@@ -46,14 +49,16 @@ function classifyAnythingLLMError(err: unknown): {
 
 // Zod schema for request validation
 const testRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
+  // Transitional: clients may still send businessId. It is ignored for tenant scoping.
+  businessId: z.string().optional(),
   query: z.string().max(200).optional().default("hours"),
   mode: z.enum(["full", "meta"]).optional().default("full"),
   includeSystemPrompt: z.boolean().optional().default(false),
 });
 
 const setPromptSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
+  // Transitional: clients may still send businessId. It is ignored for tenant scoping.
+  businessId: z.string().optional(),
   systemPrompt: z.string().max(20000, "System prompt is too long"),
 });
 
@@ -115,7 +120,14 @@ export async function POST(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("AI_HELP_DESK", "VIEW");
+
     // Parse and validate request body
     const body = await request.json();
     const validationResult = testRequestSchema.safeParse(body);
@@ -124,7 +136,12 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, query, mode, includeSystemPrompt } = validationResult.data;
+    const { query, mode, includeSystemPrompt } = validationResult.data as {
+      businessId?: string;
+      query: string;
+      mode: "full" | "meta";
+      includeSystemPrompt: boolean;
+    };
 
     // Get workspace slug for business (includes fallback in dev)
     const workspaceResult = await getWorkspaceSlugForBusiness(businessId);
@@ -528,6 +545,10 @@ export async function POST(request: NextRequest) {
       chatError: chatError || null,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -546,7 +567,14 @@ export async function PUT(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("AI_HELP_DESK", "MANAGE_SETTINGS");
+
     const body = await request.json();
     const validationResult = setPromptSchema.safeParse(body);
 
@@ -554,7 +582,7 @@ export async function PUT(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, systemPrompt } = validationResult.data;
+    const { systemPrompt } = validationResult.data as { systemPrompt: string; businessId?: string };
 
     const workspaceResult = await getWorkspaceSlugForBusiness(businessId.trim());
     await setWorkspaceSystemPrompt(workspaceResult.workspaceSlug, systemPrompt);
@@ -565,6 +593,10 @@ export async function PUT(request: NextRequest) {
       systemPromptIsEmpty: systemPrompt.trim().length === 0,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

@@ -9,6 +9,9 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import * as cheerio from "cheerio";
 import { z } from "zod";
 
@@ -32,7 +35,8 @@ const PREFERRED_PATHS = [
 
 // Zod schema for request validation
 const previewRequestSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
+  // Transitional: clients may still send businessId. It is ignored for tenant scoping.
+  businessId: z.string().optional(),
   url: z.string().url("Invalid URL format"),
 });
 
@@ -238,7 +242,15 @@ export async function POST(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
+    const { businessId, role, userId } = await requireTenant();
+    void businessId;
+    void role;
+    void userId;
+    await requirePermission("AI_HELP_DESK", "VIEW");
+
     // Parse and validate request body
     const body = await request.json();
     const validationResult = previewRequestSchema.safeParse(body);
@@ -247,16 +259,7 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, url } = validationResult.data;
-
-    // Tenant safety: Ensure businessId is provided
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
-    }
+    const { url } = validationResult.data as { url: string; businessId?: string };
 
     // Validate and normalize URL
     let normalizedUrl: string;
@@ -349,6 +352,10 @@ export async function POST(request: NextRequest) {
       baseUrl,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

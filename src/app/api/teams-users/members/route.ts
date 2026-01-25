@@ -6,6 +6,7 @@ import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
+import { unauthorized } from "@/lib/http/errors";
 
 export const runtime = "nodejs";
 
@@ -22,8 +23,9 @@ type MemberRow = {
 const PatchSchema = z
   .object({
     userId: z.string().min(1),
-    role: z.enum(["ADMIN", "STAFF"]).optional(),
+    role: z.enum(["OWNER", "ADMIN", "STAFF"]).optional(),
     status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+    confirm: z.string().optional(),
   })
   .refine((v) => v.role !== undefined || v.status !== undefined, {
     message: "At least one of role or status must be provided",
@@ -59,18 +61,16 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 }
 
 /**
  * PATCH /api/teams-users/members
- * Owner/Admin only. Update member role (ADMIN/STAFF) and/or status (ACTIVE/SUSPENDED).
+ * Owner/Admin only. Update member role (OWNER/ADMIN/STAFF) and/or status (ACTIVE/SUSPENDED).
  */
 export async function PATCH(request: NextRequest) {
   // Block demo mode mutations (read-only)
@@ -85,12 +85,10 @@ export async function PATCH(request: NextRequest) {
     ctx = await requireTenant();
     await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 
   const json = await request.json().catch(() => null);
@@ -99,7 +97,24 @@ export async function PATCH(request: NextRequest) {
     return apiErrorResponse("Invalid request", "VALIDATION_ERROR", 400, parsed.error.flatten());
   }
 
-  const { userId: targetUserId, role: nextRole, status: nextStatus } = parsed.data;
+  const { userId: targetUserId, role: nextRole, status: nextStatus, confirm } = parsed.data;
+
+  // Owner promotions require additional safeguards.
+  if (nextRole === "OWNER") {
+    // Only an OWNER can promote someone to OWNER (ADMIN cannot).
+    if (ctx.role !== "OWNER") {
+      return apiErrorResponse("Only an Owner can promote a teammate to Owner.", "FORBIDDEN", 403);
+    }
+
+    // Calm, explicit confirmation step to avoid accidental ownership transfers.
+    if (confirm !== "PROMOTE_TO_OWNER") {
+      return apiErrorResponse(
+        'To promote someone to Owner, include confirm: "PROMOTE_TO_OWNER".',
+        "VALIDATION_ERROR",
+        400
+      );
+    }
+  }
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -147,13 +162,15 @@ export async function PATCH(request: NextRequest) {
 
       // Audit logs (minimal; no secrets). Only log changes that actually occurred.
       if (nextRole && membership.role !== nextRole) {
+        const targetEmail = updated.user?.email?.trim() || null;
         await tx.teamAuditLog.create({
           data: {
             businessId: ctx.businessId,
             actorUserId: ctx.userId,
             action: "MEMBER_ROLE_CHANGED",
             targetUserId,
-            metaJson: { fromRole: membership.role, toRole: nextRole },
+            ...(targetEmail ? { targetEmail } : {}),
+            metaJson: { fromRole: membership.role, toRole: nextRole, ...(targetEmail ? { targetEmail } : {}) },
           },
         });
       }
@@ -215,12 +232,10 @@ export async function DELETE(request: NextRequest) {
     ctx = await requireTenant();
     await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 
   let targetUserId = targetUserIdFromQuery;

@@ -28,7 +28,9 @@ export async function requirePermission(
   const action: ActionKey = c ? c : (b as ActionKey);
 
   const ctx = await requireBusinessContext(selector);
-  if (!canUser(ctx.role, app, action)) throw new BusinessContextError("Forbidden", 403, "FORBIDDEN");
+  if (!canUser(ctx.role, app, action)) {
+    throw new BusinessContextError("Forbidden", 403, "FORBIDDEN");
+  }
   return ctx;
 }
 

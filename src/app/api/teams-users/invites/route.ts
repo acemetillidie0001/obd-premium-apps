@@ -8,6 +8,7 @@ import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { getBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
+import { unauthorized } from "@/lib/http/errors";
 
 export const runtime = "nodejs";
 
@@ -50,12 +51,10 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 }
 
@@ -77,12 +76,10 @@ export async function POST(request: NextRequest) {
     ctx = await requireTenant();
     await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 
   const json = await request.json().catch(() => null);
@@ -285,12 +282,10 @@ export async function DELETE(request: NextRequest) {
     ctx = await requireTenant();
     await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
-      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(msg, code, err.status);
+      return err.toHttpResponse();
     }
-    return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    return unauthorized();
   }
 
   try {

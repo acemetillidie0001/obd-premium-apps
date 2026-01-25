@@ -62,16 +62,23 @@ export async function POST(request: NextRequest) {
   if (invite.canceledAt) {
     return apiErrorResponse("Invite was canceled", "FORBIDDEN", 403);
   }
-  if (invite.acceptedAt) {
-    return apiErrorResponse("Invite was already accepted", "VALIDATION_ERROR", 409);
-  }
   if (invite.expiresAt <= now) {
     return apiErrorResponse("Invite has expired", "FORBIDDEN", 403);
   }
 
   // Enforce email match
-  if (invite.email.trim().toLowerCase() !== email) {
+  const inviteEmailNormalized = invite.email.trim().toLowerCase();
+  if (inviteEmailNormalized !== email) {
     return apiErrorResponse("Invite email does not match your account", "FORBIDDEN", 403);
+  }
+
+  // Idempotent: if already accepted, return success.
+  if (invite.acceptedAt) {
+    return apiSuccessResponse({
+      accepted: true,
+      businessId: invite.businessId,
+      role: invite.role,
+    });
   }
 
   // Create membership + mark accepted (transaction)
@@ -81,12 +88,37 @@ export async function POST(request: NextRequest) {
         where: {
           businessId_userId: { businessId: invite.businessId, userId },
         },
-        select: { id: true },
+        select: { id: true, role: true },
       });
 
+      // Idempotent: if membership already exists, just mark invite accepted (if needed) and return success.
       if (existing) {
-        // Don't accept the invite if they're already a member
-        throw new Error("ALREADY_MEMBER");
+        const inviteRow = await tx.teamInvite.findUnique({
+          where: { id: invite.id },
+          select: { acceptedAt: true },
+        });
+
+        if (!inviteRow) throw new Error("NOT_FOUND");
+
+        if (!inviteRow.acceptedAt) {
+          await tx.teamInvite.update({
+            where: { id: invite.id },
+            data: { acceptedAt: now },
+          });
+
+          await tx.teamAuditLog.create({
+            data: {
+              businessId: invite.businessId,
+              actorUserId: userId,
+              action: "INVITE_ACCEPTED",
+              targetUserId: userId,
+              targetEmail: email,
+              metaJson: { inviteId: invite.id, role: invite.role, idempotent: true },
+            },
+          });
+        }
+
+        return { businessId: invite.businessId, role: existing.role };
       }
 
       const membership = await tx.businessUser.create({
@@ -103,19 +135,29 @@ export async function POST(request: NextRequest) {
         data: { acceptedAt: now },
       });
 
-      return { membership, invite: updatedInvite };
+      await tx.teamAuditLog.create({
+        data: {
+          businessId: invite.businessId,
+          actorUserId: userId,
+          action: "INVITE_ACCEPTED",
+          targetUserId: userId,
+          targetEmail: email,
+          metaJson: { inviteId: invite.id, role: invite.role },
+        },
+      });
+
+      void updatedInvite;
+      return { businessId: membership.businessId, role: membership.role };
     });
 
     return apiSuccessResponse({
       accepted: true,
-      businessId: result.membership.businessId,
-      role: result.membership.role,
+      businessId: result.businessId,
+      role: result.role,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg === "ALREADY_MEMBER") {
-      return apiErrorResponse("You are already a member of this business", "VALIDATION_ERROR", 409);
-    }
+    if (msg === "NOT_FOUND") return apiErrorResponse("Invite not found", "NOT_FOUND", 404);
     return apiErrorResponse("Failed to accept invite", "INTERNAL_ERROR", 500);
   }
 }

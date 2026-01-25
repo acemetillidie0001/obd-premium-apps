@@ -4,17 +4,16 @@ import { createHash, randomBytes } from "crypto";
 
 import { prisma } from "@/lib/prisma";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
-import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { getBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 export const runtime = "nodejs";
 
-function isOwnerOrAdmin(role: string): boolean {
-  return role === "OWNER" || role === "ADMIN";
-}
-
 const InviteCreateSchema = z.object({
   email: z.string().email(),
+  mode: z.enum(["create", "resend"]).optional().default("create"),
   role: z.enum(["ADMIN", "STAFF"]).optional().default("STAFF"),
 });
 
@@ -23,12 +22,33 @@ const InviteCreateSchema = z.object({
  * List pending invites for the resolved business.
  */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const requestedBusinessId = searchParams.get("businessId")?.trim() || null;
+  warnIfBusinessIdParamPresent(request);
 
-  let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    const { businessId } = await requireTenant();
+
+    const now = new Date();
+    const invites = await prisma.teamInvite.findMany({
+      where: {
+        businessId,
+        acceptedAt: null,
+        canceledAt: null,
+        expiresAt: { gt: now },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const result = invites.map((i) => ({
+      id: i.id,
+      businessId: i.businessId,
+      email: i.email,
+      role: i.role,
+      expiresAt: i.expiresAt.toISOString(),
+      createdAt: i.createdAt.toISOString(),
+      createdByUserId: i.createdByUserId,
+    }));
+
+    return apiSuccessResponse(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -37,29 +57,6 @@ export async function GET(request: NextRequest) {
     }
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
   }
-
-  const now = new Date();
-  const invites = await prisma.teamInvite.findMany({
-    where: {
-      businessId: ctx.businessId,
-      acceptedAt: null,
-      canceledAt: null,
-      expiresAt: { gt: now },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const result = invites.map((i) => ({
-    id: i.id,
-    businessId: i.businessId,
-    email: i.email,
-    role: i.role,
-    expiresAt: i.expiresAt.toISOString(),
-    createdAt: i.createdAt.toISOString(),
-    createdByUserId: i.createdByUserId,
-  }));
-
-  return apiSuccessResponse(result);
 }
 
 /**
@@ -74,12 +71,11 @@ export async function POST(request: NextRequest) {
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
 
-  const { searchParams } = new URL(request.url);
-  const requestedBusinessId = searchParams.get("businessId")?.trim() || null;
-
   let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    warnIfBusinessIdParamPresent(request);
+    ctx = await requireTenant();
+    await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -89,10 +85,6 @@ export async function POST(request: NextRequest) {
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
   }
 
-  if (!isOwnerOrAdmin(ctx.role)) {
-    return apiErrorResponse("Forbidden", "FORBIDDEN", 403);
-  }
-
   const json = await request.json().catch(() => null);
   const parsed = InviteCreateSchema.safeParse(json);
   if (!parsed.success) {
@@ -100,29 +92,115 @@ export async function POST(request: NextRequest) {
   }
 
   const email = parsed.data.email.trim().toLowerCase();
+  const mode = parsed.data.mode;
   const role = parsed.data.role;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  // Prevent inviting an email already active in membership
+  // Normalize email and prevent inviting an existing member (any status).
+  // Note: we treat membership existence as authoritative; invite creation/resend must not proceed.
   const alreadyMember = await prisma.businessUser.findFirst({
     where: {
       businessId: ctx.businessId,
-      status: "ACTIVE",
-      user: { email },
+      user: { email: { equals: email, mode: "insensitive" } },
     },
     select: { userId: true },
   });
 
   if (alreadyMember) {
-    return apiErrorResponse("User is already a member of this business", "VALIDATION_ERROR", 409);
+    return apiErrorResponse("That email is already a team member.", "VALIDATION_ERROR", 409);
   }
 
-  // Enforce one active invite per email per business (in code)
+  // Resend mode: rotate token + extend expiry for an existing invite
+  if (mode === "resend") {
+    // Generate token + hash (store only hash)
+    const token = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(token).digest("hex");
+
+    try {
+      const updatedInvite = await prisma.$transaction(async (tx) => {
+        const invite = await tx.teamInvite.findFirst({
+          where: {
+            businessId: ctx.businessId,
+            email: { equals: email, mode: "insensitive" },
+            acceptedAt: null,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (!invite) throw new Error("NOT_FOUND");
+        if (invite.acceptedAt) throw new Error("ACCEPTED");
+
+        if (invite.expiresAt <= now) {
+          if (invite.canceledAt) throw new Error("CANCELED_EXPIRED");
+          throw new Error("EXPIRED");
+        }
+
+        const updated = await tx.teamInvite.update({
+          where: { id: invite.id },
+          data: {
+            tokenHash,
+            expiresAt,
+            ...(invite.canceledAt ? { canceledAt: null } : {}),
+          },
+        });
+
+        await tx.teamAuditLog.create({
+          data: {
+            businessId: ctx.businessId,
+            actorUserId: ctx.userId,
+            action: "INVITE_RESENT",
+            targetEmail: email,
+            metaJson: {
+              inviteId: invite.id,
+              fromExpiresAt: invite.expiresAt.toISOString(),
+              toExpiresAt: expiresAt.toISOString(),
+              wasCanceled: !!invite.canceledAt,
+            },
+          },
+        });
+
+        return updated;
+      });
+
+      const baseUrl = getBaseUrl(request.nextUrl.origin).replace(/\/+$/, "");
+      const inviteLink = `${baseUrl}/apps/teams-users/accept?token=${token}`;
+
+      return apiSuccessResponse({
+        id: updatedInvite.id,
+        businessId: updatedInvite.businessId,
+        email: updatedInvite.email,
+        role: updatedInvite.role,
+        expiresAt: updatedInvite.expiresAt.toISOString(),
+        inviteLink,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "NOT_FOUND") return apiErrorResponse("Invite not found", "NOT_FOUND", 404);
+      if (msg === "ACCEPTED") return apiErrorResponse("Invite was already accepted", "VALIDATION_ERROR", 409);
+      if (msg === "CANCELED_EXPIRED") {
+        return apiErrorResponse(
+          "Invite was canceled and has expired. Create a new invite instead.",
+          "VALIDATION_ERROR",
+          409
+        );
+      }
+      if (msg === "EXPIRED") {
+        return apiErrorResponse("Invite has expired. Create a new invite instead.", "VALIDATION_ERROR", 409);
+      }
+      return apiErrorResponse("Failed to refresh invite link", "INTERNAL_ERROR", 500);
+    }
+  }
+
+  // Enforce one active invite per email per business (in code).
+  //
+  // Behavior decision (idempotent + collision-safe):
+  // - If an active invite already exists and mode === "create": return 409 and require "resend" explicitly.
+  //   Rationale: we do not store raw tokens; therefore we cannot return an existing inviteLink for a prior invite.
   const existingPending = await prisma.teamInvite.findFirst({
     where: {
       businessId: ctx.businessId,
-      email,
+      email: { equals: email, mode: "insensitive" },
       acceptedAt: null,
       canceledAt: null,
       expiresAt: { gt: now },
@@ -131,7 +209,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (existingPending) {
-    return apiErrorResponse("An active invite already exists for this email", "VALIDATION_ERROR", 409, {
+    return apiErrorResponse("An active invite already exists for this email. Use refresh link to resend.", "VALIDATION_ERROR", 409, {
       inviteId: existingPending.id,
       expiresAt: existingPending.expiresAt.toISOString(),
     });
@@ -141,15 +219,33 @@ export async function POST(request: NextRequest) {
   const token = randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token).digest("hex");
 
-  const invite = await prisma.teamInvite.create({
-    data: {
-      businessId: ctx.businessId,
-      email,
-      role,
-      tokenHash,
-      expiresAt,
-      createdByUserId: ctx.userId,
-    },
+  const invite = await prisma.$transaction(async (tx) => {
+    const created = await tx.teamInvite.create({
+      data: {
+        businessId: ctx.businessId,
+        email,
+        role,
+        tokenHash,
+        expiresAt,
+        createdByUserId: ctx.userId,
+      },
+    });
+
+    await tx.teamAuditLog.create({
+      data: {
+        businessId: ctx.businessId,
+        actorUserId: ctx.userId,
+        action: "INVITE_CREATED",
+        targetEmail: email,
+        metaJson: {
+          inviteId: created.id,
+          role: created.role,
+          expiresAt: created.expiresAt.toISOString(),
+        },
+      },
+    });
+
+    return created;
   });
 
   // MVP: return inviteLink for copy-link UI (page can POST token to accept endpoint)
@@ -177,7 +273,6 @@ export async function DELETE(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   const url = new URL(request.url);
-  const requestedBusinessId = url.searchParams.get("businessId")?.trim() || null;
   const inviteId = url.searchParams.get("id")?.trim() || null;
 
   if (!inviteId) {
@@ -186,7 +281,9 @@ export async function DELETE(request: NextRequest) {
 
   let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    warnIfBusinessIdParamPresent(request);
+    ctx = await requireTenant();
+    await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -196,27 +293,41 @@ export async function DELETE(request: NextRequest) {
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
   }
 
-  if (!isOwnerOrAdmin(ctx.role)) {
-    return apiErrorResponse("Forbidden", "FORBIDDEN", 403);
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const invite = await tx.teamInvite.findFirst({
+        where: { id: inviteId, businessId: ctx.businessId },
+      });
+
+      if (!invite) throw new Error("NOT_FOUND");
+
+      if (invite.canceledAt) {
+        return { canceled: true, id: invite.id, didCancelNow: false, email: invite.email };
+      }
+
+      const updated = await tx.teamInvite.update({
+        where: { id: invite.id },
+        data: { canceledAt: new Date() },
+      });
+
+      await tx.teamAuditLog.create({
+        data: {
+          businessId: ctx.businessId,
+          actorUserId: ctx.userId,
+          action: "INVITE_CANCELED",
+          targetEmail: invite.email,
+          metaJson: { inviteId: invite.id },
+        },
+      });
+
+      return { canceled: true, id: updated.id, didCancelNow: true, email: invite.email };
+    });
+
+    return apiSuccessResponse({ canceled: result.canceled, id: result.id });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "NOT_FOUND") return apiErrorResponse("Invite not found", "NOT_FOUND", 404);
+    return apiErrorResponse("Failed to cancel invite", "INTERNAL_ERROR", 500);
   }
-
-  const invite = await prisma.teamInvite.findFirst({
-    where: { id: inviteId, businessId: ctx.businessId },
-  });
-
-  if (!invite) {
-    return apiErrorResponse("Invite not found", "NOT_FOUND", 404);
-  }
-
-  if (invite.canceledAt) {
-    return apiSuccessResponse({ canceled: true, id: invite.id });
-  }
-
-  const updated = await prisma.teamInvite.update({
-    where: { id: invite.id },
-    data: { canceledAt: new Date() },
-  });
-
-  return apiSuccessResponse({ canceled: true, id: updated.id });
 }
 

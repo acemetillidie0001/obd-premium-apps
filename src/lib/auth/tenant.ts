@@ -15,8 +15,11 @@ export async function requireTenant(): Promise<TenantContext> {
 }
 
 /**
- * Transitional helper ONLY: reads `?businessId=` from request URL.
- * Do not use as source of truth for tenant scoping.
+ * TRANSITION ONLY — do not use for tenant scoping.
+ *
+ * This helper reads `?businessId=` from request URL for legacy debugging and
+ * migration visibility. It must never be used as the source of truth for
+ * tenant scoping in production routes.
  */
 export function getBusinessIdFromRequestUnsafe(req: Request): string | null {
   try {

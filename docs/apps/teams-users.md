@@ -1,5 +1,8 @@
 # Teams & Users (MVP)
 
+> **LOCK-eligible (Tier 5C audit pass)** — Maintenance-mode safe.  
+> Audit report: `docs/deployments/TEAMS_USERS_TIER5C_AUDIT_REPORT.md`
+
 ## What it is
 
 Teams & Users is the suite’s **tenant-scoped access control** foundation:

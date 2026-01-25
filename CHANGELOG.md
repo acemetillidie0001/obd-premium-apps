@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Teams & Users (MVP)**
   - Business memberships (Owner/Admin/Staff) + tokenized invitations + tenant-scoped access management UI.
+  - Status: LOCK-eligible (maintenance-mode safe).
 
 - **Google Business Profile Pro — Tier 5B+ + Tier 5C (2026-01-20)**
   - Tier 5B+ Export Center (authoritative exports + validation): exports resolve from the active canonical draft (`getActiveGbpDraft()`), with readiness blockers/warnings and correct copy/download behavior.

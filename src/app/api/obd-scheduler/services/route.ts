@@ -13,6 +13,7 @@ import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/
 import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -62,7 +63,19 @@ export async function GET(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
-    const businessId = user.id; // V3: userId = businessId
+    let businessId: string;
+    let role: string;
+    try {
+      ({ businessId, role } = await requireBusinessContext());
+      void role; // role is intentionally unused in this route (Phase 1: scoping only)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -121,7 +134,19 @@ export async function POST(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
-    const businessId = user.id; // V3: userId = businessId
+    let businessId: string;
+    let role: string;
+    try {
+      ({ businessId, role } = await requireBusinessContext());
+      void role; // role is intentionally unused in this route (Phase 1: scoping only)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {

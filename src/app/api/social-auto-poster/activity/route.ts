@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import type { ActivityListResponse } from "@/lib/apps/social-auto-poster/types";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
 
 /**
  * GET /api/social-auto-poster/activity
@@ -11,10 +12,7 @@ import type { ActivityListResponse } from "@/lib/apps/social-auto-poster/types";
  */
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
 
     const hasAccess = await hasPremiumAccess();
     if (!hasAccess) {
@@ -23,8 +21,6 @@ export async function GET() {
         { status: 403 }
       );
     }
-
-    const userId = session.user.id;
 
     // Get items that have been posted or failed
     const items = await prisma.socialQueueItem.findMany({
@@ -114,6 +110,9 @@ export async function GET() {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Error fetching activity log:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch activity log" },

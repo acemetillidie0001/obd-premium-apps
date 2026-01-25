@@ -12,13 +12,17 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 // Zod schema for POST request
 const createVersionSchema = z.object({
-  businessId: z.string().min(1, "Business ID is required"),
+  // Transitional: clients may still send businessId. It is ignored for scoping.
+  businessId: z.string().optional(),
   title: z.string().min(1, "Title is required").max(500, "Title is too long"),
   businessName: z.string().min(1, "Business name is required"),
   city: z.string().optional().nullable(),
@@ -47,19 +51,8 @@ export async function GET(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
-    const { searchParams } = new URL(request.url);
-    const businessId = searchParams.get("businessId");
-
-    // Validate businessId
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
-    }
-
-    const trimmedBusinessId = businessId.trim();
+    warnIfBusinessIdParamPresent(request);
+    const { businessId: trimmedBusinessId } = await requireTenant();
 
     // Query database with tenant safety (businessId is the tenant boundary)
     let versions;
@@ -136,6 +129,10 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -160,6 +157,9 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    const { businessId: tenantBusinessId } = await requireTenant();
+    await requirePermission("BUSINESS_DESCRIPTION_WRITER", "EDIT_DRAFT");
+
     const body = await request.json();
     const validationResult = createVersionSchema.safeParse(body);
 
@@ -167,18 +167,16 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validationResult.error);
     }
 
-    const { businessId, title, businessName, city, state, inputs, outputs } = validationResult.data;
-
-    const trimmedBusinessId = businessId.trim();
+    const { title, businessName, city, state, inputs, outputs } = validationResult.data;
 
     // Tenant safety: businessId is the tenant boundary
-    // No additional validation needed since we're using the businessId directly
+    // businessId in request body is ignored; membership-derived tenant is authoritative.
 
     let created;
     try {
       created = await prisma.businessDescriptionSavedVersion.create({
         data: {
-          businessId: trimmedBusinessId,
+          businessId: tenantBusinessId,
           title: title.trim(),
           businessName: businessName.trim(),
           city: city?.trim() || null,
@@ -245,6 +243,10 @@ export async function POST(request: NextRequest) {
       title: created.title,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -269,9 +271,12 @@ export async function DELETE(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
+    warnIfBusinessIdParamPresent(request);
+    const { businessId: tenantBusinessId } = await requireTenant();
+    await requirePermission("BUSINESS_DESCRIPTION_WRITER", "DELETE");
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    const businessId = searchParams.get("businessId");
 
     // Validate required params
     if (!id || !id.trim()) {
@@ -282,16 +287,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    if (!businessId || !businessId.trim()) {
-      return apiErrorResponse(
-        "Business ID is required",
-        "BUSINESS_REQUIRED",
-        400
-      );
-    }
-
     const trimmedId = id.trim();
-    const trimmedBusinessId = businessId.trim();
 
     // Tenant safety: Verify the version exists and belongs to the business
     let existing;
@@ -342,7 +338,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Tenant safety: Ensure version belongs to the business
-    if (existing.businessId !== trimmedBusinessId) {
+    if (existing.businessId !== tenantBusinessId) {
       return apiErrorResponse(
         "Version does not belong to this business",
         "TENANT_SAFETY_BLOCKED",
@@ -390,6 +386,10 @@ export async function DELETE(request: NextRequest) {
 
     return apiSuccessResponse({ success: true });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

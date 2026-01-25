@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { z } from "zod";
 import {
   LocalSEOPageBuilderRequest,
@@ -8,6 +7,7 @@ import {
   TonePreset,
   PageSections,
 } from "@/app/apps/local-seo-page-builder/types";
+import { requireTenant } from "@/lib/auth/tenant";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -755,15 +755,8 @@ export async function POST(req: Request) {
   const requestId = generateRequestId();
 
   try {
-    // Authentication check
-    const session = await auth();
-    if (!session?.user?.id) {
-      return errorResponse(
-        "Authentication required. Please log in to use this tool.",
-        401,
-        { requestId }
-      );
-    }
+    // Tenant/auth check (membership-derived)
+    await requireTenant();
 
     const json = await req.json().catch(() => null);
     if (!json) {

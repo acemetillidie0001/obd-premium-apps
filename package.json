@@ -21,7 +21,7 @@
     "lint": "eslint src/app/api/social-auto-poster src/app/apps/social-auto-poster src/lib/apps/social-auto-poster src/lib/premium.ts src/lib/auth.ts src/app/api/auth/[...nextauth] --ext .ts,.tsx,.js,.jsx --no-error-on-unmatched-pattern",
     "lint:repo": "eslint src --ext .ts,.tsx,.js,.jsx --no-error-on-unmatched-pattern",
     "lint:ci": "eslint src/app/apps/obd-scheduler/page.tsx src/components/obd/OBDToast.tsx src/lib/dev/assertNever.ts --ext .ts,.tsx,.js,.jsx --no-error-on-unmatched-pattern",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm -s prisma:generate && tsc --noEmit",
     "check": "pnpm -s lint:ci && pnpm -s typecheck",
     "ci": "pnpm -s validate:build-no-db && pnpm -s check && pnpm -s vercel-build",
     "test": "vitest run",

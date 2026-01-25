@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai-client";
-import { auth } from "@/lib/auth";
 import { hasPremiumAccess } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import {
   isValidPlatformsEnabled,
   isValidPlatformOverridesMap,
@@ -667,10 +669,8 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
+    await requirePermission("SOCIAL_AUTO_POSTER", "GENERATE_DRAFT");
 
     const hasAccess = await hasPremiumAccess();
     if (!hasAccess) {
@@ -680,7 +680,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const body: GeneratePostsRequest = await request.json();
 
     // Validation
@@ -721,6 +720,9 @@ export async function POST(request: NextRequest) {
     const response = await generatePosts(body, userId);
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     // Handle AI validation errors with 422 status
     if (error instanceof Error && "statusCode" in error && (error as Error & { statusCode: number }).statusCode === 422) {
       return NextResponse.json(

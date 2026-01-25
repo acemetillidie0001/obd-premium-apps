@@ -74,6 +74,19 @@ model TeamInvite {
   // @@unique([businessId, email])
 }
 
+model TeamAuditLog {
+  id          String   @id @default(cuid())
+  businessId  String
+  actorUserId String
+  action      String
+  targetUserId String?
+  targetEmail  String?
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, createdAt])
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String

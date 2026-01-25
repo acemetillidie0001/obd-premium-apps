@@ -1,8 +1,9 @@
 // src/app/api/local-hiring-assistant/route.ts
 import { NextResponse } from 'next/server';
 import { getOpenAIClient } from '@/lib/openai-client';
-import { requireUserSession } from "@/lib/auth/requireUserSession";
 import { apiErrorResponse } from "@/lib/api/errorHandler";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import type {
   LocalHiringAssistantRequest,
   LocalHiringAssistantResponse,
@@ -135,29 +136,16 @@ export async function POST(req: Request) {
   const demoBlock = assertNotDemoRequest(req as any);
   if (demoBlock) return demoBlock;
 
-  // Auth gate (repo pattern: NextAuth v5 via requireUserSession/auth())
-  const session = await requireUserSession();
-  if (!session) {
-    return apiErrorResponse("Authentication required", "UNAUTHORIZED", 401);
-  }
+  warnIfBusinessIdParamPresent(req);
 
   try {
+    // Canonical tenant context (membership-derived)
+    const { businessId } = await requireTenant();
+
     const body = (await req.json()) as LocalHiringAssistantRequest & {
       businessId?: string;
     };
-
-    // Tenant gate: require businessId (prefer body; allow query fallback)
-    const url = new URL(req.url);
-    const businessIdRaw = (body.businessId ?? url.searchParams.get("businessId") ?? "").trim();
-    if (!businessIdRaw) {
-      return apiErrorResponse("Business ID is required", "BUSINESS_REQUIRED", 400);
-    }
-
-    // Tenant safety: verify businessId is accessible to current session user/context
-    // Suite pattern observed elsewhere: businessId == userId (V3: userId = businessId)
-    if (businessIdRaw !== session.userId) {
-      return apiErrorResponse("Business access denied", "FORBIDDEN", 403);
-    }
+    void businessId; // scoping is enforced by requireTenant() (body/query businessId is ignored)
 
     if (!body.businessName || !body.businessName.trim()) {
       return NextResponse.json(
@@ -354,6 +342,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(parsed);
   } catch (err: unknown) {
+    if (err instanceof BusinessContextError) {
+      const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(err.message, code, err.status);
+    }
     console.error(err);
     return NextResponse.json(
       { error: 'Unexpected error in Local Hiring Assistant API' },

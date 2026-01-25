@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import type { QueueListResponse, QueueStatus } from "@/lib/apps/social-auto-poster/types";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
 
 /**
  * GET /api/social-auto-poster/queue
@@ -13,10 +14,7 @@ import type { QueueListResponse, QueueStatus } from "@/lib/apps/social-auto-post
  */
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
 
     const hasAccess = await hasPremiumAccess();
     if (!hasAccess) {
@@ -26,7 +24,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const searchParams = request.nextUrl.searchParams;
     const statusFilter = searchParams.get("status");
 
@@ -84,6 +81,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Error fetching queue items:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch queue items" },

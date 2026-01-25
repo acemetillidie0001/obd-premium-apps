@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccessSafe } from "@/lib/premium";
 import { Prisma } from "@prisma/client";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import type {
   SaveSettingsRequest,
   SaveSettingsResponse,
@@ -29,10 +31,7 @@ import {
  */
 export async function GET() {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
 
     // Use safe premium check that distinguishes between "not premium" and "DB unavailable"
     const premiumCheck = await hasPremiumAccessSafe();
@@ -57,8 +56,6 @@ export async function GET() {
         { status: 403 }
       );
     }
-
-    const userId = session.user.id;
 
     const settings = await prisma.socialAutoposterSettings.findUnique({
       where: { userId },
@@ -162,6 +159,9 @@ export async function GET() {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Error fetching social auto-poster settings:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to fetch settings" },
@@ -182,10 +182,8 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
+    await requirePermission("SOCIAL_AUTO_POSTER", "MANAGE_SETTINGS");
 
     // Use safe premium check that distinguishes between "not premium" and "DB unavailable"
     const premiumCheck = await hasPremiumAccessSafe();
@@ -211,7 +209,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const body: SaveSettingsRequest = await request.json();
 
     // Validation
@@ -406,6 +403,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Error saving social auto-poster settings:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save settings" },

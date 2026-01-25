@@ -8,9 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 export interface RegenerateImageResponse {
   ok: boolean;
@@ -33,15 +35,21 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    // Auth check - always return 200 with ok=false
-    const session = await auth();
-    if (!session?.user?.id) {
+    let userId: string;
+    try {
+      ({ userId } = await requireTenant());
+      await requirePermission("SOCIAL_AUTO_POSTER", "EDIT_DRAFT");
+    } catch (err) {
+      const code =
+        err instanceof BusinessContextError
+          ? err.status === 401
+            ? "UNAUTHORIZED"
+            : err.status === 403
+              ? "FORBIDDEN"
+              : "DB_UNAVAILABLE"
+          : "UNAUTHORIZED";
       return NextResponse.json<RegenerateImageResponse>(
-        {
-          ok: false,
-          queueItemId: "",
-          errorCode: "UNAUTHORIZED",
-        },
+        { ok: false, queueItemId: "", errorCode: code },
         { status: 200 }
       );
     }
@@ -59,7 +67,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const body: unknown = await request.json();
 
     if (!body || typeof body !== "object") {

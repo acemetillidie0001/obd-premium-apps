@@ -9,10 +9,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { getImageRequestTimeline } from "@/lib/image-engine/events/timeline";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
 
 export interface QueueImageResponse {
   ok: boolean;
@@ -44,17 +45,15 @@ export interface QueueImageResponse {
  */
 export async function GET(request: NextRequest) {
   try {
-    // Auth check
-    const session = await auth();
-    if (!session?.user?.id) {
+    let userId: string;
+    try {
+      ({ userId } = await requireTenant());
+    } catch (err) {
+      const status = err instanceof BusinessContextError ? err.status : 401;
+      const message = err instanceof Error ? err.message : "Unauthorized";
       return NextResponse.json<QueueImageResponse>(
-        {
-          ok: false,
-          queueItemId: "",
-          source: "legacy",
-          error: "Unauthorized",
-        },
-        { status: 401 }
+        { ok: false, queueItemId: "", source: "legacy", error: message },
+        { status }
       );
     }
 
@@ -72,7 +71,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const searchParams = request.nextUrl.searchParams;
     const queueItemId = searchParams.get("queueItemId");
 

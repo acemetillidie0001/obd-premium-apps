@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { Prisma } from "@prisma/client";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import type {
   CreateQueueItemRequest,
   CreateQueueItemResponse,
@@ -25,10 +27,8 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { userId } = await requireTenant();
+    await requirePermission("SOCIAL_AUTO_POSTER", "EDIT_DRAFT");
 
     const hasAccess = await hasPremiumAccess();
     if (!hasAccess) {
@@ -38,7 +38,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const body: CreateQueueItemRequest = await request.json();
 
     // Validation
@@ -182,6 +181,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Error creating queue item:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create queue item" },

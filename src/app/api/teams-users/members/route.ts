@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
-import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -17,10 +19,6 @@ type MemberRow = {
   lastActiveAt: string | null;
 };
 
-function isOwnerOrAdmin(role: string): boolean {
-  return role === "OWNER" || role === "ADMIN";
-}
-
 const PatchSchema = z
   .object({
     userId: z.string().min(1),
@@ -31,23 +29,35 @@ const PatchSchema = z
     message: "At least one of role or status must be provided",
   });
 
-async function getActiveOwnerCount(businessId: string): Promise<number> {
-  return prisma.businessUser.count({
-    where: { businessId, role: "OWNER", status: "ACTIVE" },
-  });
-}
-
 /**
  * GET /api/teams-users/members
  * List members for the resolved business.
  */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const requestedBusinessId = searchParams.get("businessId")?.trim() || null;
+  warnIfBusinessIdParamPresent(request);
 
-  let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    const { businessId } = await requireTenant();
+
+    const members = await prisma.businessUser.findMany({
+      where: { businessId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: [{ createdAt: "asc" }],
+    });
+
+    const result: MemberRow[] = members.map((m) => ({
+      userId: m.userId,
+      name: m.user?.name ?? null,
+      email: m.user?.email ?? null,
+      role: m.role,
+      status: m.status,
+      createdAt: m.createdAt.toISOString(),
+      lastActiveAt: m.lastActiveAt ? m.lastActiveAt.toISOString() : null,
+    }));
+
+    return apiSuccessResponse(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -56,26 +66,6 @@ export async function GET(request: NextRequest) {
     }
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
   }
-
-  const members = await prisma.businessUser.findMany({
-    where: { businessId: ctx.businessId },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-    },
-    orderBy: [{ createdAt: "asc" }],
-  });
-
-  const result: MemberRow[] = members.map((m) => ({
-    userId: m.userId,
-    name: m.user?.name ?? null,
-    email: m.user?.email ?? null,
-    role: m.role,
-    status: m.status,
-    createdAt: m.createdAt.toISOString(),
-    lastActiveAt: m.lastActiveAt ? m.lastActiveAt.toISOString() : null,
-  }));
-
-  return apiSuccessResponse(result);
 }
 
 /**
@@ -88,12 +78,12 @@ export async function PATCH(request: NextRequest) {
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
 
-  const { searchParams } = new URL(request.url);
-  const requestedBusinessId = searchParams.get("businessId")?.trim() || null;
+  warnIfBusinessIdParamPresent(request);
 
   let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    ctx = await requireTenant();
+    await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -101,10 +91,6 @@ export async function PATCH(request: NextRequest) {
       return apiErrorResponse(msg, code, err.status);
     }
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
-  }
-
-  if (!isOwnerOrAdmin(ctx.role)) {
-    return apiErrorResponse("Forbidden", "FORBIDDEN", 403);
   }
 
   const json = await request.json().catch(() => null);
@@ -115,49 +101,77 @@ export async function PATCH(request: NextRequest) {
 
   const { userId: targetUserId, role: nextRole, status: nextStatus } = parsed.data;
 
-  const membership = await prisma.businessUser.findUnique({
-    where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
-  });
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const membership = await tx.businessUser.findUnique({
+        where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
+      });
 
-  if (!membership) {
-    return apiErrorResponse("Member not found", "NOT_FOUND", 404);
-  }
+      if (!membership) {
+        throw new Error("NOT_FOUND");
+      }
 
-  const activeOwners = await getActiveOwnerCount(ctx.businessId);
-  const isLastActiveOwner = activeOwners <= 1;
-  const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
-  const targetIsSelf = targetUserId === ctx.userId;
+      const activeOwners = await tx.businessUser.count({
+        where: { businessId: ctx.businessId, role: "OWNER", status: "ACTIVE" },
+      });
+      const isLastActiveOwner = activeOwners <= 1;
+      const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
+      const targetIsSelf = targetUserId === ctx.userId;
 
-  // Cannot demote the last ACTIVE owner
-  if (nextRole && targetIsActiveOwner && isLastActiveOwner) {
-    return apiErrorResponse("Cannot change role of the last owner", "FORBIDDEN", 403);
-  }
+      // Cannot demote the last ACTIVE owner
+      if (nextRole && targetIsActiveOwner && isLastActiveOwner) {
+        throw new Error("LAST_OWNER_ROLE");
+      }
 
-  // Cannot suspend the last ACTIVE owner
-  if (nextStatus === "SUSPENDED" && targetIsActiveOwner && isLastActiveOwner) {
-    return apiErrorResponse("Cannot suspend the last owner", "FORBIDDEN", 403);
-  }
+      // Cannot suspend the last ACTIVE owner
+      if (nextStatus === "SUSPENDED" && targetIsActiveOwner && isLastActiveOwner) {
+        throw new Error("LAST_OWNER_SUSPEND");
+      }
 
-  // Cannot suspend/demote yourself if you're the last ACTIVE owner
-  if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") {
-    if (nextStatus === "SUSPENDED") {
-      return apiErrorResponse("Cannot suspend yourself as the last owner", "FORBIDDEN", 403);
-    }
-    if (nextRole) {
-      return apiErrorResponse("Cannot change your role as the last owner", "FORBIDDEN", 403);
-    }
-  }
+      // Cannot suspend/demote yourself if you're the last ACTIVE owner
+      if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") {
+        if (nextStatus === "SUSPENDED") throw new Error("SELF_LAST_OWNER_SUSPEND");
+        if (nextRole) throw new Error("SELF_LAST_OWNER_ROLE");
+      }
 
-  const updated = await prisma.businessUser.update({
-    where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
-    data: {
-      ...(nextRole ? { role: nextRole } : {}),
-      ...(nextStatus ? { status: nextStatus } : {}),
-    },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-    },
-  });
+      const updated = await tx.businessUser.update({
+        where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
+        data: {
+          ...(nextRole ? { role: nextRole } : {}),
+          ...(nextStatus ? { status: nextStatus } : {}),
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+        },
+      });
+
+      // Audit logs (minimal; no secrets). Only log changes that actually occurred.
+      if (nextRole && membership.role !== nextRole) {
+        await tx.teamAuditLog.create({
+          data: {
+            businessId: ctx.businessId,
+            actorUserId: ctx.userId,
+            action: "MEMBER_ROLE_CHANGED",
+            targetUserId,
+            metaJson: { fromRole: membership.role, toRole: nextRole },
+          },
+        });
+      }
+
+      if (nextStatus && membership.status !== nextStatus) {
+        await tx.teamAuditLog.create({
+          data: {
+            businessId: ctx.businessId,
+            actorUserId: ctx.userId,
+            action: nextStatus === "SUSPENDED" ? "MEMBER_SUSPENDED" : "MEMBER_REACTIVATED",
+            targetUserId,
+            metaJson: { fromStatus: membership.status, toStatus: nextStatus },
+          },
+        });
+      }
+
+      return updated;
+    });
 
   const response: MemberRow = {
     userId: updated.userId,
@@ -170,6 +184,15 @@ export async function PATCH(request: NextRequest) {
   };
 
   return apiSuccessResponse(response);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "NOT_FOUND") return apiErrorResponse("Member not found", "NOT_FOUND", 404);
+    if (msg === "LAST_OWNER_ROLE") return apiErrorResponse("Cannot change role of the last owner", "FORBIDDEN", 403);
+    if (msg === "LAST_OWNER_SUSPEND") return apiErrorResponse("Cannot suspend the last owner", "FORBIDDEN", 403);
+    if (msg === "SELF_LAST_OWNER_SUSPEND") return apiErrorResponse("Cannot suspend yourself as the last owner", "FORBIDDEN", 403);
+    if (msg === "SELF_LAST_OWNER_ROLE") return apiErrorResponse("Cannot change your role as the last owner", "FORBIDDEN", 403);
+    return apiErrorResponse("Update failed", "INTERNAL_ERROR", 500);
+  }
 }
 
 /**
@@ -183,12 +206,14 @@ export async function DELETE(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   const url = new URL(request.url);
-  const requestedBusinessId = url.searchParams.get("businessId")?.trim() || null;
   const targetUserIdFromQuery = url.searchParams.get("userId")?.trim() || null;
+
+  warnIfBusinessIdParamPresent(request);
 
   let ctx;
   try {
-    ctx = await requireBusinessContext({ requestedBusinessId });
+    ctx = await requireTenant();
+    await requirePermission("TEAMS_USERS", "MANAGE_TEAM");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof BusinessContextError) {
@@ -196,10 +221,6 @@ export async function DELETE(request: NextRequest) {
       return apiErrorResponse(msg, code, err.status);
     }
     return apiErrorResponse(msg, "UNAUTHORIZED", 401);
-  }
-
-  if (!isOwnerOrAdmin(ctx.role)) {
-    return apiErrorResponse("Forbidden", "FORBIDDEN", 403);
   }
 
   let targetUserId = targetUserIdFromQuery;
@@ -212,33 +233,49 @@ export async function DELETE(request: NextRequest) {
     targetUserId = parsed.data.userId;
   }
 
-  const membership = await prisma.businessUser.findUnique({
-    where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const membership = await tx.businessUser.findUnique({
+        where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
+      });
 
-  if (!membership) {
-    return apiErrorResponse("Member not found", "NOT_FOUND", 404);
+      if (!membership) throw new Error("NOT_FOUND");
+
+      const activeOwners = await tx.businessUser.count({
+        where: { businessId: ctx.businessId, role: "OWNER", status: "ACTIVE" },
+      });
+      const isLastActiveOwner = activeOwners <= 1;
+      const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
+      const targetIsSelf = targetUserId === ctx.userId;
+
+      // Cannot remove last ACTIVE owner
+      if (targetIsActiveOwner && isLastActiveOwner) throw new Error("LAST_OWNER_REMOVE");
+
+      // Cannot remove yourself if you're the last ACTIVE owner
+      if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") throw new Error("SELF_LAST_OWNER_REMOVE");
+
+      await tx.businessUser.delete({
+        where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
+      });
+
+      await tx.teamAuditLog.create({
+        data: {
+          businessId: ctx.businessId,
+          actorUserId: ctx.userId,
+          action: "MEMBER_REMOVED",
+          targetUserId,
+          metaJson: { role: membership.role, status: membership.status },
+        },
+      });
+    });
+
+    return apiSuccessResponse({ deleted: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "NOT_FOUND") return apiErrorResponse("Member not found", "NOT_FOUND", 404);
+    if (msg === "LAST_OWNER_REMOVE") return apiErrorResponse("Cannot remove the last owner", "FORBIDDEN", 403);
+    if (msg === "SELF_LAST_OWNER_REMOVE") return apiErrorResponse("Cannot remove yourself as the last owner", "FORBIDDEN", 403);
+    return apiErrorResponse("Remove failed", "INTERNAL_ERROR", 500);
   }
-
-  const activeOwners = await getActiveOwnerCount(ctx.businessId);
-  const isLastActiveOwner = activeOwners <= 1;
-  const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
-  const targetIsSelf = targetUserId === ctx.userId;
-
-  // Cannot remove last ACTIVE owner
-  if (targetIsActiveOwner && isLastActiveOwner) {
-    return apiErrorResponse("Cannot remove the last owner", "FORBIDDEN", 403);
-  }
-
-  // Cannot remove yourself if you're the last ACTIVE owner
-  if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") {
-    return apiErrorResponse("Cannot remove yourself as the last owner", "FORBIDDEN", 403);
-  }
-
-  await prisma.businessUser.delete({
-    where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
-  });
-
-  return apiSuccessResponse({ deleted: true });
 }
 

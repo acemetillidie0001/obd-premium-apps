@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { z } from "zod";
 import {
   SchemaGeneratorRequest,
   SchemaGeneratorResponse,
 } from "@/app/apps/business-schema-generator/types";
+import { requireTenant } from "@/lib/auth/tenant";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -260,15 +260,8 @@ export async function POST(req: Request) {
   const requestId = generateRequestId();
 
   try {
-    // Authentication check
-    const session = await auth();
-    if (!session?.user?.id) {
-      return errorResponse(
-        "Authentication required",
-        401,
-        requestId
-      );
-    }
+    // Tenant/auth check (membership-derived)
+    await requireTenant();
 
     const json = await req.json().catch(() => null);
     if (!json) {

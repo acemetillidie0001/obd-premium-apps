@@ -15,6 +15,7 @@ import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { verifyCrmDatabaseSetup, selfTestErrorResponse } from "@/lib/apps/obd-crm/devSelfTest";
 import { handleCrmDatabaseError } from "@/lib/apps/obd-crm/dbErrorHandler";
+import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 import type {
   CrmContact,
@@ -120,7 +121,19 @@ export async function GET(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
-    const businessId = user.id; // V3: userId = businessId (one user = one business)
+    let businessId: string;
+    let role: string;
+    try {
+      ({ businessId, role } = await requireBusinessContext());
+      void role; // role is intentionally unused in this route (Phase 1: scoping only)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || undefined;
@@ -265,7 +278,19 @@ export async function POST(request: NextRequest) {
       return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
     }
 
-    const businessId = user.id; // V3: userId = businessId
+    let businessId: string;
+    let role: string;
+    try {
+      ({ businessId, role } = await requireBusinessContext());
+      void role; // role is intentionally unused in this route (Phase 1: scoping only)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+        return apiErrorResponse(msg, code, err.status);
+      }
+      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
+    }
 
     const json = await request.json().catch(() => null);
     if (!json) {

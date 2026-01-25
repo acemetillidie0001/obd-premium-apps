@@ -11,9 +11,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { z } from "zod";
 import { sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -67,6 +69,8 @@ export async function GET(
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const { id } = await context.params;
     const prisma = getPrisma();
@@ -74,12 +78,10 @@ export async function GET(
       return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
     }
 
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "VIEW");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -103,6 +105,11 @@ export async function GET(
 
     return apiSuccessResponse(formatBusyBlock(block));
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -127,6 +134,8 @@ export async function PUT(
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const { id } = await context.params;
     const prisma = getPrisma();
@@ -134,12 +143,10 @@ export async function PUT(
       return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
     }
 
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -226,15 +233,30 @@ export async function PUT(
     }
 
     // Update busy block
-    const block = await prisma.schedulerBusyBlock.update({
-      where: {
-        id,
-      },
+    const updated = await prisma.schedulerBusyBlock.updateMany({
+      where: { id, businessId },
       data: updateData,
     });
 
+    if (updated.count <= 0) {
+      return apiErrorResponse("Busy block not found", "NOT_FOUND", 404);
+    }
+
+    const block = await prisma.schedulerBusyBlock.findFirst({
+      where: { id, businessId },
+    });
+
+    if (!block) {
+      return apiErrorResponse("Busy block not found", "NOT_FOUND", 404);
+    }
+
     return apiSuccessResponse(formatBusyBlock(block));
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -259,6 +281,8 @@ export async function DELETE(
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const { id } = await context.params;
     const prisma = getPrisma();
@@ -266,12 +290,10 @@ export async function DELETE(
       return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
     }
 
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -304,14 +326,21 @@ export async function DELETE(
     }
 
     // Delete busy block
-    await prisma.schedulerBusyBlock.delete({
-      where: {
-        id,
-      },
+    const deleted = await prisma.schedulerBusyBlock.deleteMany({
+      where: { id, businessId },
     });
+
+    if (deleted.count <= 0) {
+      return apiErrorResponse("Busy block not found", "NOT_FOUND", 404);
+    }
 
     return apiSuccessResponse({ deleted: true });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

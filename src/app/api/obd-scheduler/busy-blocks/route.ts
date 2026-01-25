@@ -10,9 +10,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { z } from "zod";
 import { sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -57,18 +59,18 @@ export async function GET(request: NextRequest) {
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const prisma = getPrisma();
     if (!prisma) {
       return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
     }
 
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "VIEW");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -115,6 +117,11 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(blocks.map(formatBusyBlock));
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -136,18 +143,18 @@ export async function POST(request: NextRequest) {
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const prisma = getPrisma();
     if (!prisma) {
       return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
     }
 
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -184,6 +191,11 @@ export async function POST(request: NextRequest) {
 
     return apiSuccessResponse(formatBusyBlock(block), 201);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

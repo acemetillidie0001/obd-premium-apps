@@ -10,9 +10,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse, logSchedulerEventWithBusiness } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { z } from "zod";
 import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
 import type {
@@ -272,18 +274,14 @@ export async function GET(request: NextRequest) {
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
+  warnIfBusinessIdParamPresent(request);
+
   try {
     const prisma = getPrisma();
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    // Validate businessId
-    const businessId = user.id; // V3: userId = businessId
-    if (!businessId || typeof businessId !== "string") {
-      return apiErrorResponse("Invalid business ID", "UNAUTHORIZED", 401);
-    }
+    const { businessId, role, userId } = await requireTenant();
+    void role;
+    void userId;
+    await requirePermission("OBD_SCHEDULER", "VIEW");
 
     // Check pilot access
     if (!isSchedulerPilotAllowed(businessId)) {
@@ -378,6 +376,11 @@ export async function GET(request: NextRequest) {
 
     return apiSuccessResponse(response);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     // Log server-side for debugging
     console.error("[OBD Scheduler Requests] Unexpected error:", error);
     
@@ -396,6 +399,8 @@ export async function POST(request: NextRequest) {
   const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
+
+  warnIfBusinessIdParamPresent(request);
 
   // Check rate limit
   const rateLimitCheck = await checkRateLimit(request, "obd-scheduler:requests");
@@ -482,13 +487,9 @@ export async function POST(request: NextRequest) {
       // Authenticated: use current user's businessId
       const guard = await requirePremiumAccess();
       if (guard) return guard;
-
-      const user = await getCurrentUser();
-      if (!user) {
-        return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-      }
-
-      businessId = user.id; // V3: userId = businessId
+      const tenant = await requireTenant();
+      businessId = tenant.businessId;
+      await requirePermission("OBD_SCHEDULER", "EDIT_DRAFT");
 
       // Check pilot access (only for authenticated requests)
       if (!isSchedulerPilotAllowed(businessId)) {
@@ -731,6 +732,11 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code =
+        error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

@@ -108,6 +108,8 @@ function BusinessSchemaGeneratorPageContent() {
   const [servicesInput, setServicesInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
+  const permissionBlockedTooltip = "Your role doesn’t allow this action.";
   const [result, setResult] = useState<SchemaGeneratorResponse | null>(null);
   const [useBrandProfile, setUseBrandProfile] = useState(true);
   const [brandProfileLoaded, setBrandProfileLoaded] = useState(false);
@@ -442,6 +444,10 @@ function BusinessSchemaGeneratorPageContent() {
       });
 
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setPermissionBlocked(true);
+          throw new Error(permissionBlockedTooltip);
+        }
         let errorMessage = `Server error: ${res.status}`;
         try {
           const errorData = await res.json();
@@ -1651,8 +1657,9 @@ function BusinessSchemaGeneratorPageContent() {
             <div className="flex justify-end">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || permissionBlocked}
                 className={SUBMIT_BUTTON_CLASSES}
+                title={permissionBlocked ? permissionBlockedTooltip : undefined}
               >
                 {loading ? "Generating..." : "Generate Schema"}
               </button>
@@ -1751,21 +1758,25 @@ function BusinessSchemaGeneratorPageContent() {
               <div className="mt-4 flex gap-2">
                 <button
                   onClick={handleExportJson}
+                  disabled={permissionBlocked}
                   className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
                     isDark
                       ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                       : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                   }`}
+                  title={permissionBlocked ? permissionBlockedTooltip : "Export .json"}
                 >
                   Export .json
                 </button>
                 <button
                   onClick={handleExportTxt}
+                  disabled={permissionBlocked}
                   className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
                     isDark
                       ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                       : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                   }`}
+                  title={permissionBlocked ? permissionBlockedTooltip : "Export .txt"}
                 >
                   Export .txt
                 </button>

@@ -4,6 +4,7 @@ import { hasPremiumAccess } from "@/lib/premium";
 import type { QueueListResponse, QueueStatus } from "@/lib/apps/social-auto-poster/types";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 /**
  * GET /api/social-auto-poster/queue
@@ -15,6 +16,7 @@ import { requireTenant } from "@/lib/auth/tenant";
 export async function GET(request: NextRequest) {
   try {
     const { userId } = await requireTenant();
+    await requirePermission("SOCIAL_AUTO_POSTER", "VIEW");
 
     const hasAccess = await hasPremiumAccess();
     if (!hasAccess) {

@@ -100,6 +100,8 @@ export default function LocalSeoPageBuilderClient({
   const [undoStack, setUndoStack] = useState<string[]>([]); // 1-deep undo stack
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
+  const permissionBlockedTooltip = "Your role doesn’t allow this action.";
   const [copyMode, setCopyMode] = useState<"Combined" | "Section Cards">(
     "Combined"
   );
@@ -592,6 +594,10 @@ export default function LocalSeoPageBuilderClient({
       });
 
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setPermissionBlocked(true);
+          throw new Error(permissionBlockedTooltip);
+        }
         let errorMessage = `Server error: ${res.status}`;
         try {
           const errorData = await res.json();
@@ -654,6 +660,10 @@ export default function LocalSeoPageBuilderClient({
       });
 
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setPermissionBlocked(true);
+          throw new Error(permissionBlockedTooltip);
+        }
         let errorMessage = `Server error: ${res.status}`;
         try {
           const errorData = await res.json();
@@ -1439,13 +1449,19 @@ export default function LocalSeoPageBuilderClient({
                       <button
                         type="button"
                         onClick={handleExportTxt}
-                        disabled={!result}
+                        disabled={!result || permissionBlocked}
                         className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                           isDark
                             ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
-                        title={!result ? "Generate first" : "Download .txt export"}
+                        title={
+                          permissionBlocked
+                            ? permissionBlockedTooltip
+                            : !result
+                              ? "Generate first"
+                              : "Download .txt export"
+                        }
                       >
                         Export .txt
                       </button>
@@ -1453,18 +1469,20 @@ export default function LocalSeoPageBuilderClient({
                       <button
                         type="button"
                         onClick={handleExportHtml}
-                        disabled={!result || form.outputFormat !== "HTML"}
+                        disabled={!result || form.outputFormat !== "HTML" || permissionBlocked}
                         className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                           isDark
                             ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                         title={
-                          !result
-                            ? "Generate first"
-                            : form.outputFormat !== "HTML"
-                              ? "Set Output Format to HTML to export .html"
-                              : "Download .html export"
+                          permissionBlocked
+                            ? permissionBlockedTooltip
+                            : !result
+                              ? "Generate first"
+                              : form.outputFormat !== "HTML"
+                                ? "Set Output Format to HTML to export .html"
+                                : "Download .html export"
                         }
                       >
                         Export .html
@@ -1473,13 +1491,19 @@ export default function LocalSeoPageBuilderClient({
                       <button
                         type="button"
                         onClick={handleExportJson}
-                        disabled={!result || !activeSchemaJsonLd}
+                        disabled={!result || !activeSchemaJsonLd || permissionBlocked}
                         className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                           isDark
                             ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
-                        title={!result ? "Generate first" : "Download schema JSON"}
+                        title={
+                          permissionBlocked
+                            ? permissionBlockedTooltip
+                            : !result
+                              ? "Generate first"
+                              : "Download schema JSON"
+                        }
                       >
                         Export schema .json
                       </button>
@@ -1493,21 +1517,28 @@ export default function LocalSeoPageBuilderClient({
           <OBDStickyActionBar isDark={isDark} left={statusChip}>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || permissionBlocked}
               className={SUBMIT_BUTTON_CLASSES}
+              title={permissionBlocked ? permissionBlockedTooltip : undefined}
             >
               {loading ? "Generating…" : "Generate"}
             </button>
             <button
               type="button"
               onClick={handleRegenerate}
-              disabled={loading || !lastPayload}
+              disabled={loading || !lastPayload || permissionBlocked}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isDark
                   ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
-              title={!lastPayload ? "Generate first" : "Regenerate with the last successful settings"}
+              title={
+                permissionBlocked
+                  ? permissionBlockedTooltip
+                  : !lastPayload
+                    ? "Generate first"
+                    : "Regenerate with the last successful settings"
+              }
             >
               Regenerate
             </button>
@@ -1539,31 +1570,39 @@ export default function LocalSeoPageBuilderClient({
             <button
               type="button"
               onClick={handleExportTxt}
-              disabled={!result}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                isDark
-                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-              title={!result ? "Generate first" : "Download .txt export"}
-            >
-              Export .txt
-            </button>
-            <button
-              type="button"
-              onClick={handleExportHtml}
-              disabled={!result || form.outputFormat !== "HTML"}
+              disabled={!result || permissionBlocked}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isDark
                   ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
               title={
-                !result
-                  ? "Generate first"
-                  : form.outputFormat !== "HTML"
-                    ? "Set Output Format to HTML to export .html"
-                    : "Download .html export"
+                permissionBlocked
+                  ? permissionBlockedTooltip
+                  : !result
+                    ? "Generate first"
+                    : "Download .txt export"
+              }
+            >
+              Export .txt
+            </button>
+            <button
+              type="button"
+              onClick={handleExportHtml}
+              disabled={!result || form.outputFormat !== "HTML" || permissionBlocked}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDark
+                  ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+              title={
+                permissionBlocked
+                  ? permissionBlockedTooltip
+                  : !result
+                    ? "Generate first"
+                    : form.outputFormat !== "HTML"
+                      ? "Set Output Format to HTML to export .html"
+                      : "Download .html export"
               }
             >
               Export .html
@@ -1571,13 +1610,21 @@ export default function LocalSeoPageBuilderClient({
             <button
               type="button"
               onClick={handleExportJson}
-              disabled={!result || !activeSchemaJsonLd}
+              disabled={!result || !activeSchemaJsonLd || permissionBlocked}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 isDark
                   ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
-              title={!result ? "Generate first" : "Download schema JSON"}
+              title={
+                permissionBlocked
+                  ? permissionBlockedTooltip
+                  : !result
+                    ? "Generate first"
+                    : !activeSchemaJsonLd
+                      ? "Schema is not available (enable schema and provide Page URL)"
+                      : "Download .json"
+              }
             >
               Export .json
             </button>
@@ -1699,16 +1746,18 @@ export default function LocalSeoPageBuilderClient({
           <button
             type="button"
             onClick={() => openHandoffModal("content-writer")}
-            disabled={!canSendPageCopy}
+            disabled={!canSendPageCopy || permissionBlocked}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isDark
                 ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200"
             }`}
             title={
-              canSendPageCopy
-                ? "Send draft page copy to AI Content Writer"
-                : "Add or generate page copy first"
+              permissionBlocked
+                ? permissionBlockedTooltip
+                : canSendPageCopy
+                  ? "Send draft page copy to AI Content Writer"
+                  : "Add or generate page copy first"
             }
           >
             Send Page Copy → AI Content Writer
@@ -1717,16 +1766,18 @@ export default function LocalSeoPageBuilderClient({
           <button
             type="button"
             onClick={() => openHandoffModal("faq-generator")}
-            disabled={!canSendFaqSeedQuestions}
+            disabled={!canSendFaqSeedQuestions || permissionBlocked}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isDark
                 ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200"
             }`}
             title={
-              canSendFaqSeedQuestions
-                ? "Send draft FAQs as seed questions to AI FAQ Generator"
-                : "Add or generate FAQs first"
+              permissionBlocked
+                ? permissionBlockedTooltip
+                : canSendFaqSeedQuestions
+                  ? "Send draft FAQs as seed questions to AI FAQ Generator"
+                  : "Add or generate FAQs first"
             }
           >
             Send FAQs → AI FAQ Generator
@@ -1735,16 +1786,18 @@ export default function LocalSeoPageBuilderClient({
           <button
             type="button"
             onClick={() => openHandoffModal("ai-help-desk")}
-            disabled={!canSuggestHelpDeskQa}
+            disabled={!canSuggestHelpDeskQa || permissionBlocked}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               isDark
                 ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200"
             }`}
             title={
-              canSuggestHelpDeskQa
-                ? "Suggest draft Q&A items to AI Help Desk"
-                : "Add or generate FAQs with answers first"
+              permissionBlocked
+                ? permissionBlockedTooltip
+                : canSuggestHelpDeskQa
+                  ? "Suggest draft Q&A items to AI Help Desk"
+                  : "Add or generate FAQs with answers first"
             }
           >
             Suggest Q&amp;A → AI Help Desk

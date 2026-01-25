@@ -4,7 +4,8 @@ import {
   SchemaGeneratorRequest,
   SchemaGeneratorResponse,
 } from "@/app/apps/business-schema-generator/types";
-import { requireTenant } from "@/lib/auth/tenant";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -261,7 +262,7 @@ export async function POST(req: Request) {
 
   try {
     // Tenant/auth check (membership-derived)
-    await requireTenant();
+    await requirePermission("BUSINESS_SCHEMA_GENERATOR", "GENERATE_DRAFT");
 
     const json = await req.json().catch(() => null);
     if (!json) {
@@ -345,6 +346,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json(response, { status: 200 });
   } catch (err: unknown) {
+    if (err instanceof BusinessContextError) {
+      return errorResponse(err.message, err.status, requestId, { code: err.code });
+    }
     console.error("Schema Generator error:", err);
 
     return errorResponse(

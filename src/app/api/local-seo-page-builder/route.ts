@@ -7,6 +7,8 @@ import {
   TonePreset,
   PageSections,
 } from "@/app/apps/local-seo-page-builder/types";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import { requireTenant } from "@/lib/auth/tenant";
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -757,6 +759,7 @@ export async function POST(req: Request) {
   try {
     // Tenant/auth check (membership-derived)
     await requireTenant();
+    await requirePermission("LOCAL_SEO_PAGE_BUILDER", "GENERATE_DRAFT");
 
     const json = await req.json().catch(() => null);
     if (!json) {
@@ -867,6 +870,9 @@ export async function POST(req: Request) {
       { status: 200 }
     );
   } catch (err: unknown) {
+    if (err instanceof BusinessContextError) {
+      return errorResponse(err.message, err.status, { requestId, code: err.code });
+    }
     console.error("Local SEO Page Builder error:", err);
 
     return errorResponse(

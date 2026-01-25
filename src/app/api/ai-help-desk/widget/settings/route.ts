@@ -12,7 +12,8 @@ import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateWidgetKey } from "@/lib/api/widgetAuth";
-import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -34,18 +35,8 @@ export async function GET(request: NextRequest) {
   if (guard) return guard;
 
   try {
-    let businessId: string;
-    try {
-      const ctx = await requireBusinessContext();
-      businessId = ctx.businessId;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof BusinessContextError) {
-        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-        return apiErrorResponse(msg, code, err.status);
-      }
-      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
-    }
+    const ctx = await requirePermission("AI_HELP_DESK", "VIEW");
+    const businessId = ctx.businessId;
 
     // Get or create widget key
     const publicKey = await getOrCreateWidgetKey(businessId);
@@ -73,6 +64,10 @@ export async function GET(request: NextRequest) {
       publicKey, // Include public key in response
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -93,18 +88,8 @@ export async function POST(request: NextRequest) {
   if (rateLimitCheck) return rateLimitCheck;
 
   try {
-    let businessId: string;
-    try {
-      const ctx = await requireBusinessContext();
-      businessId = ctx.businessId;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof BusinessContextError) {
-        const code = err.status === 401 ? "UNAUTHORIZED" : err.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-        return apiErrorResponse(msg, code, err.status);
-      }
-      return apiErrorResponse(msg, "UNAUTHORIZED", 401);
-    }
+    const ctx = await requirePermission("AI_HELP_DESK", "MANAGE_SETTINGS");
+    const businessId = ctx.businessId;
 
     // Parse and validate request body
     const body = await request.json();
@@ -147,6 +132,10 @@ export async function POST(request: NextRequest) {
       publicKey,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

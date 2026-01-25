@@ -131,6 +131,8 @@ export default function WidgetSettings({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
+  const permissionBlockedTooltip = "Your role doesn’t allow this action.";
 
   // Form state
   const [enabled, setEnabled] = useState(false);
@@ -394,6 +396,10 @@ export default function WidgetSettings({
       const json = await res.json();
 
       if (!res.ok || !json.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setPermissionBlocked(true);
+          throw new Error(permissionBlockedTooltip);
+        }
         throw new Error(json.error || "Failed to save settings");
       }
 
@@ -435,6 +441,10 @@ export default function WidgetSettings({
       const json = await res.json();
 
       if (!res.ok || !json.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setPermissionBlocked(true);
+          throw new Error(permissionBlockedTooltip);
+        }
         throw new Error(json.error || "Failed to rotate key");
       }
 
@@ -1130,8 +1140,9 @@ export default function WidgetSettings({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || loading}
+            disabled={saving || loading || permissionBlocked}
             className={SUBMIT_BUTTON_CLASSES}
+            title={permissionBlocked ? permissionBlockedTooltip : undefined}
           >
             {saving ? "Saving..." : "Save Settings"}
           </button>
@@ -1306,9 +1317,9 @@ export default function WidgetSettings({
                     <button
                       type="button"
                       onClick={handleRotateKey}
-                      disabled={saving}
+                      disabled={saving || permissionBlocked}
                       className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                        saving
+                        saving || permissionBlocked
                           ? isDark
                             ? "border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed"
                             : "border-slate-300 bg-slate-100 text-slate-400 cursor-not-allowed"
@@ -1316,6 +1327,7 @@ export default function WidgetSettings({
                             ? "border-yellow-700 bg-yellow-900/30 text-yellow-300 hover:bg-yellow-900/40"
                             : "border-yellow-600 bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
                       }`}
+                      title={permissionBlocked ? permissionBlockedTooltip : undefined}
                     >
                       Rotate Key
                     </button>

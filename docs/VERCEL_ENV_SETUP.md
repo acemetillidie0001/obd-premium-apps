@@ -124,6 +124,53 @@ postgresql://user:pass@db.example.com:5432/mydb?schema=public
 
 ---
 
+## Help Center (Public, Read-Only)
+
+These variables power the public Help Center query endpoint (`POST /api/help-center/query`).
+
+**Notes:**
+- **No auth required**, so these credentials should be scoped to **query-only** access in AnythingLLM.
+- The workspace is **global** (not business/tenant-scoped).
+- Base URL must be the **instance origin only** (no `/api`, no `/api/v1`).
+
+### HELP_CENTER_ANYTHINGLLM_BASE_URL
+
+**Description:** AnythingLLM instance origin for the public Help Center workspace
+
+**Example:**
+```
+https://anythingllm.yourdomain.com
+```
+
+### HELP_CENTER_ANYTHINGLLM_API_KEY
+
+**Description:** AnythingLLM API key used **only** for Help Center querying
+
+**Example:**
+```
+YOUR_HELP_CENTER_QUERY_ONLY_KEY
+```
+
+### HELP_CENTER_WORKSPACE_SLUG
+
+**Description:** Forced workspace slug for Help Center queries (server-only, not client-controlled)
+
+**Value:**
+```
+obd-help-center
+```
+
+### HELP_CENTER_RATE_LIMIT_PER_MINUTE
+
+**Description:** Public rate limit per IP (requests per minute)
+
+**Example:**
+```
+30
+```
+
+---
+
 ### 6. PREMIUM_BYPASS_KEY (Optional)
 
 **Description:** Development-only bypass key for testing without authentication
@@ -154,6 +201,33 @@ Visit: `http://localhost:3000/unlock?key=YOUR_BYPASS_KEY`
 
 ---
 
+### 7. ADMIN_GRANT_SECRET (Optional, Dev Only)
+
+**Description:** Secret used to call a **dev-only** admin API route that can grant memberships.
+
+**When to Use:**
+- Only for **Development** (and optionally Preview for testing)
+- **DO NOT** set in Production
+
+**Where used:**
+- `POST /api/admin/grant-membership`
+- Requires header `x-admin-secret` to match `ADMIN_GRANT_SECRET`
+
+**Example Value:**
+```
+some-long-random-string
+```
+
+**curl example:**
+```bash
+curl -X POST "http://localhost:3000/api/admin/grant-membership" ^
+  -H "content-type: application/json" ^
+  -H "x-admin-secret: YOUR_ADMIN_GRANT_SECRET" ^
+  --data "{\"email\":\"you@example.com\",\"businessId\":\"your-business-id\",\"role\":\"OWNER\"}"
+```
+
+---
+
 ## 📋 Setup Checklist
 
 Copy this checklist and check off each item:
@@ -168,6 +242,40 @@ Copy this checklist and check off each item:
 - [ ] **EMAIL_FROM** set to `noreply@ocalabusinessdirectory.com`
 - [ ] **DATABASE_URL** added to all environments
 - [ ] **PREMIUM_BYPASS_KEY** added to Development only (optional)
+- [ ] **ADMIN_GRANT_SECRET** added to Development only (optional)
+
+---
+
+## Local Business Bootstrap (Required for Teams & Users)
+
+Teams & Users requires a **Business** row to exist **before** the page can load.
+
+- **Why**: Memberships are enforced **server-side** via `BusinessUser`. If you don’t have an active membership, the Teams & Users APIs will deny access.
+- **Do not auto-create**: Businesses must be created intentionally (local/dev only).
+
+For local development, always run:
+
+```bash
+pnpm run dev:bootstrap-business
+```
+
+### Required env vars
+
+- `DEV_EMAIL`
+- `BUSINESS_NAME`
+
+Example:
+
+```bash
+DEV_EMAIL=scottbaxtermarketing@gmail.com
+BUSINESS_NAME=Ocala Pressure Washing
+```
+
+### Notes
+
+- **Idempotent**: safe to run multiple times (will not duplicate rows).
+- **Safe to re-run**: it will update/ensure `OWNER` membership as needed.
+- **Dev-only**: not for production use.
 
 ---
 

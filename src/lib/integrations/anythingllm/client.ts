@@ -40,7 +40,7 @@ interface AnythingLLMConfig {
    */
   baseOrigin: string;
   apiKey?: string;
-  timeoutMs?: number;
+  timeoutMs: number;
 }
 
 /**
@@ -71,20 +71,20 @@ const CHAT_ENDPOINT_CANDIDATES = [
  * Requirement: MUST be origin-only (no path), e.g.
  *   https://anythingllm.example.com
  */
-function parseBaseOrigin(raw: string): string {
+function parseBaseOrigin(raw: string, envKey: string): string {
   const trimmed = raw.trim();
   let url: URL;
   try {
     url = new URL(trimmed);
   } catch {
     throw new Error(
-      "ANYTHINGLLM_BASE_URL must be a full URL origin (e.g. https://anythingllm.example.com)"
+      `${envKey} must be a full URL origin (e.g. https://anythingllm.example.com)`
     );
   }
 
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error(
-      "ANYTHINGLLM_BASE_URL must start with http:// or https://"
+      `${envKey} must start with http:// or https://`
     );
   }
 
@@ -92,7 +92,7 @@ function parseBaseOrigin(raw: string): string {
   const pathname = url.pathname || "/";
   if (pathname !== "/" && pathname !== "") {
     throw new Error(
-      "ANYTHINGLLM_BASE_URL must be the instance origin only (no /api, no /api/v1). Example: https://anythingllm.example.com"
+      `${envKey} must be the instance origin only (no /api, no /api/v1). Example: https://anythingllm.example.com`
     );
   }
 
@@ -100,24 +100,32 @@ function parseBaseOrigin(raw: string): string {
 }
 
 /**
- * Get AnythingLLM config inputs from environment variables
+ * Build AnythingLLM config from env var names.
  */
-function getEnvConfig(): Omit<AnythingLLMConfig, "apiBase"> {
-  const rawBaseUrl = process.env.ANYTHINGLLM_BASE_URL;
+function getConfigFromEnvVars(opts: {
+  baseUrlKey: string;
+  apiKeyKey: string;
+  timeoutKey?: string;
+  defaultTimeoutMs?: number;
+}): AnythingLLMConfig {
+  const rawBaseUrl = process.env[opts.baseUrlKey];
   if (!rawBaseUrl) {
     throw new Error(
-      "ANYTHINGLLM_BASE_URL environment variable is required"
+      `${opts.baseUrlKey} environment variable is required`
     );
   }
 
-  const baseOrigin = parseBaseOrigin(rawBaseUrl);
+  const baseOrigin = parseBaseOrigin(rawBaseUrl, opts.baseUrlKey);
+
+  const timeoutMsRaw = opts.timeoutKey ? process.env[opts.timeoutKey] : undefined;
+  const defaultTimeoutMs = typeof opts.defaultTimeoutMs === "number" ? opts.defaultTimeoutMs : 30000;
+  const timeoutMs = timeoutMsRaw ? parseInt(timeoutMsRaw, 10) : defaultTimeoutMs;
 
   return {
     baseOrigin,
-    apiKey: process.env.ANYTHINGLLM_API_KEY,
-    timeoutMs: process.env.ANYTHINGLLM_TIMEOUT_MS
-      ? parseInt(process.env.ANYTHINGLLM_TIMEOUT_MS, 10)
-      : 30000, // Default 30s timeout
+    apiBase: `${baseOrigin}/api/v1`,
+    apiKey: process.env[opts.apiKeyKey],
+    timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : defaultTimeoutMs,
   };
 }
 
@@ -126,9 +134,7 @@ function getEnvConfig(): Omit<AnythingLLMConfig, "apiBase"> {
  * - Always sends Authorization Bearer
  * - Also sends x-api-key as a harmless fallback (some installs/gateways use it)
  */
-function buildHeaders(options: RequestInit = {}): Record<string, string> {
-  const env = getEnvConfig();
-
+function buildHeaders(config: AnythingLLMConfig, options: RequestInit = {}): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -147,10 +153,10 @@ function buildHeaders(options: RequestInit = {}): Record<string, string> {
     }
   }
 
-  if (env.apiKey) {
-    headers.Authorization = `Bearer ${env.apiKey}`;
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
     // Lowercase header name is fine; fetch will normalize.
-    headers["x-api-key"] = env.apiKey;
+    headers["x-api-key"] = config.apiKey;
   }
 
   return headers;
@@ -162,18 +168,17 @@ function buildHeaders(options: RequestInit = {}): Record<string, string> {
  * throw an error including status + a short snippet to aid debugging.
  */
 async function fetchJson<T>(
+  config: AnythingLLMConfig,
   url: string,
   options: RequestInit = {}
 ): Promise<{ response: Response; data: T }> {
-  const env = getEnvConfig();
-
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), env.timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
     const response = await fetch(url, {
       ...options,
-      headers: buildHeaders(options),
+      headers: buildHeaders(config, options),
       signal: controller.signal,
     });
 
@@ -234,9 +239,25 @@ async function fetchJson<T>(
 /**
  * Get AnythingLLM configuration (AnythingLLM v1 API only)
  */
-async function getConfig(): Promise<AnythingLLMConfig> {
-  const env = getEnvConfig();
-  return { ...env, apiBase: `${env.baseOrigin}/api/v1` };
+function getMainConfig(): AnythingLLMConfig {
+  return getConfigFromEnvVars({
+    baseUrlKey: "ANYTHINGLLM_BASE_URL",
+    apiKeyKey: "ANYTHINGLLM_API_KEY",
+    timeoutKey: "ANYTHINGLLM_TIMEOUT_MS",
+    defaultTimeoutMs: 30000,
+  });
+}
+
+function getHelpCenterConfig(): AnythingLLMConfig {
+  return getConfigFromEnvVars({
+    baseUrlKey: "HELP_CENTER_ANYTHINGLLM_BASE_URL",
+    apiKeyKey: "HELP_CENTER_ANYTHINGLLM_API_KEY",
+    defaultTimeoutMs: 30000,
+  });
+}
+
+function getEndpointCacheKey(config: AnythingLLMConfig, workspaceSlug: string): string {
+  return `${config.apiBase}::${workspaceSlug}`;
 }
 
 /**
@@ -244,7 +265,7 @@ async function getConfig(): Promise<AnythingLLMConfig> {
  * Used for auth verification and (optionally) for determining whether a workspace slug exists.
  */
 export async function listWorkspaces(): Promise<unknown> {
-  const { data } = await makeRequest<unknown>("/workspaces", { method: "GET" });
+  const { data } = await makeRequest<unknown>(getMainConfig(), "/workspaces", { method: "GET" });
   return data;
 }
 
@@ -299,6 +320,7 @@ export async function getWorkspaceMeta(
   workspaceSlug: string
 ): Promise<AnythingLLMWorkspaceMeta> {
   const { data } = await makeRequest<unknown>(
+    getMainConfig(),
     `/workspace/${encodeURIComponent(workspaceSlug)}`,
     { method: "GET" }
   );
@@ -331,6 +353,7 @@ export async function getWorkspacePromptState(
   workspaceSlug: string
 ): Promise<AnythingLLMWorkspacePromptState> {
   const { data } = await makeRequest<unknown>(
+    getMainConfig(),
     `/workspace/${encodeURIComponent(workspaceSlug)}`,
     { method: "GET" }
   );
@@ -361,6 +384,7 @@ export async function setWorkspaceSystemPrompt(
   systemPrompt: string
 ): Promise<void> {
   await makeRequest<unknown>(
+    getMainConfig(),
     `/workspace/${encodeURIComponent(workspaceSlug)}/update`,
     {
       method: "POST",
@@ -375,15 +399,15 @@ export async function setWorkspaceSystemPrompt(
  * Make a request to AnythingLLM API with timeout, retry, and error handling
  */
 async function makeRequest<T>(
+  config: AnythingLLMConfig,
   endpoint: string,
   options: RequestInit = {},
   retryCount: number = 0
 ): Promise<{ response: Response; data: T }> {
-  const config = await getConfig();
   const url = `${config.apiBase}${endpoint}`;
 
   try {
-    const { response, data } = await fetchJson<T>(url, options);
+    const { response, data } = await fetchJson<T>(config, url, options);
 
     if (!response.ok) {
       // Don't log full upstream payload to avoid leaking secrets
@@ -447,7 +471,7 @@ async function makeRequest<T>(
       });
       // Wait a bit before retry (exponential backoff would be better, but simple delay is fine)
       await new Promise(resolve => setTimeout(resolve, 500));
-      return makeRequest<T>(endpoint, options, retryCount + 1);
+      return makeRequest<T>(config, endpoint, options, retryCount + 1);
     }
 
     // Re-throw other errors, tagging network errors for callers
@@ -467,14 +491,13 @@ async function makeRequest<T>(
  * Returns the successful endpoint path, or throws if all fail
  */
 async function tryEndpoints<T>(
+  config: AnythingLLMConfig,
   workspaceSlug: string,
   endpointType: "search" | "chat",
   candidates: readonly string[],
   requestBody: unknown | ((endpoint: string) => unknown),
   cachedEndpoint?: string
 ): Promise<{ endpoint: string; data: T }> {
-  const config = await getConfig();
-  
   // If we have a cached endpoint, try it first
   const endpointsToTry = cachedEndpoint 
     ? [cachedEndpoint, ...candidates.map(pattern => pattern.replace("{slug}", workspaceSlug))]
@@ -492,7 +515,7 @@ async function tryEndpoints<T>(
     triedEndpoints.push(endpoint);
 
     try {
-      const { data } = await makeRequest<T>(endpoint, {
+      const { data } = await makeRequest<T>(config, endpoint, {
         method: "POST",
         body: JSON.stringify(
           typeof requestBody === "function" ? requestBody(endpoint) : requestBody
@@ -500,7 +523,7 @@ async function tryEndpoints<T>(
       });
 
       // Cache the successful endpoint
-      const cacheKey = workspaceSlug;
+      const cacheKey = getEndpointCacheKey(config, workspaceSlug);
       const cached = endpointCache.get(cacheKey) || {};
       cached[endpointType] = endpoint;
       endpointCache.set(cacheKey, cached);
@@ -586,9 +609,10 @@ export async function searchWorkspace(
   query: string,
   limit: number = 10
 ): Promise<AnythingLLMSearchResponse> {
+  const config = getMainConfig();
   try {
     // Get cached endpoint if available
-    const cached = endpointCache.get(workspaceSlug);
+    const cached = endpointCache.get(getEndpointCacheKey(config, workspaceSlug));
     const cachedEndpoint = cached?.search;
 
     // Try endpoints in order
@@ -605,6 +629,7 @@ export async function searchWorkspace(
       }>;
       data?: Array<unknown>;
     }>(
+      config,
       workspaceSlug,
       "search",
       SEARCH_ENDPOINT_CANDIDATES,
@@ -699,9 +724,10 @@ export async function chatWorkspace(
   message: string,
   threadId?: string
 ): Promise<AnythingLLMChatResponse> {
+  const config = getMainConfig();
   try {
     // Get cached endpoint if available
-    const cached = endpointCache.get(workspaceSlug);
+    const cached = endpointCache.get(getEndpointCacheKey(config, workspaceSlug));
     const cachedEndpoint = cached?.chat;
 
     // Build request body
@@ -724,6 +750,7 @@ export async function chatWorkspace(
       }>;
       references?: Array<unknown>;
     }>(
+      config,
       workspaceSlug,
       "chat",
       CHAT_ENDPOINT_CANDIDATES,
@@ -744,6 +771,60 @@ export async function chatWorkspace(
     apiLogger.error("anythingllm.client.chat-error", {
       workspaceSlug,
       message: message.substring(0, 100), // Log first 100 chars only
+      threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/**
+ * Send a chat message to the Help Center global workspace.
+ * Uses HELP_CENTER_* AnythingLLM credentials (not business-scoped).
+ */
+export async function chatWorkspaceHelpCenter(
+  workspaceSlug: string,
+  message: string,
+  threadId?: string
+): Promise<AnythingLLMChatResponse> {
+  const config = getHelpCenterConfig();
+
+  try {
+    const cached = endpointCache.get(getEndpointCacheKey(config, workspaceSlug));
+    const cachedEndpoint = cached?.chat;
+
+    const body: Record<string, unknown> = { message };
+    if (threadId) body.threadId = threadId;
+
+    const { data } = await tryEndpoints<{
+      answer?: string;
+      response?: string;
+      text?: string;
+      threadId?: string;
+      sources?: Array<{
+        id?: string;
+        title?: string;
+        snippet?: string;
+        name?: string;
+      }>;
+      references?: Array<unknown>;
+    }>(
+      config,
+      workspaceSlug,
+      "chat",
+      CHAT_ENDPOINT_CANDIDATES,
+      body,
+      cachedEndpoint
+    );
+
+    return normalizeChatResponse(data);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && String((error as any).code).startsWith("UPSTREAM_")) {
+      throw error;
+    }
+    apiLogger.error("anythingllm.client.chat-error.help-center", {
+      workspaceSlug,
+      message: message.substring(0, 100),
       threadId,
       error: error instanceof Error ? error.message : String(error),
     });

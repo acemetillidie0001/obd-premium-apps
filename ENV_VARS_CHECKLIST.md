@@ -36,6 +36,30 @@
   - Format: `postgresql://user:password@host:port/database`
   - **Required**: Yes
 
+### Help Center (Public, Read-Only)
+- **`HELP_CENTER_ANYTHINGLLM_BASE_URL`**
+  - Type: URL (origin only; no `/api` path)
+  - Description: AnythingLLM instance origin for Help Center querying
+  - Example: `https://anythingllm.yourdomain.com`
+  - **Required**: Yes
+
+- **`HELP_CENTER_ANYTHINGLLM_API_KEY`**
+  - Type: String
+  - Description: AnythingLLM API key used **only** for Help Center querying (query-only permissions recommended)
+  - **Required**: Yes
+
+- **`HELP_CENTER_WORKSPACE_SLUG`**
+  - Type: String
+  - Description: Forced workspace slug for Help Center queries (server-only; not client-controlled)
+  - Default: `obd-help-center`
+  - **Required**: Recommended (defaults to `obd-help-center` if unset)
+
+- **`HELP_CENTER_RATE_LIMIT_PER_MINUTE`**
+  - Type: Number
+  - Description: Public rate limit per IP for Help Center queries
+  - Default: `30`
+  - **Required**: Recommended
+
 ### Optional (Development Only)
 - **`PREMIUM_BYPASS_KEY`**
   - Type: String

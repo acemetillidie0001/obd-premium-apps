@@ -130,7 +130,7 @@ export default async function RootLayout({
                   </div>
                   <div className="flex flex-wrap gap-3 md:justify-end">
                     <Link
-                      href="/help"
+                      href="/help-center"
                       className="text-xs md:text-sm text-slate-400 hover:text-[#29c4a9] transition-colors"
                     >
                       Help Center

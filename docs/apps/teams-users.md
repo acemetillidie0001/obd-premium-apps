@@ -1,23 +1,63 @@
-# Teams & Users (MVP)
+# Teams & Users
 
-> **LOCK-eligible (Tier 5C audit pass)** — Maintenance-mode safe.  
-> Audit report: `docs/deployments/TEAMS_USERS_TIER5C_AUDIT_REPORT.md`
+## Status Banner
 
-## What it is
+Status: LOCK-eligible (maintenance-mode safe)
+Last verified: main @ <COMMIT_HASH_PLACEHOLDER>
+Business-scoped team access. No automation. No auto-creation.
 
-Teams & Users is the suite’s **tenant-scoped access control** foundation:
+Audit report: [TEAMS_USERS_TIER5C_AUDIT_REPORT.md](../deployments/TEAMS_USERS_TIER5C_AUDIT_REPORT.md)
+
+## Overview
+
+Teams & Users is the suite’s **business-scoped (tenant-scoped)** access control foundation:
 
 - **Business identity**: `Business.id` is the canonical tenant key.
 - **Memberships**: `BusinessUser` maps users to businesses with roles (`OWNER`, `ADMIN`, `STAFF`) and status (`ACTIVE`, `SUSPENDED`).
 - **Invites**: `TeamInvite` supports tokenized invitations (hash stored, raw token never stored) with expiry and cancel/accept lifecycle.
 - **UI**: `/apps/teams-users` provides a calm management console with disabled-not-hidden controls for Staff.
 
-## What it is NOT
+## What this app IS
 
-- **Not billing**: no subscription, invoices, or plan management.
-- **Not automation**: no email sending, no background jobs, no cron.
-- **Not an org directory**: no cross-business discovery and no global user search.
-- **Not a multi-business selector (yet)**: v1 assumes “one primary business per user” (backfilled as OWNER).
+- Manage membership roles (OWNER/ADMIN/STAFF)
+- Invite links (manual, explicit)
+- Server-side enforcement via BusinessUser
+
+## What this app is NOT
+
+- Not an org/enterprise IAM system
+- No background jobs
+- No auto-provisioning of businesses
+- No cross-business access
+
+## Local Business Bootstrap (Required)
+
+Teams & Users requires a **Business** row to exist **before** the page can load.
+
+- **Invariant**: a `Business` row must exist (intentional, explicit creation).
+- **Why**: memberships are enforced **server-side** via `BusinessUser`. If you don’t have an active membership, Teams & Users APIs deny access (fail closed).
+
+For local development, always run:
+
+```bash
+pnpm run dev:bootstrap-business
+```
+
+### Required env vars
+
+- `DEV_EMAIL`
+- `BUSINESS_NAME`
+
+### Notes
+
+- **Idempotent**: safe to run multiple times (will not duplicate rows).
+- **Safe to re-run**: it will update/ensure `OWNER` membership as needed.
+- **Dev-only**: not for production use.
+
+## Related docs
+
+- [Vercel env setup (bootstrap section)](../VERCEL_ENV_SETUP.md#local-business-bootstrap-required-for-teams--users)
+- Many apps assume membership exists and fail closed when it does not.
 
 ## Roles
 

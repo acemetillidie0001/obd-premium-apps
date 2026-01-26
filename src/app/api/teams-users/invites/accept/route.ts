@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { apiErrorResponse, apiSuccessResponse } from "@/lib/api/errorHandler";
+import { writeTeamAudit } from "@/lib/team-audit";
 
 export const runtime = "nodejs";
 
@@ -100,25 +101,21 @@ export async function POST(request: NextRequest) {
 
         if (!inviteRow) throw new Error("NOT_FOUND");
 
+        let auditWrite = false;
         if (!inviteRow.acceptedAt) {
           await tx.teamInvite.update({
             where: { id: invite.id },
             data: { acceptedAt: now },
           });
-
-          await tx.teamAuditLog.create({
-            data: {
-              businessId: invite.businessId,
-              actorUserId: userId,
-              action: "INVITE_ACCEPTED",
-              targetUserId: userId,
-              targetEmail: email,
-              metaJson: { inviteId: invite.id, role: invite.role, idempotent: true },
-            },
-          });
+          auditWrite = true;
         }
 
-        return { businessId: invite.businessId, role: existing.role };
+        return {
+          businessId: invite.businessId,
+          role: existing.role,
+          auditWrite,
+          auditIdempotent: true as const,
+        };
       }
 
       const membership = await tx.businessUser.create({
@@ -135,20 +132,25 @@ export async function POST(request: NextRequest) {
         data: { acceptedAt: now },
       });
 
-      await tx.teamAuditLog.create({
-        data: {
-          businessId: invite.businessId,
-          actorUserId: userId,
-          action: "INVITE_ACCEPTED",
-          targetUserId: userId,
-          targetEmail: email,
-          metaJson: { inviteId: invite.id, role: invite.role },
-        },
-      });
-
       void updatedInvite;
-      return { businessId: membership.businessId, role: membership.role };
+      return {
+        businessId: membership.businessId,
+        role: membership.role,
+        auditWrite: true,
+        auditIdempotent: false as const,
+      };
     });
+
+    if (result.auditWrite) {
+      await writeTeamAudit({
+        businessId: invite.businessId,
+        actorUserId: userId,
+        action: "INVITE_ACCEPTED",
+        targetUserId: userId,
+        targetEmail: email,
+        meta: { inviteId: invite.id, role: invite.role, idempotent: result.auditIdempotent },
+      });
+    }
 
     return apiSuccessResponse({
       accepted: true,

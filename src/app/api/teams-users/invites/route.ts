@@ -9,6 +9,7 @@ import { getBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { unauthorized } from "@/lib/http/errors";
+import { writeTeamAudit } from "@/lib/team-audit";
 
 export const runtime = "nodejs";
 
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
     const tokenHash = createHash("sha256").update(token).digest("hex");
 
     try {
-      const updatedInvite = await prisma.$transaction(async (tx) => {
+      const { updatedInvite, auditMeta } = await prisma.$transaction(async (tx) => {
         const invite = await tx.teamInvite.findFirst({
           where: {
             businessId: ctx.businessId,
@@ -142,22 +143,23 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await tx.teamAuditLog.create({
-          data: {
-            businessId: ctx.businessId,
-            actorUserId: ctx.userId,
-            action: "INVITE_RESENT",
-            targetEmail: email,
-            metaJson: {
-              inviteId: invite.id,
-              fromExpiresAt: invite.expiresAt.toISOString(),
-              toExpiresAt: expiresAt.toISOString(),
-              wasCanceled: !!invite.canceledAt,
-            },
+        return {
+          updatedInvite: updated,
+          auditMeta: {
+            inviteId: invite.id,
+            fromExpiresAt: invite.expiresAt.toISOString(),
+            toExpiresAt: expiresAt.toISOString(),
+            wasCanceled: !!invite.canceledAt,
           },
-        });
+        };
+      });
 
-        return updated;
+      await writeTeamAudit({
+        businessId: ctx.businessId,
+        actorUserId: ctx.userId,
+        action: "INVITE_RESENT",
+        targetEmail: email,
+        meta: auditMeta,
       });
 
       const baseUrl = getBaseUrl(request.nextUrl.origin).replace(/\/+$/, "");
@@ -216,8 +218,7 @@ export async function POST(request: NextRequest) {
   const token = randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(token).digest("hex");
 
-  const invite = await prisma.$transaction(async (tx) => {
-    const created = await tx.teamInvite.create({
+  const invite = await prisma.teamInvite.create({
       data: {
         businessId: ctx.businessId,
         email,
@@ -226,23 +227,18 @@ export async function POST(request: NextRequest) {
         expiresAt,
         createdByUserId: ctx.userId,
       },
-    });
+  });
 
-    await tx.teamAuditLog.create({
-      data: {
-        businessId: ctx.businessId,
-        actorUserId: ctx.userId,
-        action: "INVITE_CREATED",
-        targetEmail: email,
-        metaJson: {
-          inviteId: created.id,
-          role: created.role,
-          expiresAt: created.expiresAt.toISOString(),
-        },
-      },
-    });
-
-    return created;
+  await writeTeamAudit({
+    businessId: ctx.businessId,
+    actorUserId: ctx.userId,
+    action: "INVITE_CREATED",
+    targetEmail: email,
+    meta: {
+      inviteId: invite.id,
+      role: invite.role,
+      expiresAt: invite.expiresAt.toISOString(),
+    },
   });
 
   // MVP: return inviteLink for copy-link UI (page can POST token to accept endpoint)
@@ -305,18 +301,18 @@ export async function DELETE(request: NextRequest) {
         data: { canceledAt: new Date() },
       });
 
-      await tx.teamAuditLog.create({
-        data: {
-          businessId: ctx.businessId,
-          actorUserId: ctx.userId,
-          action: "INVITE_CANCELED",
-          targetEmail: invite.email,
-          metaJson: { inviteId: invite.id },
-        },
-      });
-
       return { canceled: true, id: updated.id, didCancelNow: true, email: invite.email };
     });
+
+    if (result.didCancelNow) {
+      await writeTeamAudit({
+        businessId: ctx.businessId,
+        actorUserId: ctx.userId,
+        action: "INVITE_CANCELED",
+        targetEmail: result.email,
+        meta: { inviteId: result.id },
+      });
+    }
 
     return apiSuccessResponse({ canceled: result.canceled, id: result.id });
   } catch (err) {

@@ -7,8 +7,12 @@ import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { unauthorized } from "@/lib/http/errors";
+import { writeTeamAudit } from "@/lib/team-audit";
 
 export const runtime = "nodejs";
+
+const LAST_ACTIVE_OWNER_MESSAGE =
+  "This action would remove the last active owner. Add another owner first.";
 
 type MemberRow = {
   userId: string;
@@ -117,7 +121,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const updated = await prisma.$transaction(async (tx) => {
+    const { updated, roleAudit, statusAudit } = await prisma.$transaction(async (tx) => {
       const membership = await tx.businessUser.findUnique({
         where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
       });
@@ -129,24 +133,15 @@ export async function PATCH(request: NextRequest) {
       const activeOwners = await tx.businessUser.count({
         where: { businessId: ctx.businessId, role: "OWNER", status: "ACTIVE" },
       });
-      const isLastActiveOwner = activeOwners <= 1;
       const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
-      const targetIsSelf = targetUserId === ctx.userId;
 
-      // Cannot demote the last ACTIVE owner
-      if (nextRole && targetIsActiveOwner && isLastActiveOwner) {
-        throw new Error("LAST_OWNER_ROLE");
-      }
+      const wouldRemoveActiveOwner =
+        targetIsActiveOwner &&
+        ((nextStatus === "SUSPENDED") || (nextRole !== undefined && nextRole !== "OWNER"));
 
-      // Cannot suspend the last ACTIVE owner
-      if (nextStatus === "SUSPENDED" && targetIsActiveOwner && isLastActiveOwner) {
-        throw new Error("LAST_OWNER_SUSPEND");
-      }
-
-      // Cannot suspend/demote yourself if you're the last ACTIVE owner
-      if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") {
-        if (nextStatus === "SUSPENDED") throw new Error("SELF_LAST_OWNER_SUSPEND");
-        if (nextRole) throw new Error("SELF_LAST_OWNER_ROLE");
+      // Owner lockout protection: never allow ACTIVE owners to drop to 0.
+      if (wouldRemoveActiveOwner && activeOwners <= 1) {
+        throw new Error("LAST_ACTIVE_OWNER");
       }
 
       const updated = await tx.businessUser.update({
@@ -160,54 +155,67 @@ export async function PATCH(request: NextRequest) {
         },
       });
 
-      // Audit logs (minimal; no secrets). Only log changes that actually occurred.
-      if (nextRole && membership.role !== nextRole) {
-        const targetEmail = updated.user?.email?.trim() || null;
-        await tx.teamAuditLog.create({
-          data: {
-            businessId: ctx.businessId,
-            actorUserId: ctx.userId,
-            action: "MEMBER_ROLE_CHANGED",
-            targetUserId,
-            ...(targetEmail ? { targetEmail } : {}),
-            metaJson: { fromRole: membership.role, toRole: nextRole, ...(targetEmail ? { targetEmail } : {}) },
-          },
-        });
-      }
+      const targetEmail = updated.user?.email?.trim() || null;
+      const roleAudit =
+        nextRole && membership.role !== nextRole
+          ? {
+              action: "MEMBER_ROLE_UPDATED" as const,
+              targetUserId,
+              targetEmail,
+              meta: { fromRole: membership.role, toRole: nextRole },
+            }
+          : null;
 
-      if (nextStatus && membership.status !== nextStatus) {
-        await tx.teamAuditLog.create({
-          data: {
-            businessId: ctx.businessId,
-            actorUserId: ctx.userId,
-            action: nextStatus === "SUSPENDED" ? "MEMBER_SUSPENDED" : "MEMBER_REACTIVATED",
-            targetUserId,
-            metaJson: { fromStatus: membership.status, toStatus: nextStatus },
-          },
-        });
-      }
+      const statusAudit =
+        nextStatus && membership.status !== nextStatus
+          ? {
+              action: "MEMBER_STATUS_UPDATED" as const,
+              targetUserId,
+              targetEmail,
+              meta: { fromStatus: membership.status, toStatus: nextStatus },
+            }
+          : null;
 
-      return updated;
+      return { updated, roleAudit, statusAudit };
     });
 
-  const response: MemberRow = {
-    userId: updated.userId,
-    name: updated.user?.name ?? null,
-    email: updated.user?.email ?? null,
-    role: updated.role,
-    status: updated.status,
-    createdAt: updated.createdAt.toISOString(),
-    lastActiveAt: updated.lastActiveAt ? updated.lastActiveAt.toISOString() : null,
-  };
+    if (roleAudit) {
+      await writeTeamAudit({
+        businessId: ctx.businessId,
+        actorUserId: ctx.userId,
+        action: roleAudit.action,
+        targetUserId: roleAudit.targetUserId,
+        ...(roleAudit.targetEmail ? { targetEmail: roleAudit.targetEmail } : {}),
+        meta: roleAudit.meta,
+      });
+    }
 
-  return apiSuccessResponse(response);
+    if (statusAudit) {
+      await writeTeamAudit({
+        businessId: ctx.businessId,
+        actorUserId: ctx.userId,
+        action: statusAudit.action,
+        targetUserId: statusAudit.targetUserId,
+        ...(statusAudit.targetEmail ? { targetEmail: statusAudit.targetEmail } : {}),
+        meta: statusAudit.meta,
+      });
+    }
+
+    const response: MemberRow = {
+      userId: updated.userId,
+      name: updated.user?.name ?? null,
+      email: updated.user?.email ?? null,
+      role: updated.role,
+      status: updated.status,
+      createdAt: updated.createdAt.toISOString(),
+      lastActiveAt: updated.lastActiveAt ? updated.lastActiveAt.toISOString() : null,
+    };
+
+    return apiSuccessResponse(response);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "NOT_FOUND") return apiErrorResponse("Member not found", "NOT_FOUND", 404);
-    if (msg === "LAST_OWNER_ROLE") return apiErrorResponse("Cannot change role of the last owner", "FORBIDDEN", 403);
-    if (msg === "LAST_OWNER_SUSPEND") return apiErrorResponse("Cannot suspend the last owner", "FORBIDDEN", 403);
-    if (msg === "SELF_LAST_OWNER_SUSPEND") return apiErrorResponse("Cannot suspend yourself as the last owner", "FORBIDDEN", 403);
-    if (msg === "SELF_LAST_OWNER_ROLE") return apiErrorResponse("Cannot change your role as the last owner", "FORBIDDEN", 403);
+    if (msg === "LAST_ACTIVE_OWNER") return apiErrorResponse(LAST_ACTIVE_OWNER_MESSAGE, "VALIDATION_ERROR", 400);
     return apiErrorResponse("Update failed", "INTERNAL_ERROR", 500);
   }
 }
@@ -249,9 +257,10 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    const deleted = await prisma.$transaction(async (tx) => {
       const membership = await tx.businessUser.findUnique({
         where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
+        include: { user: { select: { email: true } } },
       });
 
       if (!membership) throw new Error("NOT_FOUND");
@@ -259,37 +268,36 @@ export async function DELETE(request: NextRequest) {
       const activeOwners = await tx.businessUser.count({
         where: { businessId: ctx.businessId, role: "OWNER", status: "ACTIVE" },
       });
-      const isLastActiveOwner = activeOwners <= 1;
       const targetIsActiveOwner = membership.role === "OWNER" && membership.status === "ACTIVE";
-      const targetIsSelf = targetUserId === ctx.userId;
 
-      // Cannot remove last ACTIVE owner
-      if (targetIsActiveOwner && isLastActiveOwner) throw new Error("LAST_OWNER_REMOVE");
-
-      // Cannot remove yourself if you're the last ACTIVE owner
-      if (targetIsSelf && isLastActiveOwner && ctx.role === "OWNER") throw new Error("SELF_LAST_OWNER_REMOVE");
+      // Owner lockout protection: never allow ACTIVE owners to drop to 0.
+      if (targetIsActiveOwner && activeOwners <= 1) throw new Error("LAST_ACTIVE_OWNER");
 
       await tx.businessUser.delete({
         where: { businessId_userId: { businessId: ctx.businessId, userId: targetUserId } },
       });
 
-      await tx.teamAuditLog.create({
-        data: {
-          businessId: ctx.businessId,
-          actorUserId: ctx.userId,
-          action: "MEMBER_REMOVED",
-          targetUserId,
-          metaJson: { role: membership.role, status: membership.status },
-        },
-      });
+      return {
+        targetUserId,
+        targetEmail: membership.user?.email?.trim() || null,
+        meta: { role: membership.role, status: membership.status },
+      };
+    });
+
+    await writeTeamAudit({
+      businessId: ctx.businessId,
+      actorUserId: ctx.userId,
+      action: "MEMBER_REMOVED",
+      targetUserId: deleted.targetUserId,
+      ...(deleted.targetEmail ? { targetEmail: deleted.targetEmail } : {}),
+      meta: deleted.meta,
     });
 
     return apiSuccessResponse({ deleted: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "NOT_FOUND") return apiErrorResponse("Member not found", "NOT_FOUND", 404);
-    if (msg === "LAST_OWNER_REMOVE") return apiErrorResponse("Cannot remove the last owner", "FORBIDDEN", 403);
-    if (msg === "SELF_LAST_OWNER_REMOVE") return apiErrorResponse("Cannot remove yourself as the last owner", "FORBIDDEN", 403);
+    if (msg === "LAST_ACTIVE_OWNER") return apiErrorResponse(LAST_ACTIVE_OWNER_MESSAGE, "VALIDATION_ERROR", 400);
     return apiErrorResponse("Remove failed", "INTERNAL_ERROR", 500);
   }
 }

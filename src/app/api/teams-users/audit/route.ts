@@ -20,7 +20,7 @@ type AuditLogDto = {
 
 /**
  * GET /api/teams-users/audit
- * Owner/Admin only. Returns last 20 TeamAuditLog rows for this business.
+ * Owner/Admin only. Returns last 10 TeamAuditLog rows for this business.
  */
 export async function GET(request: NextRequest) {
   warnIfBusinessIdParamPresent(request);
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   const rows = await prisma.teamAuditLog.findMany({
     where: { businessId: ctx.businessId },
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 10,
     select: {
       createdAt: true,
       action: true,

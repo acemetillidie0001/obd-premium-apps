@@ -11,9 +11,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 import type {
   CrmContactActivity,
   AddNoteRequest,
@@ -50,6 +52,8 @@ export async function GET(
   const guard = await requirePremiumAccess();
   if (guard) return guard;
 
+  warnIfBusinessIdParamPresent(request);
+
   // Dev-only safety check
   if (process.env.NODE_ENV !== "production") {
     if (!prisma?.crmContact || !prisma?.crmContactActivity) {
@@ -59,12 +63,8 @@ export async function GET(
   }
 
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId } = await requireTenant();
+    await requirePermission("OBD_CRM", "VIEW");
     const { id } = await params;
 
     // Verify contact exists and belongs to this business
@@ -98,6 +98,10 @@ export async function GET(
       count: formattedActivities.length,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }
@@ -121,6 +125,8 @@ export async function POST(
   const rateLimitCheck = await checkRateLimit(request);
   if (rateLimitCheck) return rateLimitCheck;
 
+  warnIfBusinessIdParamPresent(request);
+
   // Dev-only safety check
   if (process.env.NODE_ENV !== "production") {
     if (!prisma?.crmContact || !prisma?.crmContactActivity) {
@@ -130,12 +136,8 @@ export async function POST(
   }
 
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
-
-    const businessId = user.id; // V3: userId = businessId
+    const { businessId } = await requireTenant();
+    await requirePermission("OBD_CRM", "EDIT_DRAFT");
     const { id } = await params;
 
     // Verify contact exists and belongs to this business
@@ -177,6 +179,10 @@ export async function POST(
 
     return apiSuccessResponse(formattedActivity, 201);
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

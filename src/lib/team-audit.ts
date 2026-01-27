@@ -25,29 +25,55 @@ function truncateString(value: string, maxLen: number): string {
   return `${value.slice(0, Math.max(0, maxLen - 1))}…`;
 }
 
-function sanitizeJsonValue(value: unknown): Prisma.InputJsonValue | null | undefined {
+function isSensitiveMetaKey(key: string): boolean {
+  // Never log invite tokens (or their hashes) or links that might contain tokens.
+  const k = key.trim().toLowerCase();
+  if (!k) return false;
+  if (k.includes("token")) return true; // token, tokenHash, inviteToken, etc.
+  if (k.includes("invitelink")) return true;
+  if (k.includes("invite_link")) return true;
+  return false;
+}
+
+function scrubSensitiveStrings(value: string): string {
+  // Defensive: redact query-string token parameters if they ever appear in meta.
+  // Example: /accept?token=abc... → /accept?token=[REDACTED]
+  return value.replace(/([?&]token=)[^&#\s]+/gi, "$1[REDACTED]");
+}
+
+function sanitizeJsonValue(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>
+): Prisma.InputJsonValue | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (value instanceof Date) return value.toISOString();
 
-  if (typeof value === "string") return truncateString(value, 500);
+  if (typeof value === "string") return truncateString(scrubSensitiveStrings(value), 500);
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();
 
   if (Array.isArray(value)) {
-    const items = value.slice(0, 20).map((v) => sanitizeJsonValue(v));
+    if (depth <= 0) return ["[MaxDepth]"] as unknown as Prisma.InputJsonArray;
+    const items = value.slice(0, 20).map((v) => sanitizeJsonValue(v, depth - 1, seen));
     // Prisma allows nulls inside JSON arrays; undefineds must be removed.
     return items.filter((v) => v !== undefined) as unknown as Prisma.InputJsonArray;
   }
 
   if (typeof value === "object") {
+    if (depth <= 0) return { truncated: true, reason: "MaxDepth" } as unknown as Prisma.InputJsonObject;
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+
     const obj = value as Record<string, unknown>;
     const out: Record<string, Prisma.InputJsonValue | null> = {};
     let count = 0;
     for (const [k, v] of Object.entries(obj)) {
       if (count >= 25) break;
-      const cleaned = sanitizeJsonValue(v);
+      if (isSensitiveMetaKey(k)) continue;
+      const cleaned = sanitizeJsonValue(v, depth - 1, seen);
       if (cleaned === undefined) continue;
       out[truncateString(k, 80)] = cleaned as Prisma.InputJsonValue | null;
       count += 1;
@@ -61,7 +87,7 @@ function sanitizeJsonValue(value: unknown): Prisma.InputJsonValue | null | undef
 
 function sanitizeMeta(meta: Record<string, unknown> | undefined): Prisma.InputJsonObject | undefined {
   if (!meta) return undefined;
-  const cleaned = sanitizeJsonValue(meta);
+  const cleaned = sanitizeJsonValue(meta, 6, new WeakSet<object>());
   if (!cleaned || typeof cleaned !== "object" || Array.isArray(cleaned)) return undefined;
 
   // Ensure meta stays small and JSON-safe.

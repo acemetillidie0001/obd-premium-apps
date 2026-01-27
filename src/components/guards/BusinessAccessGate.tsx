@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 export type BusinessAccessGateMode = "noBusiness" | "noMembership";
 
@@ -12,6 +13,11 @@ type Props = {
   title?: string;
   message?: string;
   primaryAction?: BusinessAccessGateAction;
+  /**
+   * Optional CTA slot (e.g., secondary link/button).
+   * Keep this read-only; no auto-creation should happen from this gate.
+   */
+  ctaSlot?: ReactNode;
 };
 
 const DEFAULT_COPY: Record<BusinessAccessGateMode, { title: string; message: string }> = {
@@ -25,7 +31,7 @@ const DEFAULT_COPY: Record<BusinessAccessGateMode, { title: string; message: str
   },
 };
 
-export default function BusinessAccessGate({ mode, title, message, primaryAction }: Props) {
+export default function BusinessAccessGate({ mode, title, message, primaryAction, ctaSlot }: Props) {
   const copy = DEFAULT_COPY[mode];
 
   return (
@@ -43,6 +49,8 @@ export default function BusinessAccessGate({ mode, title, message, primaryAction
               {primaryAction.label}
             </Link>
           ) : null}
+
+          {ctaSlot ?? null}
 
           <Link
             href="/apps"

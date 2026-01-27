@@ -10,9 +10,11 @@ import { requirePremiumAccess } from "@/lib/api/premiumGuard";
 import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
-import { getCurrentUser } from "@/lib/premium";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 export const runtime = "nodejs";
 
@@ -53,13 +55,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  try {
-    const user = await getCurrentUser();
-    if (!user) {
-      return apiErrorResponse("Unauthorized", "UNAUTHORIZED", 401);
-    }
+  warnIfBusinessIdParamPresent(request);
 
-    const businessId = user.id; // V3: userId = businessId
+  try {
+    const { businessId } = await requireTenant();
+    await requirePermission("OBD_CRM", "EDIT_DRAFT");
 
     const json = await request.json().catch(() => null);
     if (!json) {
@@ -223,6 +223,10 @@ export async function POST(request: NextRequest) {
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
+    if (error instanceof BusinessContextError) {
+      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
+      return apiErrorResponse(error.message, code, error.status);
+    }
     return handleApiError(error);
   }
 }

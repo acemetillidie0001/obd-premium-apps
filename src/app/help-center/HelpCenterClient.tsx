@@ -187,6 +187,12 @@ export default function HelpCenterClient() {
             publishing, no changes.
           </p>
 
+          {isEmpty ? (
+            <p className="mt-2 text-xs md:text-sm text-slate-600">
+              Try asking how an app works, what it does (or doesn’t do), or how exports are handled.
+            </p>
+          ) : null}
+
           <div className="mt-6">
             <h2 className="text-sm font-semibold text-slate-900">
               Guided entry prompts
@@ -260,9 +266,11 @@ export default function HelpCenterClient() {
                 )}
               </div>
 
-              <p className="mt-5 text-xs text-slate-600">
-                Answers are based on OBD documentation and saved knowledge only.
-              </p>
+              <footer className="mt-5 pt-4 border-t border-slate-200">
+                <p className="text-xs text-slate-600">
+                  This answer is based on OBD documentation and saved knowledge only.
+                </p>
+              </footer>
 
               <div className="mt-5 border-t border-slate-200 pt-5">
                 <h3 className="text-sm font-semibold text-slate-900">Ask a follow-up</h3>

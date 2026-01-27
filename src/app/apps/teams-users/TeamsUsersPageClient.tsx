@@ -433,6 +433,14 @@ export default function TeamsUsersPageClient({ noBusinessFound }: { noBusinessFo
     return map;
   }, [members]);
 
+  const formatActorLabel = useCallback(
+    (actorUserId: string): string => {
+      if (sessionUserId && actorUserId === sessionUserId) return "You";
+      return memberLabelByUserId.get(actorUserId) ?? actorUserId;
+    },
+    [memberLabelByUserId, sessionUserId]
+  );
+
   const formatAuditLine = useCallback(
     (log: AuditLogItem): string => {
       const meta = log.metaJson && typeof log.metaJson === "object" ? (log.metaJson as any) : null;
@@ -1249,19 +1257,30 @@ export default function TeamsUsersPageClient({ noBusinessFound }: { noBusinessFo
                   <div className={`text-sm ${themeClasses.mutedText}`}>No recent access changes yet.</div>
                 </div>
               ) : (
-                <div className="mt-5 space-y-2">
-                  {auditLogs.map((log) => (
-                    <div
-                      key={`${log.createdAt}-${log.action}-${log.actorUserId}-${log.targetUserId ?? log.targetEmail ?? ""}`}
-                      className={`rounded-lg border px-3 py-2 text-sm ${
-                        isDark ? "border-slate-800 bg-slate-950/40" : "border-slate-200 bg-white"
-                      }`}
-                    >
-                      <span className={`${themeClasses.mutedText}`}>{formatDate(log.createdAt)}</span>
-                      <span className={`${themeClasses.mutedText}`}>{" \u2022 "}</span>
-                      <span className={themeClasses.headingText}>{formatAuditLine(log)}</span>
-                    </div>
-                  ))}
+                <div className="mt-5">
+                  <OBDTableWrapper>
+                    <table className={`w-full text-sm ${isDark ? "text-slate-100" : "text-slate-900"}`}>
+                      <thead>
+                        <tr className={isDark ? "text-slate-300" : "text-slate-600"}>
+                          <th className="text-left font-semibold py-2 pr-4">When</th>
+                          <th className="text-left font-semibold py-2 pr-4">Who</th>
+                          <th className="text-left font-semibold py-2">What</th>
+                        </tr>
+                      </thead>
+                      <tbody className={isDark ? "divide-y divide-slate-800" : "divide-y divide-slate-200"}>
+                        {auditLogs.map((log) => (
+                          <tr
+                            key={`${log.createdAt}-${log.action}-${log.actorUserId}-${log.targetUserId ?? log.targetEmail ?? ""}`}
+                            className="align-top"
+                          >
+                            <td className={`py-3 pr-4 ${themeClasses.mutedText}`}>{formatDate(log.createdAt)}</td>
+                            <td className={`py-3 pr-4 ${themeClasses.mutedText}`}>{formatActorLabel(log.actorUserId)}</td>
+                            <td className={`py-3 ${themeClasses.headingText}`}>{formatAuditLine(log)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </OBDTableWrapper>
                 </div>
               )}
             </OBDPanel>

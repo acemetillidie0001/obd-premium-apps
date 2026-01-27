@@ -40,6 +40,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "deploy:migrate": "pnpm run migrate:deploy",
+    "db:env:check": "node -r dotenv/config -e \"console.log('HAS_DATABASE_URL=',!!process.env.DATABASE_URL); try{console.log('DB_HOST=',new URL(process.env.DATABASE_URL).hostname)}catch(e){console.log('DB_HOST=parse-fail')}\"",
     "db:resolve:all": "node tools/resolve-all-failed-migrations.cjs",
     "db:resolve-failed-migrations": "node tools/resolve-all-failed-migrations.cjs",
     "migrate:resolve": "tsx scripts/resolve-failed-migration.ts",
@@ -56,6 +57,11 @@
     "db:inspect": "node tools/db-inspect.cjs",
     "db:inspect:ts": "tsx tools/db-inspect.ts",
     "check:business-integrity": "tsx scripts/check-business-integrity.ts",
+    "business:create": "tsx scripts/create-business.ts",
+    "dev:bootstrap-business": "tsx scripts/dev-bootstrap-business.ts",
+    "memberships:backfill": "tsx scripts/backfill-business-memberships.ts",
+    "memberships:verify": "node --import tsx scripts/verify-memberships.ts",
+    "memberships:grant": "node --import tsx scripts/grant-membership.ts",
     "crm:db:fix": "powershell -ExecutionPolicy Bypass -File scripts/obd-crm-db-fix.ps1"
   },
   "dependencies": {

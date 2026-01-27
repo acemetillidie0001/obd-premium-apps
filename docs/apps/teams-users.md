@@ -3,8 +3,8 @@
 ## Status Banner
 
 Status: LOCK-eligible (maintenance-mode safe)
-Last verified: main @ <COMMIT_HASH_PLACEHOLDER>
-Business-scoped team access. No automation. No auto-creation.
+Last verified: main @ 5e06c2380baf4b9c758150cf26a8be83377f6113
+Business-scoped access control for OBD Premium Apps
 
 Audit report: [TEAMS_USERS_TIER5C_AUDIT_REPORT.md](../deployments/TEAMS_USERS_TIER5C_AUDIT_REPORT.md)
 
@@ -19,23 +19,25 @@ Teams & Users is the suite’s **business-scoped (tenant-scoped)** access contro
 
 ## What this app IS
 
-- Manage membership roles (OWNER/ADMIN/STAFF)
-- Invite links (manual, explicit)
-- Server-side enforcement via BusinessUser
+- **Business-scoped access control**: all actions are scoped to one `Business.id` (tenant key).
+- **Role + membership management**: manage `OWNER` / `ADMIN` / `STAFF` memberships (explicit actions only).
+- **Manual invites (copy link)**: tokenized invite links for explicit sharing (no email automation).
+- **Server-side enforcement**: all privileged routes enforce access via `BusinessUser` (deny-by-default).
 
 ## What this app is NOT
 
-- Not an org/enterprise IAM system
-- No background jobs
-- No auto-provisioning of businesses
-- No cross-business access
+- Not an org/enterprise IAM product
+- Not a background job / scheduler / automation system
+- Not auto-provisioning businesses (no implicit tenant creation)
+- Not cross-business access (no cross-tenant visibility)
 
 ## Local Business Bootstrap (Required)
 
 Teams & Users requires a **Business** row to exist **before** the page can load.
 
 - **Invariant**: a `Business` row must exist (intentional, explicit creation).
-- **Why**: memberships are enforced **server-side** via `BusinessUser`. If you don’t have an active membership, Teams & Users APIs deny access (fail closed).
+- **Fail closed**: if the business and/or required membership is missing, Teams & Users denies access (page and APIs).
+- **No production auto-creation**: production does not create businesses or memberships automatically.
 
 For local development, always run:
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const INPUT_CLASSES =
   "w-full px-4 py-3 border border-slate-300 bg-white text-slate-900 rounded-2xl focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:border-slate-400 outline-none";
@@ -25,11 +25,14 @@ function normalizeParagraphs(text: string): string[] {
 export default function HelpCenterClient() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const tipsRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState("");
   const [state, setState] = useState<ViewState>("idle");
   const [answer, setAnswer] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [followUp, setFollowUp] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+  const [isTipsOpen, setIsTipsOpen] = useState(false);
 
   const guidedPrompts = useMemo(
     () => [
@@ -71,6 +74,8 @@ export default function HelpCenterClient() {
   const runQuery = async (nextQueryRaw: string) => {
     const trimmed = nextQueryRaw.trim();
     if (!trimmed) return;
+
+    setHasSearched(true);
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -133,9 +138,49 @@ export default function HelpCenterClient() {
     await runQuery(nextQuery);
   };
 
+  const clearSearch = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setQuery("");
+    setAnswer(null);
+    setErrorMessage(null);
+    setFollowUp("");
+    setHasSearched(false);
+    setState("idle");
+    inputRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!isTipsOpen) return;
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (tipsRef.current?.contains(target)) return;
+      setIsTipsOpen(false);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsTipsOpen(false);
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isTipsOpen]);
+
   const paragraphs = useMemo(() => (answer ? normalizeParagraphs(answer) : []), [answer]);
   const isLoading = state === "loading";
   const isEmpty = state === "idle" && !answer && !errorMessage;
+  const chipClassName = hasSearched
+    ? `${CHIP_CLASSES} opacity-70 hover:opacity-100 transition-opacity`
+    : CHIP_CLASSES;
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -182,6 +227,45 @@ export default function HelpCenterClient() {
             </button>
           </form>
 
+          <div ref={tipsRef} className="relative mt-3 inline-flex items-center gap-2">
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={isTipsOpen}
+              aria-controls="help-center-search-tips"
+              onClick={() => setIsTipsOpen((v) => !v)}
+              onFocus={() => setIsTipsOpen(true)}
+              onMouseEnter={() => setIsTipsOpen(true)}
+              onMouseLeave={() => setIsTipsOpen(false)}
+              className="inline-flex items-center gap-1 text-xs md:text-sm text-slate-600 hover:text-slate-800 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
+            >
+              <span>Search tips</span>
+              <span aria-hidden="true" className="text-slate-500">
+                ℹ︎
+              </span>
+            </button>
+
+            <div
+              id="help-center-search-tips"
+              role="dialog"
+              aria-label="Search tips"
+              aria-hidden={!isTipsOpen}
+              className={[
+                "absolute left-0 top-full z-10 mt-2 w-72 max-w-[80vw] rounded-2xl border border-slate-200 bg-white p-3 shadow-sm",
+                "text-xs text-slate-700",
+                "transition-opacity duration-150",
+                isTipsOpen ? "opacity-100" : "pointer-events-none opacity-0",
+              ].join(" ")}
+            >
+              <ul className="list-disc space-y-1 pl-5">
+                <li>Ask full questions or simple phrases</li>
+                <li>You can ask what an app does or doesn’t do</li>
+                <li>Answers are based on OBD documentation only</li>
+                <li>Nothing is changed or published</li>
+              </ul>
+            </div>
+          </div>
+
           <p id="help-center-helper" className="mt-3 text-xs md:text-sm text-slate-600">
             This is a read-only discovery layer. No account actions, no
             publishing, no changes.
@@ -202,7 +286,7 @@ export default function HelpCenterClient() {
                 <button
                   key={prompt}
                   type="button"
-                  className={CHIP_CLASSES}
+                  className={chipClassName}
                   onClick={() => void onQuickAction(prompt)}
                 >
                   {prompt}
@@ -252,7 +336,16 @@ export default function HelpCenterClient() {
 
           {state === "success" && answer ? (
             <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
-              <h2 className="text-base font-semibold text-slate-900">Answer</h2>
+              <div className="flex items-start justify-between gap-4">
+                <h2 className="text-base font-semibold text-slate-900">Answer</h2>
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
+                >
+                  Clear search
+                </button>
+              </div>
 
               <div className="mt-3 space-y-3 text-sm text-slate-700">
                 {paragraphs.length > 0 ? (

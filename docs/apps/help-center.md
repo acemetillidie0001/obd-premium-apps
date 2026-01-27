@@ -3,7 +3,7 @@
 ## Status Banner
 
 Status: LOCKED (maintenance-mode safe)
-Last verified: main @ <COMMIT_HASH_PLACEHOLDER>
+Last verified: main @ 112c58d572659a9dc515ee46c80a723e3281d387
 One-liner: Public, search-first, read-only discovery layer powered by a global AI Help Desk workspace. No automation.
 
 ## Overview

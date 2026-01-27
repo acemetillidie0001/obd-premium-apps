@@ -1,7 +1,7 @@
 # Help Center — LOCK Audit (Public, Read-Only)
 
 Status: LOCKED (maintenance-mode safe)
-Validated on main @ <COMMIT_HASH_PLACEHOLDER>
+Validated on main @ 112c58d572659a9dc515ee46c80a723e3281d387
 
 ## Executive summary
 

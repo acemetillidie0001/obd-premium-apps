@@ -31,7 +31,9 @@ The Help Center does **not** browse the web.
 Typical rules:
 - apply is **user-initiated**
 - apply is **additive** (fill-empty / append) when possible
-- apply does **not** publish, send, or change external accounts
+- apply does **not** publish, send, schedule, or change external accounts
+
+In the **Help Center**, “Apply” is not available (Help Center is global + read-only).
 
 ## What’s the safest workflow?
 

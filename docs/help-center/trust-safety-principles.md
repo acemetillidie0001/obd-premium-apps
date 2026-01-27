@@ -14,15 +14,19 @@ The Help Center follows the same approach: it is **global** and **read-only**.
 
 - **No automation**
   - No background jobs that act on your behalf.
-  - No silent changes and no “do it for me” behavior.
+  - No silent “do it for me” behavior.
+- **No publishing**
+  - Nothing is published automatically (to your site, Google, Meta, or anywhere else).
+- **No account changes**
+  - The Help Center cannot change your account, settings, integrations, teams, or users.
 - **Draft-only by default**
   - Outputs are drafts meant to be reviewed and edited.
-  - Export/copy is user-initiated.
-- **No auto-publish**
-  - Nothing is published automatically (to your site, Google, Meta, or anywhere else).
+  - Export/copy is user-initiated (draft-only / export-only).
 - **No cross-app mutation**
   - One app does not silently change another app’s saved data.
   - Cross-app handoffs are **user-initiated** and **apply-only** (review-first).
+- **No background jobs**
+  - The Help Center does not run scheduled work or background processing on your behalf.
 - **No web browsing**
   - The Help Center does not browse the open web.
   - Answers are based on **saved OBD documentation and saved knowledge** only.
@@ -42,7 +46,7 @@ AI Help Desk (in-app) is tenant-scoped by design:
 
 The Help Center is intentionally different from in-app AI Help Desk:
 - **Global**: uses a dedicated global workspace for shared, public-safe guidance.
-- **Read-only**: no uploads, no account actions, no publishing, no settings.
+- **Read-only**: no uploads, no account changes, no publishing, no settings.
 - **No tenant data access**: it does not read business-scoped knowledge bases or any private business content.
 
 ## Reusable trust language (safe to quote in answers)

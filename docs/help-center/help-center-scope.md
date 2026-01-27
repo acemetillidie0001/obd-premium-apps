@@ -11,7 +11,8 @@
 
 - It cannot access your business-scoped data (no tenant context).
 - It cannot upload knowledge, save settings, or change your account.
-- It cannot publish, schedule, or “apply changes” to external systems.
+- It cannot publish, schedule, or perform account/integration actions.
+- It cannot run background jobs on your behalf.
 - It cannot browse the web or use live internet sources.
 
 ## Why it does not access business data
@@ -34,9 +35,11 @@ Use **AI Help Desk (in-app)** when:
 ## Explicit boundaries (repeatable)
 
 - No uploads
-- No account actions
-- No settings management
 - No publishing
 - No automation
-- Read-only discovery + Q&A only
+- No account changes
+- No settings management
+- No background jobs
+- No web browsing
+- **Global + read-only** discovery + Q&A only
 

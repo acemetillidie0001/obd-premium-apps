@@ -26,7 +26,7 @@ Think in “draft packs”:
 
 Handoffs are designed to be safe:
 - user-initiated
-- time-limited (short TTL) when stored in the browser
+- review-first
 - additive/fill-empty patterns when “Apply” exists
 
 ## Where new users should start

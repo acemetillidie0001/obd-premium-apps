@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Public Help Center (Read-Only)**
-  - Added public Help Center: search-first, read-only interface backed by global AI Help Desk workspace. No automation. No mutation.
+  - Added public Help Center: search-first, read-only interface backed by global AI Help Desk workspace. No automation. No mutation. Status: LOCKED (maintenance-mode safe).
 
 - **Teams & Users (MVP)**
   - Business memberships (Owner/Admin/Staff) + tokenized invitations + tenant-scoped access management UI.

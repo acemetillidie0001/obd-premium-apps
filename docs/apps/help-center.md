@@ -2,8 +2,9 @@
 
 ## Status Banner
 
-Status: LOCK-eligible (maintenance-mode safe)
-Search-first, read-only discovery layer powered by a global AI Help Desk workspace.
+Status: LOCKED (maintenance-mode safe)
+Last verified: main @ <COMMIT_HASH_PLACEHOLDER>
+One-liner: Public, search-first, read-only discovery layer powered by a global AI Help Desk workspace. No automation.
 
 ## Overview
 
@@ -41,6 +42,14 @@ It is designed to be calm, trust-first, and safe-by-default:
 - **No uploads / no mutation**:
   - No write endpoints are exposed for Help Center.
   - No importing, saving, exporting, applying, publishing, or updating anything.
+
+## Safety notes (public-safe, fail-closed)
+
+- **Workspace slug is forced server-side** (env only). The client cannot select a workspace.
+- **Rate-limited** by IP to reduce abuse (`HELP_CENTER_RATE_LIMIT_PER_MINUTE`).
+- **Strict request schema**: rejects extra fields (no `businessId`, no `workspaceSlug`).
+- **Safe logging**: query text is not logged (logs record **query length only**).
+- **Upstream guardrails**: upstream non-JSON/HTML responses are handled safely and return a generic message.
 
 ## Environment variables
 

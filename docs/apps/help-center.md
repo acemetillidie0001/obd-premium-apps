@@ -1,83 +1,51 @@
+Status: LOCKED (maintenance-mode safe)
+Last verified: main @ cf181d50595e7c5dfeff1d0bcb14aa0cfa177012
+Public, search-first, read-only discovery layer powered by a global AnythingLLM workspace. No automation.
+
 # Help Center (Public)
 
-## Status Banner
+## What this IS
 
-Status: LOCKED (maintenance-mode safe)
-Last verified: main @ 112c58d572659a9dc515ee46c80a723e3281d387
-One-liner: Public, search-first, read-only discovery layer powered by a global AI Help Desk workspace. No automation.
+- A **public, search-first discovery layer** for OBD Premium documentation.
+- A **read-only answer surface**: returns answer text only (no actions).
+- A **global-workspace** Help Center backed by AnythingLLM.
 
-## Overview
+## What this is NOT
 
-The Help Center is a **public**, **read-only** interface for searching and asking questions against a dedicated **global AnythingLLM workspace** (not business-scoped).
+- Not tenant-scoped / not business-scoped.
+- Not an uploader or knowledge manager.
+- Not an account settings surface.
+- Not a publisher or automation engine (no apply, no mutations).
 
-It is designed to be calm, trust-first, and safe-by-default:
-- No tenant access
-- No automation
-- No mutation
+## Boundaries
 
-## What this page IS
-
-- **Search-first discovery**: a single entry point to ask questions and get guidance.
-- **Read-only answers**: responses are generated from **saved OBD documentation and saved knowledge only**.
-- **Global workspace only**: the backend queries a forced workspace slug (server-side env).
-- **Rate-limited**: public endpoint is IP rate-limited to reduce abuse.
-
-## What this page is NOT
-
-- Not a business/tenant-scoped Help Desk
-- Not an admin console
-- Not an uploader / knowledge manager
-- Not an automation engine (no publishing, no “apply”, no “fix it for me”)
-- Not web browsing / not live internet answers
-- Not a settings surface (no brand voice, integrations, accounts, or permissions)
-
-## Data boundaries (fail-closed)
-
-- **Global workspace only**:
-  - Workspace slug is **forced from environment variables** (never accepted from the client).
-  - Requests cannot provide `businessId` or `workspaceSlug`.
-- **No tenant scoping**:
-  - The Help Center endpoint does **not** resolve or use a user identity.
-  - No access to business-scoped knowledge bases.
-- **No uploads / no mutation**:
-  - No write endpoints are exposed for Help Center.
-  - No importing, saving, exporting, applying, publishing, or updating anything.
-
-## Safety notes (public-safe, fail-closed)
-
-- **Workspace slug is forced server-side** (env only). The client cannot select a workspace.
-- **Rate-limited** by IP to reduce abuse (`HELP_CENTER_RATE_LIMIT_PER_MINUTE`).
-- **Strict request schema**: rejects extra fields (no `businessId`, no `workspaceSlug`).
-- **Safe logging**: query text is not logged (logs record **query length only**).
-- **Upstream guardrails**: upstream non-JSON/HTML responses are handled safely and return a generic message.
-
-## Environment variables
-
-```bash
-# AnythingLLM instance origin (no /api path)
-HELP_CENTER_ANYTHINGLLM_BASE_URL=https://anythingllm.example.com
-
-# Help Center query-only key (recommended: read/query permissions only)
-HELP_CENTER_ANYTHINGLLM_API_KEY=...
-
-# Forced global workspace slug (server-side only)
-HELP_CENTER_WORKSPACE_SLUG=obd-help-center
-
-# Public IP rate limit (requests per minute)
-HELP_CENTER_RATE_LIMIT_PER_MINUTE=30
-```
+- **Global workspace only**: the workspace slug is enforced server-side (env); the client cannot set it.
+- **No business data**: no business context is resolved, required, or accepted.
+- **No uploads**: no document upload/import surfaces exist in the app.
+- **No account actions**: no membership, billing, profile, or admin actions.
+- **No publishing**: no “apply”, “send”, “schedule”, or “export” actions.
 
 ## Routes
 
-- Page:
-  - `/help-center`
-- API:
-  - `POST /api/help-center/query`
-    - Request: `{ "query": "string" }`
-    - Response: `{ "answer": "string", "sources"?: any[], "meta"?: { "workspace": "string" } }`
+- `/help-center` (public page)
+- `POST /api/help-center/query`
 
-## Relationship to AI Help Desk
+## Env vars (names only)
 
-- **AI Help Desk (tenant-scoped)**: `/apps/ai-help-desk` uses business→workspace mapping for tenant isolation.
-- **Help Center (global)**: `/help-center` queries a dedicated global workspace for public, read-only discovery.
+- `HELP_CENTER_WORKSPACE_SLUG`
+- `HELP_CENTER_ANYTHINGLLM_BASE_URL`
+- `HELP_CENTER_ANYTHINGLLM_API_KEY`
+- `HELP_CENTER_RATE_LIMIT_PER_MINUTE` (optional)
+
+## Safety guarantees
+
+- **Workspace slug forced from env** (client cannot set).
+- **Fail-closed when config is missing** (safe error responses; no unsafe fallbacks).
+- **Rate limit by IP** on the public endpoint.
+- **Non-JSON/HTML guard + SSE-safe parsing** for upstream AnythingLLM responses.
+- **Version-aware API prefix + route probing** to handle AnythingLLM variants safely.
+
+## Operational note
+
+- Seed docs live in `docs/help-center/**` and are ingested into the global workspace (outside the app).
 

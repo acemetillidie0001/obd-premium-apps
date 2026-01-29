@@ -786,7 +786,7 @@ export async function chatWorkspaceHelpCenter(
   workspaceSlug: string,
   message: string,
   threadId?: string
-): Promise<AnythingLLMChatResponse> {
+): Promise<{ answer: string }> {
   const config = getHelpCenterConfig();
 
   try {
@@ -800,6 +800,7 @@ export async function chatWorkspaceHelpCenter(
       answer?: string;
       response?: string;
       text?: string;
+      message?: string;
       threadId?: string;
       sources?: Array<{
         id?: string;
@@ -808,6 +809,11 @@ export async function chatWorkspaceHelpCenter(
         name?: string;
       }>;
       references?: Array<unknown>;
+      data?: {
+        answer?: string;
+        response?: string;
+        text?: string;
+      };
     }>(
       config,
       workspaceSlug,
@@ -817,7 +823,15 @@ export async function chatWorkspaceHelpCenter(
       cachedEndpoint
     );
 
-    return normalizeChatResponse(data);
+    const answer = normalizeAnythingLLMAnswer(data);
+    if (!answer) {
+      const err: AnythingLLMUpstreamError = new Error("Upstream returned no answer text");
+      err.code = "UPSTREAM_ERROR";
+      err.status = 502;
+      throw err;
+    }
+
+    return { answer };
   } catch (error) {
     if (error instanceof Error && "code" in error && String((error as any).code).startsWith("UPSTREAM_")) {
       throw error;
@@ -835,6 +849,36 @@ export async function chatWorkspaceHelpCenter(
 /**
  * Normalize chat response from various AnythingLLM response shapes
  */
+function normalizeAnythingLLMAnswer(raw: unknown): string | null {
+  const asNonEmptyString = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  if (!raw) return null;
+
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return null;
+    return normalizeAnythingLLMAnswer(raw[0]);
+  }
+
+  if (typeof raw !== "object") return null;
+
+  const obj = raw as Record<string, unknown>;
+  const data = (obj.data && typeof obj.data === "object" ? (obj.data as Record<string, unknown>) : undefined);
+
+  return (
+    asNonEmptyString(obj.answer) ??
+    asNonEmptyString(obj.text) ??
+    asNonEmptyString(obj.response) ??
+    asNonEmptyString(obj.message) ??
+    asNonEmptyString(data?.answer) ??
+    asNonEmptyString(data?.text) ??
+    asNonEmptyString(data?.response)
+  );
+}
+
 function normalizeChatResponse(response: unknown): AnythingLLMChatResponse {
   if (!response || typeof response !== "object") {
     return {

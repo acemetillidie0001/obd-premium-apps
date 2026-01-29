@@ -179,11 +179,7 @@ export async function POST(req: NextRequest) {
       queryLength,
     });
 
-    return NextResponse.json({
-      answer: result.answer,
-      ...(result.sources ? { sources: result.sources } : {}),
-      meta: { workspace: workspaceSlug },
-    });
+    return NextResponse.json({ answer: result.answer });
   } catch (error) {
     // Never leak upstream details to the public client
     const err = error as { code?: unknown; status?: unknown };

@@ -256,6 +256,59 @@ function getHelpCenterConfig(): AnythingLLMConfig {
   });
 }
 
+const helpCenterApiPrefixCache = new Map<string, string>();
+
+/**
+ * Resolve AnythingLLM API prefix for version-adaptive installs.
+ * Tries:
+ * - /api/v1 (v1 API)
+ * - /api (gateway/proxy installs)
+ *
+ * Accepts 200/401/403 (auth may be required) and requires JSON content-type.
+ */
+async function resolveAnythingLLMApiPrefix(baseUrl: string): Promise<string> {
+  const cached = helpCenterApiPrefixCache.get(baseUrl);
+  if (cached) return cached;
+
+  // Help Center-only: uses HELP_CENTER_* credentials and timeout.
+  const config = getHelpCenterConfig();
+
+  const candidates = [
+    { prefix: `${baseUrl}/api/v1`, probe: `${baseUrl}/api/v1/workspaces` },
+    { prefix: `${baseUrl}/api`, probe: `${baseUrl}/api/workspaces` },
+  ] as const;
+
+  for (const c of candidates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+    try {
+      const response = await fetch(c.probe, {
+        method: "GET",
+        headers: buildHeaders(config, { headers: { Accept: "application/json" } }),
+        signal: controller.signal,
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = /application\/json|[+\/]json/i.test(contentType);
+      if (!isJson) continue;
+
+      if (response.status === 200 || response.status === 401 || response.status === 403) {
+        helpCenterApiPrefixCache.set(baseUrl, c.prefix);
+        return c.prefix;
+      }
+    } catch {
+      // Probe failures fall through to next candidate.
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  const err: AnythingLLMUpstreamError = new Error("Unable to resolve AnythingLLM API prefix");
+  err.code = "UPSTREAM_NOT_FOUND";
+  err.status = 404;
+  throw err;
+}
+
 function getEndpointCacheKey(config: AnythingLLMConfig, workspaceSlug: string): string {
   return `${config.apiBase}::${workspaceSlug}`;
 }
@@ -790,48 +843,101 @@ export async function chatWorkspaceHelpCenter(
   const config = getHelpCenterConfig();
 
   try {
-    const cached = endpointCache.get(getEndpointCacheKey(config, workspaceSlug));
-    const cachedEndpoint = cached?.chat;
+    const prefix = await resolveAnythingLLMApiPrefix(config.baseOrigin);
+    const slug = encodeURIComponent(workspaceSlug);
 
-    const body: Record<string, unknown> = { message };
-    if (threadId) body.threadId = threadId;
+    const endpoints: Array<{ url: string; body: Record<string, unknown> }> = [
+      // Prefer retrieval-only query endpoints when available.
+      { url: `${prefix}/workspace/${slug}/query`, body: { query: message } },
+      { url: `${prefix}/workspaces/${slug}/query`, body: { query: message } },
+      // Fallback to chat endpoints for older/alternate installs.
+      {
+        url: `${prefix}/workspace/${slug}/chat`,
+        body: threadId ? { message, threadId } : { message },
+      },
+      {
+        url: `${prefix}/workspaces/${slug}/chat`,
+        body: threadId ? { message, threadId } : { message },
+      },
+    ];
 
-    const { data } = await tryEndpoints<{
-      answer?: string;
-      response?: string;
-      text?: string;
-      message?: string;
-      threadId?: string;
-      sources?: Array<{
-        id?: string;
-        title?: string;
-        snippet?: string;
-        name?: string;
-      }>;
-      references?: Array<unknown>;
-      data?: {
-        answer?: string;
-        response?: string;
-        text?: string;
-      };
-    }>(
-      config,
-      workspaceSlug,
-      "chat",
-      CHAT_ENDPOINT_CANDIDATES,
-      body,
-      cachedEndpoint
-    );
+    let lastError: Error | null = null;
 
-    const answer = normalizeAnythingLLMAnswer(data);
-    if (!answer) {
-      const err: AnythingLLMUpstreamError = new Error("Upstream returned no answer text");
-      err.code = "UPSTREAM_ERROR";
-      err.status = 502;
-      throw err;
+    for (const endpoint of endpoints) {
+      try {
+        const { response, data } = await fetchJson<unknown>(config, endpoint.url, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          body: JSON.stringify(endpoint.body),
+        });
+
+        // Auth failures are definitive; fail closed immediately.
+        if (response.status === 401) {
+          const err: AnythingLLMUpstreamError = new Error("AnythingLLM unauthorized");
+          err.code = "UPSTREAM_UNAUTHORIZED";
+          err.status = 401;
+          throw err;
+        }
+        if (response.status === 403) {
+          const err: AnythingLLMUpstreamError = new Error("AnythingLLM forbidden");
+          err.code = "UPSTREAM_FORBIDDEN";
+          err.status = 403;
+          throw err;
+        }
+
+        // If the route exists but our payload doesn't match (400) or doesn't exist (404),
+        // continue to the next known valid route variant.
+        if (response.status === 400 || response.status === 404) {
+          continue;
+        }
+
+        if (response.status >= 400) {
+          const err: AnythingLLMUpstreamError = new Error(
+            `AnythingLLM error (status ${response.status})`
+          );
+          err.code = "UPSTREAM_ERROR";
+          err.status = response.status;
+          throw err;
+        }
+
+        const answer = normalizeAnythingLLMAnswer(data);
+        if (!answer) {
+          const err: AnythingLLMUpstreamError = new Error("Upstream returned no answer text");
+          err.code = "UPSTREAM_ERROR";
+          err.status = 502;
+          throw err;
+        }
+
+        return { answer };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        lastError = err;
+
+        // If we got a typed upstream auth error, stop immediately (fail closed).
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in (error as any) &&
+          (String((error as any).code) === "UPSTREAM_UNAUTHORIZED" ||
+            String((error as any).code) === "UPSTREAM_FORBIDDEN")
+        ) {
+          throw err;
+        }
+
+        // Non-JSON / invalid JSON responses are rejected; try the next route variant.
+        // (Common when an install routes some paths to a UI server.)
+        if (
+          error &&
+          typeof error === "object" &&
+          "details" in (error as any) &&
+          ((error as any).details?.nonJson || (error as any).details?.invalidJson)
+        ) {
+          continue;
+        }
+      }
     }
 
-    return { answer };
+    throw lastError ?? new Error("AnythingLLM request failed");
   } catch (error) {
     if (error instanceof Error && "code" in error && String((error as any).code).startsWith("UPSTREAM_")) {
       throw error;

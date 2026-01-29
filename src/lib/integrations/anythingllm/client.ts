@@ -237,6 +237,98 @@ async function fetchJson<T>(
 }
 
 /**
+ * Fetch JSON, but tolerate mislabelled content-types.
+ *
+ * Some AnythingLLM deployments/proxies return JSON with `text/plain` (or omit JSON content-type).
+ * For Help Center, we still want to:
+ * - hard-reject HTML (UI server / reverse proxy mistakes)
+ * - accept JSON if it parses successfully
+ */
+async function fetchJsonWithHtmlGuard<T>(
+  config: AnythingLLMConfig,
+  url: string,
+  options: RequestInit = {}
+): Promise<{ response: Response; data: T }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: buildHeaders(config, options),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const contentType = response.headers.get("content-type") || "";
+
+    // If it is JSON by header, use the fast path.
+    const isJsonByHeader = /application\/json|[+\/]json/i.test(contentType);
+    if (isJsonByHeader) {
+      const data = (await response.json()) as T;
+      return { response, data };
+    }
+
+    // Otherwise, read text and apply an explicit HTML guard + JSON parse.
+    const text = await response.text().catch(() => "");
+    const snippet = text.slice(0, 200);
+    const head = text.slice(0, 500);
+
+    const looksLikeHtml =
+      /<!doctype\s+html/i.test(head) ||
+      /<html[\s>]/i.test(head) ||
+      /<head[\s>]/i.test(head) ||
+      /<body[\s>]/i.test(head);
+
+    if (looksLikeHtml) {
+      const err: AnythingLLMUpstreamError = new Error(
+        `AnythingLLM returned HTML response (status ${response.status}). First 200 chars: ${snippet}`
+      );
+      err.code = "UPSTREAM_ERROR";
+      err.status = response.status;
+      err.details = {
+        nonJson: true,
+        html: true,
+        contentType: contentType || null,
+        snippet,
+      };
+      throw err;
+    }
+
+    try {
+      const data = JSON.parse(text) as T;
+      return { response, data };
+    } catch (parseError) {
+      const err: AnythingLLMUpstreamError = new Error(
+        `Invalid JSON response from AnythingLLM (status ${response.status}). First 200 chars: ${snippet}`
+      );
+      err.code = "UPSTREAM_ERROR";
+      err.status = response.status;
+      err.details = {
+        invalidJson: true,
+        contentType: contentType || null,
+        snippet,
+      };
+      apiLogger.error("anythingllm.client.parse-error", {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      });
+      throw err;
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error && error.name === "AbortError") {
+      const err: AnythingLLMUpstreamError = new Error("AnythingLLM request timeout");
+      err.code = "UPSTREAM_TIMEOUT";
+      throw err;
+    }
+
+    throw error;
+  }
+}
+
+/**
  * Get AnythingLLM configuration (AnythingLLM v1 API only)
  */
 function getMainConfig(): AnythingLLMConfig {
@@ -279,18 +371,11 @@ async function resolveAnythingLLMApiPrefix(baseUrl: string): Promise<string> {
   ] as const;
 
   for (const c of candidates) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
-      const response = await fetch(c.probe, {
+      const { response } = await fetchJsonWithHtmlGuard<unknown>(config, c.probe, {
         method: "GET",
-        headers: buildHeaders(config, { headers: { Accept: "application/json" } }),
-        signal: controller.signal,
+        headers: { Accept: "application/json" },
       });
-
-      const contentType = response.headers.get("content-type") || "";
-      const isJson = /application\/json|[+\/]json/i.test(contentType);
-      if (!isJson) continue;
 
       if (response.status === 200 || response.status === 401 || response.status === 403) {
         helpCenterApiPrefixCache.set(baseUrl, c.prefix);
@@ -298,8 +383,6 @@ async function resolveAnythingLLMApiPrefix(baseUrl: string): Promise<string> {
       }
     } catch {
       // Probe failures fall through to next candidate.
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 
@@ -865,7 +948,7 @@ export async function chatWorkspaceHelpCenter(
 
     for (const endpoint of endpoints) {
       try {
-        const { response, data } = await fetchJson<unknown>(config, endpoint.url, {
+        const { response, data } = await fetchJsonWithHtmlGuard<unknown>(config, endpoint.url, {
           method: "POST",
           headers: { Accept: "application/json" },
           body: JSON.stringify(endpoint.body),

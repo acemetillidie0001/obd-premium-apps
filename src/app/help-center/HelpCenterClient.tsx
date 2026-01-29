@@ -22,10 +22,23 @@ function normalizeParagraphs(text: string): string[] {
   return trimmed.split(/\n\s*\n/g).map((p) => p.trim()).filter(Boolean);
 }
 
+function isVeryShortEchoQuery(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (trimmed.length <= 12) return true;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  return words.length <= 2;
+}
+
 export default function HelpCenterClient() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const tipsRef = useRef<HTMLDivElement | null>(null);
+  const answerCardRef = useRef<HTMLDivElement | null>(null);
+  const queryRunIdRef = useRef(0);
+  const currentRunIdRef = useRef<number | null>(null);
+  const lastAutoScrollRunIdRef = useRef<number | null>(null);
+  const lastSubmittedQueryRef = useRef<string>("");
   const [query, setQuery] = useState("");
   const [state, setState] = useState<ViewState>("idle");
   const [answer, setAnswer] = useState<string | null>(null);
@@ -76,6 +89,10 @@ export default function HelpCenterClient() {
     if (!trimmed) return;
 
     setHasSearched(true);
+    lastSubmittedQueryRef.current = trimmed;
+
+    queryRunIdRef.current += 1;
+    currentRunIdRef.current = queryRunIdRef.current;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -127,6 +144,7 @@ export default function HelpCenterClient() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    inputRef.current?.focus();
     const trimmed = query.trim();
     if (!trimmed) return;
     await runQuery(trimmed);
@@ -141,6 +159,9 @@ export default function HelpCenterClient() {
   const clearSearch = () => {
     abortRef.current?.abort();
     abortRef.current = null;
+    lastAutoScrollRunIdRef.current = null;
+    currentRunIdRef.current = null;
+    lastSubmittedQueryRef.current = "";
     setQuery("");
     setAnswer(null);
     setErrorMessage(null);
@@ -149,6 +170,50 @@ export default function HelpCenterClient() {
     setState("idle");
     inputRef.current?.focus();
   };
+
+  useEffect(() => {
+    if (!(state === "success" && answer)) return;
+    const el = answerCardRef.current;
+    if (!el) return;
+
+    const runId = currentRunIdRef.current;
+    if (runId != null && lastAutoScrollRunIdRef.current === runId) return;
+
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const isFullyVisible = rect.top >= 0 && rect.bottom <= viewportHeight;
+
+      if (!isFullyVisible) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      if (runId != null) lastAutoScrollRunIdRef.current = runId;
+    });
+  }, [state, answer]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "/") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isEditable =
+        target?.isContentEditable ||
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select";
+      if (isEditable) return;
+
+      e.preventDefault();
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!isTipsOpen) return;
@@ -178,9 +243,55 @@ export default function HelpCenterClient() {
   const paragraphs = useMemo(() => (answer ? normalizeParagraphs(answer) : []), [answer]);
   const isLoading = state === "loading";
   const isEmpty = state === "idle" && !answer && !errorMessage;
+  const shouldRenderStatusSection =
+    state === "loading" || (state === "error" && errorMessage);
+  const echoQuery = lastSubmittedQueryRef.current;
+  const shouldShowQuestionEcho = echoQuery.length > 0 && !isVeryShortEchoQuery(echoQuery);
   const chipClassName = hasSearched
     ? `${CHIP_CLASSES} opacity-70 hover:opacity-100 transition-opacity`
     : CHIP_CLASSES;
+
+  const renderAnswerBlock = (p: string, idx: number) => {
+    const lines = p
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    const unorderedMatch = lines.map((l) => l.match(/^[-*•]\s+(.*)$/)).filter(Boolean);
+    if (lines.length >= 2 && unorderedMatch.length === lines.length) {
+      const items = unorderedMatch.map((m) => (m as RegExpMatchArray)[1]);
+      return (
+        <ul key={`ul-${idx}`} className="list-disc pl-4 space-y-1.5">
+          {items.map((item, itemIdx) => (
+            <li key={`ul-${idx}-${itemIdx}`} className="whitespace-pre-wrap">
+              {item}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    const orderedMatch = lines.map((l) => l.match(/^\d+\.\s+(.*)$/)).filter(Boolean);
+    if (lines.length >= 2 && orderedMatch.length === lines.length) {
+      const items = orderedMatch.map((m) => (m as RegExpMatchArray)[1]);
+      return (
+        <ol key={`ol-${idx}`} className="list-decimal pl-4 space-y-1.5">
+          {items.map((item, itemIdx) => (
+            <li key={`ol-${idx}-${itemIdx}`} className="whitespace-pre-wrap">
+              {item}
+            </li>
+          ))}
+        </ol>
+      );
+    }
+
+    return (
+      <p key={`p-${idx}`} className="whitespace-pre-wrap">
+        {p}
+      </p>
+    );
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -212,6 +323,12 @@ export default function HelpCenterClient() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onFocus={(e) => {
+                if (answer) e.currentTarget.select();
+              }}
+              onClick={(e) => {
+                if (answer) e.currentTarget.select();
+              }}
               placeholder="Ask a question…"
               className={INPUT_CLASSES}
               autoComplete="off"
@@ -271,71 +388,44 @@ export default function HelpCenterClient() {
             publishing, no changes.
           </p>
 
-          {isEmpty ? (
-            <p className="mt-2 text-xs md:text-sm text-slate-600">
-              Try asking how an app works, what it does (or doesn’t do), or how exports are handled.
-            </p>
-          ) : null}
-
-          <div className="mt-6">
-            <h2 className="text-sm font-semibold text-slate-900">
-              Guided entry prompts
-            </h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {guidedPrompts.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className={chipClassName}
-                  onClick={() => void onQuickAction(prompt)}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Trust &amp; Safety Principles
-          </h2>
-          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
-            <li>No automation</li>
-            <li>No publishing</li>
-            <li>No account changes</li>
-            <li>No browsing the web</li>
-            <li>Based only on saved OBD documentation</li>
-          </ul>
-        </section>
-
-        {/* Results / State */}
-        <section className="mt-8">
-          {isEmpty ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
-              <p className="text-sm text-slate-700">
-                Ask a question to search OBD documentation and saved knowledge.
-                If you’re not sure where to start, try one of the guided prompts
-                above.
+          {!hasSearched && isEmpty ? (
+            <div className="mt-3 space-y-1">
+              <p className="text-xs md:text-sm text-slate-600">Not sure where to start?</p>
+              <p className="text-xs md:text-sm text-slate-600">
+                You can ask how any OBD tool works, what it does (or doesn’t do), or how drafts and
+                exports are handled.
+              </p>
+              <p className="text-xs md:text-sm text-slate-600">
+                This Help Center is read-only — nothing is published, changed, or applied.
+              </p>
+              <p className="text-xs text-slate-500">
+                Try a simple question like: “How do I get started with OBD Premium?”
               </p>
             </div>
           ) : null}
 
-          {state === "loading" ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
-              <p className="text-sm text-slate-700">Searching OBD documentation…</p>
-            </div>
-          ) : null}
-
-          {state === "error" && errorMessage ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
-              <h2 className="text-base font-semibold text-slate-900">Unable to answer</h2>
-              <p className="mt-2 text-sm text-slate-700">{errorMessage}</p>
+          {answer ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  inputRef.current?.focus();
+                  inputRef.current?.select();
+                }}
+                aria-label="Focus the search input to ask another question"
+                className="text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
+              >
+                Ask another question
+              </button>
             </div>
           ) : null}
 
           {state === "success" && answer ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
+            <div
+              ref={answerCardRef}
+              id="answer"
+              className="mt-6 rounded-3xl border border-slate-300 bg-white p-5 md:p-7 shadow-md obdHelpCenterAnswerCard"
+            >
               <div className="flex items-start justify-between gap-4">
                 <h2 className="text-base font-semibold text-slate-900">Answer</h2>
                 <button
@@ -347,20 +437,22 @@ export default function HelpCenterClient() {
                 </button>
               </div>
 
-              <div className="mt-3 space-y-3 text-sm text-slate-700">
+              {shouldShowQuestionEcho ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Answer to: “{echoQuery}”
+                </p>
+              ) : null}
+
+              <div className="mt-3 space-y-4 text-sm text-slate-700 leading-[1.7]">
                 {paragraphs.length > 0 ? (
-                  paragraphs.map((p, idx) => (
-                    <p key={idx} className="leading-relaxed whitespace-pre-wrap">
-                      {p}
-                    </p>
-                  ))
+                  paragraphs.map((p, idx) => renderAnswerBlock(p, idx))
                 ) : (
-                  <p className="leading-relaxed whitespace-pre-wrap">{answer}</p>
+                  <p className="whitespace-pre-wrap">{answer}</p>
                 )}
               </div>
 
-              <footer className="mt-5 pt-4 border-t border-slate-200">
-                <p className="text-xs text-slate-600">
+              <footer className="mt-6 border-t border-slate-200 pt-4">
+                <p className="text-[11px] text-slate-500">
                   This answer is based on OBD documentation and saved knowledge only.
                 </p>
               </footer>
@@ -403,7 +495,70 @@ export default function HelpCenterClient() {
               </div>
             </div>
           ) : null}
+
+          <div className="mt-6">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Guided entry prompts
+            </h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {guidedPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className={chipClassName}
+                  onClick={() => void onQuickAction(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
+
+        <section
+          className={[
+            "mt-6 rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm",
+            hasSearched ? "opacity-85 transition-opacity duration-150" : "",
+          ].join(" ")}
+        >
+          <h2 className="text-sm font-semibold text-slate-900">
+            Trust &amp; Safety Principles
+          </h2>
+          <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-slate-700">
+            <li>No automation</li>
+            <li>No publishing</li>
+            <li>No account changes</li>
+            <li>No browsing the web</li>
+            <li>Based only on saved OBD documentation</li>
+          </ul>
+        </section>
+
+        {shouldRenderStatusSection ? (
+          <section className="mt-8">
+            {isEmpty ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
+                <p className="text-sm text-slate-700">
+                  Ask a question to search OBD documentation and saved knowledge.
+                  If you’re not sure where to start, try one of the guided prompts
+                  above.
+                </p>
+              </div>
+            ) : null}
+
+            {state === "loading" ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
+                <p className="text-sm text-slate-700">Searching OBD documentation…</p>
+              </div>
+            ) : null}
+
+            {state === "error" && errorMessage ? (
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7 shadow-sm">
+                <h2 className="text-base font-semibold text-slate-900">Unable to answer</h2>
+                <p className="mt-2 text-sm text-slate-700">{errorMessage}</p>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="mt-10">
           <h2 className="text-lg font-semibold text-slate-900">Quick Links</h2>

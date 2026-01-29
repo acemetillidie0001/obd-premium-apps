@@ -996,6 +996,12 @@ export async function chatWorkspaceHelpCenter(
         const err = error instanceof Error ? error : new Error(String(error));
         lastError = err;
 
+        // If we reached a JSON response but it contains no answer, that's definitive.
+        // Do not try other routes (they can mask the real failure).
+        if (err.message.includes("Upstream returned no answer text")) {
+          throw err;
+        }
+
         // If we got a typed upstream auth error, stop immediately (fail closed).
         if (
           error &&
@@ -1062,9 +1068,12 @@ function normalizeAnythingLLMAnswer(raw: unknown): string | null {
     asNonEmptyString(obj.text) ??
     asNonEmptyString(obj.response) ??
     asNonEmptyString(obj.message) ??
+    // AnythingLLM v1 chat commonly uses `textResponse`
+    asNonEmptyString(obj.textResponse) ??
     asNonEmptyString(data?.answer) ??
     asNonEmptyString(data?.text) ??
-    asNonEmptyString(data?.response)
+    asNonEmptyString(data?.response) ??
+    asNonEmptyString(data?.textResponse)
   );
 }
 

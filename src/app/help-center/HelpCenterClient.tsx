@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 const INPUT_CLASSES =
   "w-full px-4 py-3 border border-slate-300 bg-white text-slate-900 rounded-2xl focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:border-slate-400 outline-none";
@@ -323,6 +324,11 @@ export default function HelpCenterClient() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                setIsTipsOpen(false);
+                e.currentTarget.blur();
+              }}
               onFocus={(e) => {
                 if (answer) e.currentTarget.select();
               }}
@@ -386,6 +392,15 @@ export default function HelpCenterClient() {
           <p id="help-center-helper" className="mt-3 text-xs md:text-sm text-slate-600">
             This is a read-only discovery layer. No account actions, no
             publishing, no changes.
+          </p>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Looking for tools?{" "}
+            <Link
+              href="/apps"
+              className="text-slate-600 hover:text-slate-800 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
+            >
+              Return to your dashboard.
+            </Link>
           </p>
 
           {!hasSearched && isEmpty ? (
@@ -478,6 +493,10 @@ export default function HelpCenterClient() {
                     type="text"
                     value={followUp}
                     onChange={(e) => setFollowUp(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape") return;
+                      e.currentTarget.blur();
+                    }}
                     placeholder="Ask a follow-up…"
                     className={INPUT_CLASSES}
                     autoComplete="off"

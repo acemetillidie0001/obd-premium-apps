@@ -13,7 +13,7 @@ export default function ReturnToDashboardLink() {
 
   return (
     <Link
-      href="/apps"
+      href="/"
       className="inline-flex items-center gap-2 rounded-full border border-white/70 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 transition whitespace-nowrap"
       aria-label="Return to Dashboard"
     >

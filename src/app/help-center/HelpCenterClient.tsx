@@ -396,7 +396,7 @@ export default function HelpCenterClient() {
           <p className="mt-2 text-[11px] text-slate-500">
             Looking for tools?{" "}
             <Link
-              href="/apps"
+              href="/"
               className="text-slate-600 hover:text-slate-800 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
             >
               Return to your dashboard.

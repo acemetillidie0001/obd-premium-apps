@@ -597,12 +597,12 @@ export default function HelpCenterClient() {
 
         <footer className="mt-14 border-t border-slate-200 pt-8">
           <p className="text-xs md:text-sm text-slate-600">
-            Still need help? Email{" "}
+            Need human help?{" "}
             <a
               className="underline text-slate-700 hover:text-slate-900"
-              href="mailto:support@ocalabusinessdirectory.com"
+              href="https://ocalabusinessdirectory.com/contact/"
             >
-              support@ocalabusinessdirectory.com
+              Visit Support.
             </a>
           </p>
         </footer>

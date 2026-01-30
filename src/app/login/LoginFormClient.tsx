@@ -135,6 +135,65 @@ function LoginForm() {
             ← Back to Directory
           </Link>
         </div>
+
+        {/* Support & Learning (quiet, optional) */}
+        <div className="mt-10">
+          <div className="text-left max-w-2xl mx-auto">
+            <h2 className="text-lg font-semibold text-slate-900 mb-1">
+              Support &amp; Learning
+            </h2>
+            <p className="text-sm text-slate-600">
+              Find answers fast — or reach the team if you need human help.
+            </p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
+            <Link
+              href="/help-center"
+              className="h-full min-h-[180px] bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col transition-shadow transition-colors hover:shadow-md hover:border-slate-300"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-10 w-10 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center">
+                  <span className="text-xl leading-none">🧭</span>
+                </div>
+                <h3 className="text-base font-semibold leading-tight text-slate-900">
+                  Help Center
+                </h3>
+              </div>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Search across OBD tools to understand how things work. Read-only. No changes made.
+              </p>
+              <div className="mt-auto pt-5">
+                <span className="w-full inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium transition-colors border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100">
+                  Open Help Center →
+                </span>
+              </div>
+            </Link>
+
+            <a
+              href="https://ocalabusinessdirectory.com/contact/"
+              className="h-full min-h-[180px] bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col transition-shadow transition-colors hover:shadow-md hover:border-slate-300"
+              rel="noreferrer"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-10 w-10 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center">
+                  <span className="text-xl leading-none">💬</span>
+                </div>
+                <h3 className="text-base font-semibold leading-tight text-slate-900">
+                  Contact Support
+                </h3>
+              </div>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Need help from the team? Send a support request and we’ll point you in the right direction.
+              </p>
+              <div className="mt-auto pt-5">
+                <span className="w-full inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm font-medium transition-colors border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100">
+                  Open Support →
+                </span>
+              </div>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

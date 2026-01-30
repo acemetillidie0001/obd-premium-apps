@@ -138,7 +138,7 @@ export default async function RootLayout({
                       Help Center
                     </Link>
                     <a
-                      href="mailto:support@ocalabusinessdirectory.com"
+                      href="https://ocalabusinessdirectory.com/contact/"
                       className="text-xs md:text-sm text-slate-400 hover:text-[#29c4a9] transition-colors"
                     >
                       Support

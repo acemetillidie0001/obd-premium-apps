@@ -7,6 +7,7 @@ import SessionProvider from "@/components/auth/SessionProvider";
 import UserMenu from "@/components/auth/UserMenu";
 import SignOutButton from "@/components/auth/SignOutButton";
 import ConditionalLayout from "@/components/layout/ConditionalLayout";
+import ReturnToDashboardLink from "@/components/layout/ReturnToDashboardLink";
 import { hasDemoCookie } from "@/lib/demo/demo-cookie";
 import { GlobalDemoToast } from "@/components/obd/GlobalDemoToast";
 import { FetchInterceptorInit } from "@/components/obd/FetchInterceptorInit";
@@ -76,7 +77,7 @@ export default async function RootLayout({
             isDemo={isDemo}
             header={
               <>
-                <header className="w-full bg-[#050816] text-white shadow-md border-b-2 border-[#29c4a9]/60">
+                <header className="sticky top-0 z-50 w-full bg-[#050816] text-white shadow-md border-b-2 border-[#29c4a9]/60">
                   <div className="mx-auto max-w-7xl px-6 py-4">
                     {/* 3-column layout: Left | Middle | Right */}
                     <div className="flex items-center gap-4 flex-wrap">
@@ -100,6 +101,7 @@ export default async function RootLayout({
                       
                       {/* RIGHT: Buttons */}
                       <div className="flex items-center gap-3 flex-shrink-0 ml-auto">
+                        <ReturnToDashboardLink />
                         <Link
                           href="https://ocalabusinessdirectory.com"
                           className="rounded-full bg-gradient-to-r from-[#1EB9A7] to-[#0AC8E9] px-4 py-2 text-sm font-semibold text-white shadow hover:opacity-90 transition whitespace-nowrap"

@@ -128,6 +128,16 @@ export default async function RootLayout({
                     <p className="text-xs md:text-sm">
                       © {currentYear} OBD Business Suite · Ocala Business Directory
                     </p>
+                    <p className="text-xs md:text-sm text-slate-400 max-w-md">
+                      Questions about how things work? Visit the{" "}
+                      <Link
+                        href="/help-center"
+                        className="text-slate-300 hover:text-[#29c4a9] hover:underline focus-visible:underline focus-visible:outline-none transition-colors"
+                      >
+                        Help Center
+                      </Link>
+                      .
+                    </p>
                     <BuildStamp />
                   </div>
                   <div className="flex flex-wrap gap-3 md:justify-end">

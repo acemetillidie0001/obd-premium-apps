@@ -420,6 +420,108 @@ export default function HomeClient() {
                 </div>
               );
             })}
+
+            {/* Support & Learning (quiet, wide cards) */}
+            <div className="space-y-4 pt-10">
+              <div className="max-w-3xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl" style={{ filter: "hue-rotate(140deg) saturate(1.2)" }}>
+                    🧭
+                  </span>
+                  <h2
+                    className={`text-2xl font-bold obd-heading ${
+                      isDark ? "text-white" : "text-slate-900"
+                    }`}
+                  >
+                    Support &amp; Learning
+                  </h2>
+                </div>
+                <p className={`text-sm ${mutedText} obd-soft-text`}>
+                  Find answers fast — or reach the team if you need human help.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Link
+                  href="/help-center"
+                  className={`relative flex h-full min-h-[220px] flex-col justify-between rounded-2xl border px-6 py-6 transition-shadow duration-200 hover:shadow-xl ${
+                    isDark
+                      ? "bg-slate-900/60 border-slate-800 shadow-lg shadow-slate-950/50 text-slate-50 hover:border-slate-700"
+                      : "bg-white border-slate-200 shadow-lg shadow-slate-200/60 text-slate-900 hover:border-slate-300"
+                  }`}
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`h-10 w-10 rounded-xl border flex items-center justify-center ${
+                          isDark ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"
+                        }`}
+                      >
+                        <span className="text-xl leading-none">🧭</span>
+                      </div>
+                      <h3 className={`text-lg font-semibold leading-tight ${isDark ? "text-slate-50" : "text-slate-900"}`}>
+                        Help Center
+                      </h3>
+                    </div>
+                    <p className={`text-sm leading-relaxed ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                      Search across OBD tools to understand how things work. Read-only. No changes made.
+                    </p>
+                  </div>
+
+                  <div className="pt-6">
+                    <span
+                      className={`w-full inline-flex items-center justify-center rounded-full border px-6 py-2 text-sm font-semibold transition-colors ${
+                        isDark
+                          ? "border-slate-700 bg-slate-800/40 text-slate-200 hover:bg-slate-800/55"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Open Help Center →
+                    </span>
+                  </div>
+                </Link>
+
+                <a
+                  href="https://ocalabusinessdirectory.com/contact/"
+                  className={`relative flex h-full min-h-[220px] flex-col justify-between rounded-2xl border px-6 py-6 transition-shadow duration-200 hover:shadow-xl ${
+                    isDark
+                      ? "bg-slate-900/60 border-slate-800 shadow-lg shadow-slate-950/50 text-slate-50 hover:border-slate-700"
+                      : "bg-white border-slate-200 shadow-lg shadow-slate-200/60 text-slate-900 hover:border-slate-300"
+                  }`}
+                  rel="noreferrer"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`h-10 w-10 rounded-xl border flex items-center justify-center ${
+                          isDark ? "bg-slate-800/60 border-slate-700" : "bg-slate-50 border-slate-200"
+                        }`}
+                      >
+                        <span className="text-xl leading-none">💬</span>
+                      </div>
+                      <h3 className={`text-lg font-semibold leading-tight ${isDark ? "text-slate-50" : "text-slate-900"}`}>
+                        Contact Support
+                      </h3>
+                    </div>
+                    <p className={`text-sm leading-relaxed ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+                      Need help from the team? Send a support request and we’ll point you in the right direction.
+                    </p>
+                  </div>
+
+                  <div className="pt-6">
+                    <span
+                      className={`w-full inline-flex items-center justify-center rounded-full border px-6 py-2 text-sm font-semibold transition-colors ${
+                        isDark
+                          ? "border-slate-700 bg-slate-800/40 text-slate-200 hover:bg-slate-800/55"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Open Support →
+                    </span>
+                  </div>
+                </a>
+              </div>
+            </div>
           </div>
         </section>
       </div>

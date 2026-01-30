@@ -451,6 +451,18 @@ export default function AppsLauncherClient() {
             </div>
           </div>
         </section>
+
+        {/* Subtle Help Center discoverability hint (footer microcopy) */}
+        <p className="mt-10 text-sm text-slate-600 dark:text-slate-400 max-w-2xl">
+          Questions about how things work? Visit the{" "}
+          <Link
+            href="/help-center"
+            className="text-slate-700 dark:text-slate-200 hover:underline hover:underline-offset-2 focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none"
+          >
+            Help Center
+          </Link>
+          .
+        </p>
       </div>
     </OBDPageContainer>
   );

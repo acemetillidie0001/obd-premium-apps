@@ -111,47 +111,36 @@ export default function HomeClient() {
                   </div>
                 </Link>
 
-                {/* Billing & Plan Card (COMING SOON) */}
-                <div
-                  className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-shadow duration-200 ${cardBgNonLive} opacity-90`}
+                {/* Billing & Plan Card (ACTIVE) */}
+                <Link
+                  href="/apps/billing-plan"
+                  className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl ${cardBgLive} group`}
                 >
                   <div className="space-y-2">
-                    {/* Badge: Coming Q1 2026 (non-interactive chip) */}
-                    <div className="flex justify-center mb-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] pointer-events-none ${
-                        isDark
-                          ? "border-[#29c4a9]/50 bg-[#29c4a9]/10 text-[#29c4a9]"
-                          : "border-[#29c4a9]/60 bg-[#29c4a9]/10 text-[#29c4a9]"
-                      }`}>
-                        Coming Q1 2026
-                      </span>
-                    </div>
                     <div className="flex items-center justify-center gap-2 text-center w-full">
                       <div className="flex-shrink-0 text-2xl">💳</div>
-                      <h3 className={`text-base font-semibold ${
-                        isDark ? "text-slate-50" : "text-slate-900"
-                      }`}>
+                      <h3
+                        className={`text-base font-semibold ${
+                          isDark ? "text-slate-50" : "text-slate-900"
+                        }`}
+                      >
                         Billing & Plan
                       </h3>
                     </div>
-                    <p className={`mt-1 text-sm ${
-                      isDark ? "text-slate-400" : "text-slate-500"
-                    }`}>
-                      Manage your subscription, invoices, and feature access.
+                    <p
+                      className={`mt-1 text-sm ${
+                        isDark ? "text-slate-300" : "text-slate-600"
+                      }`}
+                    >
+                      View your current plan and available billing options.
                     </p>
                   </div>
                   <div className="mt-4">
-                    <button
-                      type="button"
-                      disabled
-                      aria-disabled="true"
-                      title="Billing management launches Q1 2026"
-                      className="inline-flex items-center justify-center rounded-full border px-6 py-2 text-sm font-semibold cursor-not-allowed pointer-events-none transition-opacity border-[#29c4a9]/50 bg-transparent opacity-80"
-                    >
-                      Coming Soon
-                    </button>
+                    <span className="inline-flex items-center justify-center rounded-full bg-[#29c4a9] px-6 py-2 text-sm font-semibold text-white hover:bg-[#22ad93] shadow-md shadow-[#29c4a9]/40 hover:shadow-lg hover:shadow-[#29c4a9]/60 transition">
+                      Manage Billing
+                    </span>
                   </div>
-                </div>
+                </Link>
 
                 {/* Team & Users Card (ACTIVE) */}
                 <Link

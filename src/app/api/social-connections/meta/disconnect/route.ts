@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 /**
  * POST /api/social-connections/meta/disconnect
@@ -16,9 +17,24 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let userId: string;
+    let businessId: string;
+    try {
+      const ctx = await requirePermission("SOCIAL_AUTO_POSTER", "APPLY");
+      userId = ctx.userId;
+      businessId = ctx.businessId;
+    } catch (err) {
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "AUTH_REQUIRED" : "BUSINESS_CONTEXT_REQUIRED";
+        return NextResponse.json(
+          { ok: false, code, message: err.message },
+          { status: err.status }
+        );
+      }
+      return NextResponse.json(
+        { ok: false, code: "BUSINESS_CONTEXT_REQUIRED", message: "Business context required" },
+        { status: 403 }
+      );
     }
 
     const hasAccess = await hasPremiumAccess();
@@ -29,8 +45,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
-
     // Log disconnect event before deletion
     try {
       // Log disconnect for Facebook if connected
@@ -38,6 +52,10 @@ export async function POST(request: NextRequest) {
         where: {
           userId,
           platform: "facebook",
+          metaJson: {
+            path: ["businessId"],
+            equals: businessId,
+          },
         },
       });
       if (fbConnection) {
@@ -56,6 +74,10 @@ export async function POST(request: NextRequest) {
         where: {
           userId,
           platform: "instagram",
+          metaJson: {
+            path: ["businessId"],
+            equals: businessId,
+          },
         },
       });
       if (igConnection) {
@@ -80,18 +102,17 @@ export async function POST(request: NextRequest) {
         platform: {
           in: ["facebook", "instagram"],
         },
-      },
-    });
-
-    // Delete destination selections
-    await prisma.socialPostingDestination.deleteMany({
-      where: {
-        userId,
-        platform: {
-          in: ["facebook", "instagram"],
+        metaJson: {
+          path: ["businessId"],
+          equals: businessId,
         },
       },
     });
+
+    // Note: SocialPostingDestination is user-scoped in schema (no businessId),
+    // so we intentionally do NOT delete it here to avoid cross-tenant leakage
+    // in multi-membership scenarios. Destinations are treated as invalid unless
+    // a business-scoped connection exists.
 
     // Log disconnect action (no tokens/secrets)
     console.log(`[Meta Disconnect] userId=${userId}, platforms=[facebook,instagram], action=disconnect, status=success`);

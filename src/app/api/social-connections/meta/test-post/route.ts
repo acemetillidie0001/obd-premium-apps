@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import { requireString } from "@/lib/utils/requireString";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { publishToFacebookPage, publishToInstagram } from "@/lib/apps/social-auto-poster/publishers/metaPublisher";
+import { mapMetaApiErrorToStableCode } from "@/lib/apps/social-auto-poster/metaErrorMapper";
 
 /**
  * POST /api/social-connections/meta/test-post
@@ -20,9 +23,24 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let userId: string;
+    let businessId: string;
+    try {
+      const ctx = await requirePermission("SOCIAL_AUTO_POSTER", "APPLY");
+      userId = ctx.userId;
+      businessId = ctx.businessId;
+    } catch (err) {
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "AUTH_REQUIRED" : "BUSINESS_CONTEXT_REQUIRED";
+        return NextResponse.json(
+          { ok: false, code, message: err.message },
+          { status: err.status }
+        );
+      }
+      return NextResponse.json(
+        { ok: false, code: "BUSINESS_CONTEXT_REQUIRED", message: "Business context required" },
+        { status: 403 }
+      );
     }
 
     const hasAccess = await hasPremiumAccess();
@@ -33,7 +51,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check feature flag
+    // Check feature flag (manual-only posture still enforced by review-mode gates elsewhere)
     if (!isMetaPublishingEnabled()) {
       return NextResponse.json(
         { 
@@ -45,36 +63,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
     const body = await request.json().catch(() => ({}));
     const platforms = body.platforms as ("facebook" | "instagram")[] | undefined;
 
-    // Get selected destinations
-    const facebookDestination = await prisma.socialPostingDestination.findUnique({
+    // Prefer business-scoped connections; destinations are optional and user-scoped in schema.
+    const fbConnection = await prisma.socialAccountConnection.findFirst({
       where: {
-        userId_platform: {
-          userId,
-          platform: "facebook",
-        },
+        userId,
+        platform: "facebook",
+        metaJson: { path: ["businessId"], equals: businessId },
       },
     });
-
-    const instagramDestination = await prisma.socialPostingDestination.findUnique({
+    const igConnection = await prisma.socialAccountConnection.findFirst({
       where: {
-        userId_platform: {
-          userId,
-          platform: "instagram",
-        },
+        userId,
+        platform: "instagram",
+        metaJson: { path: ["businessId"], equals: businessId },
       },
     });
 
     // Determine which platforms to attempt
     const attemptFacebook = !platforms || platforms.includes("facebook");
-    const attemptInstagram = (!platforms || platforms.includes("instagram")) && !!instagramDestination;
+    const attemptInstagram = (!platforms || platforms.includes("instagram")) && !!igConnection;
 
     const results: {
-      facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string };
-      instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string };
+      facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string; errorCode?: string };
+      instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string; errorCode?: string };
     } = {};
 
     // Test post caption
@@ -93,23 +107,8 @@ export async function POST(request: NextRequest) {
     const imageUrl = `${appUrl}/obd-logo.png`;
 
     // Attempt Facebook post
-    if (attemptFacebook && facebookDestination) {
+    if (attemptFacebook) {
       try {
-        // Validate and narrow required field (fail-fast with clear error)
-        const providerAccountId = requireString(
-          facebookDestination.selectedAccountId,
-          "facebookDestination.selectedAccountId",
-          "social"
-        );
-
-        const fbConnection = await prisma.socialAccountConnection.findFirst({
-          where: {
-            userId,
-            platform: "facebook",
-            providerAccountId,
-          },
-        });
-
         if (!fbConnection || !fbConnection.accessToken) {
           results.facebook = {
             ok: false,
@@ -127,76 +126,57 @@ export async function POST(request: NextRequest) {
             },
           });
         } else {
-          // Post to Facebook Page (text-only for reliability)
-          const fbPostResponse = await fetch(
-            `https://graph.facebook.com/v21.0/${fbConnection.providerAccountId}/feed`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                message: testCaption,
-                access_token: fbConnection.accessToken,
-              }),
-            }
-          );
+          const fbMeta = (fbConnection.metaJson as Record<string, unknown> | null) || {};
+          const selectedPageId = typeof (fbMeta as any).selectedPageId === "string" ? (fbMeta as any).selectedPageId : "";
+          const selectedPageAccessToken =
+            typeof (fbMeta as any).selectedPageAccessToken === "string" ? (fbMeta as any).selectedPageAccessToken : "";
 
-          if (!fbPostResponse.ok) {
-            const errorData = await fbPostResponse.json().catch(() => ({}));
-            const errorMessage = errorData.error?.message || "Failed to post to Facebook";
-            
-            results.facebook = {
-              ok: false,
-              error: errorMessage,
-            };
-
-            // Log failure
+          if (!selectedPageId || !selectedPageAccessToken) {
+            results.facebook = { ok: false, error: "No Page selected. Select a Facebook Page first.", errorCode: "PAGE_ACCESS_DENIED" };
             await prisma.socialPublishAttempt.create({
               data: {
                 userId,
                 platform: "facebook",
                 kind: "test",
                 status: "failed",
-                errorMessage: errorMessage.substring(0, 500), // Limit length
+                errorMessage: "No Page selected",
+                responseData: { code: "PAGE_ACCESS_DENIED" } as any,
               },
             });
           } else {
-            const postData = await fbPostResponse.json();
-            const postId = postData.id;
+            const pageId = requireString(selectedPageId, "selectedPageId", "social");
+          const fbResult = await publishToFacebookPage({
+            pageId,
+            pageAccessToken: selectedPageAccessToken,
+            message: testCaption,
+          });
 
-            // Fetch permalink
-            let permalink: string | undefined;
-            try {
-              const permalinkResponse = await fetch(
-                `https://graph.facebook.com/v21.0/${postId}?fields=permalink_url&access_token=${fbConnection.accessToken}`
-              );
-              if (permalinkResponse.ok) {
-                const permalinkData = await permalinkResponse.json();
-                permalink = permalinkData.permalink_url;
-              }
-            } catch (err) {
-              // Permalink fetch failed, but post succeeded - continue
-              console.warn("Failed to fetch Facebook permalink:", err);
-            }
-
-            results.facebook = {
-              ok: true,
-              postId,
-              permalink,
-            };
-
-            // Log success
+          if (!fbResult.ok) {
+            const stable = mapMetaApiErrorToStableCode({ code: fbResult.errorCode, message: fbResult.errorMessage });
+            results.facebook = { ok: false, error: stable.message, errorCode: stable.code };
+            await prisma.socialPublishAttempt.create({
+              data: {
+                userId,
+                platform: "facebook",
+                kind: "test",
+                status: "failed",
+                errorMessage: stable.message.substring(0, 500),
+                responseData: { code: stable.code } as any,
+              },
+            });
+          } else {
+            results.facebook = { ok: true, postId: fbResult.providerPostId, permalink: fbResult.permalink };
             await prisma.socialPublishAttempt.create({
               data: {
                 userId,
                 platform: "facebook",
                 kind: "test",
                 status: "success",
-                providerPostId: postId,
-                providerPermalink: permalink,
+                providerPostId: fbResult.providerPostId,
+                providerPermalink: fbResult.permalink,
               },
             });
+          }
           }
         }
       } catch (error) {
@@ -229,23 +209,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Attempt Instagram post (only if Instagram is connected)
-    if (attemptInstagram && instagramDestination) {
+    if (attemptInstagram && igConnection) {
       try {
-        // Validate and narrow required field (fail-fast with clear error)
-        const providerAccountId = requireString(
-          instagramDestination.selectedAccountId,
-          "instagramDestination.selectedAccountId",
-          "social"
-        );
-
-        const igConnection = await prisma.socialAccountConnection.findFirst({
-          where: {
-            userId,
-            platform: "instagram",
-            providerAccountId,
-          },
-        });
-
         if (!igConnection || !igConnection.accessToken) {
           results.instagram = {
             ok: false,
@@ -263,132 +228,39 @@ export async function POST(request: NextRequest) {
             },
           });
         } else {
-          const igBusinessId = igConnection.providerAccountId;
-          const pageAccessToken = igConnection.accessToken;
+          const igBusinessId = requireString(igConnection.providerAccountId, "igConnection.providerAccountId", "social");
+          const igResult = await publishToInstagram({
+            igBusinessId,
+            accessToken: igConnection.accessToken,
+            caption: testCaption,
+            imageUrl,
+          });
 
-          // Step 1: Create media container
-          const createContainerResponse = await fetch(
-            `https://graph.facebook.com/v21.0/${igBusinessId}/media`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                image_url: imageUrl,
-                caption: testCaption,
-                access_token: pageAccessToken,
-              }),
-            }
-          );
-
-          if (!createContainerResponse.ok) {
-            const errorData = await createContainerResponse.json().catch(() => ({}));
-            const errorMessage = errorData.error?.message || "Failed to create Instagram media container";
-            
-            // Check for common errors
-            let userFriendlyError = errorMessage;
-            if (errorMessage.includes("permission") || errorMessage.includes("access")) {
-              userFriendlyError = "Missing permissions or account not linked to Page";
-            } else if (errorMessage.includes("Business") || errorMessage.includes("Creator")) {
-              userFriendlyError = "Instagram account not Business/Creator or not linked to Page";
-            }
-
-            results.instagram = {
-              ok: false,
-              error: userFriendlyError,
-            };
-
-            // Log failure
+          if (!igResult.ok) {
+            const stable = mapMetaApiErrorToStableCode({ code: igResult.errorCode, message: igResult.errorMessage });
+            results.instagram = { ok: false, error: stable.message, errorCode: stable.code };
             await prisma.socialPublishAttempt.create({
               data: {
                 userId,
                 platform: "instagram",
                 kind: "test",
                 status: "failed",
-                errorMessage: userFriendlyError.substring(0, 500),
+                errorMessage: stable.message.substring(0, 500),
+                responseData: { code: stable.code } as any,
               },
             });
           } else {
-            const containerData = await createContainerResponse.json();
-            const creationId = containerData.id;
-
-            // Step 2: Publish the container
-            const publishResponse = await fetch(
-              `https://graph.facebook.com/v21.0/${igBusinessId}/media_publish`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/x-www-form-urlencoded",
-                },
-                body: new URLSearchParams({
-                  creation_id: creationId,
-                  access_token: pageAccessToken,
-                }),
-              }
-            );
-
-            if (!publishResponse.ok) {
-              const errorData = await publishResponse.json().catch(() => ({}));
-              const errorMessage = errorData.error?.message || "Failed to publish Instagram post";
-              
-              results.instagram = {
-                ok: false,
-                error: errorMessage,
-              };
-
-              // Log failure
-              await prisma.socialPublishAttempt.create({
-                data: {
-                  userId,
-                  platform: "instagram",
-                  kind: "test",
-                  status: "failed",
-                  errorMessage: errorMessage.substring(0, 500),
-                },
-              });
-            } else {
-              const publishData = await publishResponse.json();
-              const postId = publishData.id;
-
-              // Fetch permalink from the media object
-              let permalink: string | undefined;
-              try {
-                const permalinkResponse = await fetch(
-                  `https://graph.facebook.com/v21.0/${postId}?fields=permalink&access_token=${pageAccessToken}`
-                );
-                if (permalinkResponse.ok) {
-                  const permalinkData = await permalinkResponse.json();
-                  permalink = permalinkData.permalink;
-                }
-              } catch (err) {
-                // Permalink fetch failed, but post succeeded - continue
-                console.warn("Failed to fetch Instagram permalink:", err);
-              }
-
-              // Fallback to constructing permalink from post ID if API doesn't return it
-              if (!permalink && postId) {
-                permalink = `https://www.instagram.com/p/${postId}/`;
-              }
-
-              results.instagram = {
-                ok: true,
-                postId,
-                permalink,
-              };
-
-              // Log success
-              await prisma.socialPublishAttempt.create({
-                data: {
-                  userId,
-                  platform: "instagram",
-                  kind: "test",
-                  status: "success",
-                  providerPostId: postId,
-                  providerPermalink: permalink,
-                },
-              });
-            }
+            results.instagram = { ok: true, postId: igResult.providerPostId, permalink: igResult.permalink };
+            await prisma.socialPublishAttempt.create({
+              data: {
+                userId,
+                platform: "instagram",
+                kind: "test",
+                status: "success",
+                providerPostId: igResult.providerPostId,
+                providerPermalink: igResult.permalink,
+              },
+            });
           }
         }
       } catch (error) {
@@ -420,10 +292,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const overallOk = Object.values(results).some((r) => r?.ok === true) || Object.keys(results).length === 0;
+    const overallOk =
+      Object.values(results).some((r) => r?.ok === true) || Object.keys(results).length === 0;
+
+    // Reviewer-safe response (single-platform friendly) + backward compatible results map
+    const singlePlatform =
+      platforms && platforms.length === 1 ? platforms[0] : attemptFacebook ? "facebook" : "instagram";
+    const primary = (results as any)?.[singlePlatform];
+    const primaryErrorCode = primary?.errorCode || (primary?.ok === false ? "UNKNOWN" : undefined);
 
     return NextResponse.json({
       ok: overallOk,
+      platform: singlePlatform,
+      postId: primary?.postId,
+      permalinkUrl: primary?.permalink,
+      message: overallOk ? "Test post attempted." : "Test post failed.",
+      error: !overallOk
+        ? {
+            code: primaryErrorCode,
+            message: primary?.error || "Test post failed.",
+          }
+        : undefined,
       results,
     });
   } catch (error) {
@@ -438,7 +327,7 @@ export async function POST(request: NextRequest) {
     }
     
     return NextResponse.json(
-      { error: "Failed to publish test post" },
+      { ok: false, error: "Failed to publish test post" },
       { status: 500 }
     );
   }

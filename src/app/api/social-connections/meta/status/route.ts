@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
+import { isMetaReviewMode } from "@/lib/premium";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requireTenant } from "@/lib/auth/tenant";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 
 /**
  * GET /api/social-connections/meta/status
@@ -12,23 +16,50 @@ import { hasPremiumAccess } from "@/lib/premium";
  */
 export async function GET() {
   try {
-    // Validate auth
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { 
-          ok: false,
-          errorCode: "UNAUTHORIZED",
-          error: "Unauthorized"
-        },
-        { status: 401 }
-      );
-    }
+    const reviewMode = isMetaReviewMode();
+    const publishingEnabled = isMetaPublishingEnabled();
 
     // Check if Meta is configured (env vars) - check early for consistent responses
     const metaAppId = process.env.META_APP_ID;
     const metaAppSecret = process.env.META_APP_SECRET;
     const configured = !!(metaAppId && metaAppSecret);
+
+    // Tenant/business guard (fail closed)
+    let tenant: { userId: string; businessId: string } | null = null;
+    try {
+      const t = await requireTenant();
+      await requirePermission("SOCIAL_AUTO_POSTER", "VIEW");
+      tenant = { userId: t.userId, businessId: t.businessId };
+    } catch (err) {
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "AUTH_REQUIRED" : "BUSINESS_CONTEXT_REQUIRED";
+        return NextResponse.json(
+          {
+            ok: false,
+            configured,
+            metaReviewMode: reviewMode,
+            errorCode: code,
+            errorMessage: err.message,
+            facebook: { connected: false },
+            instagram: { connected: false, available: false },
+          },
+          { status: err.status }
+        );
+      }
+      // Unknown error - return safe structured response
+      return NextResponse.json(
+        {
+          ok: false,
+          configured,
+          metaReviewMode: reviewMode,
+          errorCode: "UNKNOWN_ERROR",
+          errorMessage: "Unable to verify tenant context.",
+          facebook: { connected: false },
+          instagram: { connected: false, available: false },
+        },
+        { status: 200 }
+      );
+    }
 
     // Check premium access
     let hasAccess: boolean;
@@ -40,6 +71,7 @@ export async function GET() {
         {
           ok: false,
           configured,
+          metaReviewMode: reviewMode,
           errorCode: "PREMIUM_CHECK_FAILED",
           error: "Unable to verify premium access"
         },
@@ -52,6 +84,7 @@ export async function GET() {
         { 
           ok: false,
           configured,
+          metaReviewMode: reviewMode,
           errorCode: "PREMIUM_REQUIRED",
           error: "Premium access required"
         },
@@ -59,7 +92,8 @@ export async function GET() {
       );
     }
 
-    const userId = session.user.id;
+    const userId = tenant.userId;
+    const businessId = tenant.businessId;
 
     if (!configured) {
       // Determine which env var is missing for clearer error message
@@ -71,8 +105,15 @@ export async function GET() {
         : "Meta app not configured";
 
       return NextResponse.json({
-        ok: false,
+        ok: true,
+        connected: false,
+        reviewMode,
+        publishingEnabled,
+        token: { present: false, expiresAt: null, scopes: [], isExpired: false },
+        assets: { pageSelected: false, pageId: null, igBusinessId: null },
+        nextSteps: ["Configure META_APP_ID and META_APP_SECRET"],
         configured: false,
+        metaReviewMode: reviewMode,
         configuredReason,
         errorCode: "META_NOT_CONFIGURED",
         facebook: {
@@ -97,6 +138,10 @@ export async function GET() {
         where: {
           userId,
           platform: "facebook",
+          metaJson: {
+            path: ["businessId"],
+            equals: businessId,
+          },
         },
       });
 
@@ -105,6 +150,10 @@ export async function GET() {
         where: {
           userId,
           platform: "instagram",
+          metaJson: {
+            path: ["businessId"],
+            equals: businessId,
+          },
         },
       });
 
@@ -133,6 +182,7 @@ export async function GET() {
       return NextResponse.json({
         ok: false,
         configured: true,
+        metaReviewMode: reviewMode,
         errorCode: "DB_ERROR",
         errorMessage: "Database not ready for social connections.",
         facebook: {
@@ -151,15 +201,55 @@ export async function GET() {
     const basicConnectGranted = facebookMeta?.basicConnectGranted === true;
 
     // Build successful response
+    const tokenExpiresAt = facebookConnection?.tokenExpiresAt ?? null;
+    const isExpired = tokenExpiresAt ? tokenExpiresAt.getTime() <= Date.now() : false;
+    const requestedScopes = Array.isArray((facebookMeta as any)?.scopesRequested)
+      ? ((facebookMeta as any).scopesRequested as string[]).filter((s) => typeof s === "string")
+      : [];
+
+    const connected = !!facebookConnection;
+    const selectedPageId = typeof (facebookMeta as any)?.selectedPageId === "string" ? (facebookMeta as any).selectedPageId : null;
+    const pageId = pagesAccessGranted ? selectedPageId : null;
+    const pageSelected = !!pageId;
+    const igBusinessId = instagramConnection?.providerAccountId ?? null;
+
+    const nextSteps: string[] = [];
+    if (!configured) nextSteps.push("Configure META_APP_ID and META_APP_SECRET");
+    if (!connected) nextSteps.push("Connect Meta");
+    if (connected && isExpired) nextSteps.push("Reconnect (token expired)");
+    if (connected && !pagesAccessGranted) nextSteps.push("Enable Pages Access");
+    if (connected && pagesAccessGranted && !pageSelected) nextSteps.push("Select a Facebook Page");
+    if (connected && pagesAccessGranted && pageSelected && !igBusinessId) nextSteps.push("Link an Instagram Business account to this Page");
+    if (connected && pagesAccessGranted && !publishingEnabled) nextSteps.push("Publishing disabled until META_PUBLISHING_ENABLED=true");
+
     const response = {
+      // Required reviewer-safe shape (Prompt 3)
       ok: true,
+      connected,
+      reviewMode,
+      publishingEnabled,
+      token: {
+        present: !!facebookConnection?.accessToken,
+        expiresAt: tokenExpiresAt ? tokenExpiresAt.toISOString() : null,
+        scopes: requestedScopes,
+        isExpired,
+      },
+      assets: {
+        pageSelected,
+        pageId,
+        igBusinessId,
+      },
+      nextSteps,
+
+      // Backward-compatible fields used by existing UI
       configured,
+      metaReviewMode: reviewMode,
       facebook: {
         connected: !!facebookConnection,
         basicConnectGranted: basicConnectGranted || false,
         pagesAccessGranted: pagesAccessGranted || false,
         pageName: facebookConnection?.displayName || facebookDestination?.selectedDisplayName || undefined,
-        pageId: facebookConnection?.providerAccountId || undefined,
+        pageId: pageId || undefined,
       },
       instagram: {
         connected: !!instagramConnection,
@@ -171,8 +261,10 @@ export async function GET() {
           : "Publishing permissions require additional Meta setup (Advanced Access / App Review)",
       },
       publishing: {
-        enabled: false, // Publishing not enabled yet (requires pages_manage_posts + instagram_content_publish)
-        reasonIfDisabled: "Publishing requires additional Meta setup: Advanced Access and App Review for pages_manage_posts and instagram_content_publish permissions.",
+        enabled: publishingEnabled,
+        reasonIfDisabled: publishingEnabled
+          ? undefined
+          : "Publishing requires additional Meta setup: Advanced Access and App Review for pages_manage_posts and instagram_content_publish permissions.",
       },
     };
 
@@ -188,6 +280,7 @@ export async function GET() {
       {
         ok: false,
         configured,
+        metaReviewMode: isMetaReviewMode(),
         errorCode: "UNKNOWN_ERROR",
         errorMessage: "Unable to load connection status. Please refresh or try again.",
         facebook: {

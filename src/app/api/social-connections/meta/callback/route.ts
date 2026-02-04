@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { hasPremiumAccess } from "@/lib/premium";
 import { cookies } from "next/headers";
 import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
+import { verifyMetaOAuthState } from "@/lib/apps/social-auto-poster/metaOAuthState";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
 
 /**
  * GET /api/social-connections/meta/callback
@@ -41,7 +44,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=premium_required", baseUrl));
     }
 
-    const userId = session.user.id;
+    const sessionUserId = session.user.id;
 
     // Get query parameters
     const searchParams = request.nextUrl.searchParams;
@@ -66,18 +69,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=missing_params", baseUrl));
     }
 
-    // Validate state cookie
-    const cookieStore = await cookies();
-    const storedState = cookieStore.get("meta_oauth_state")?.value;
-    const oauthType = cookieStore.get("meta_oauth_type")?.value; // "pages_access" or undefined
+    // Validate signed state (must carry businessId + userId + flow)
+    const parsedState = verifyMetaOAuthState(state);
+    if (!parsedState) {
+      return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=invalid_state", baseUrl));
+    }
+    if (parsedState.userId !== sessionUserId) {
+      return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=invalid_state", baseUrl));
+    }
 
-    if (!storedState || storedState !== state) {
+    // Enforce tenant context based on derived businessId (fail closed)
+    try {
+      await requirePermission(
+        { requestedBusinessId: parsedState.businessId },
+        "SOCIAL_AUTO_POSTER",
+        "APPLY"
+      );
+    } catch (err) {
+      if (err instanceof BusinessContextError) {
+        return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=unauthorized", baseUrl));
+      }
+      return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=unauthorized", baseUrl));
+    }
+
+    const userId = sessionUserId;
+    const businessId = parsedState.businessId;
+    const flow = parsedState.flow; // "basic" | "pages_access"
+
+    // Optional extra CSRF hardening: compare nonce cookie if present (callback may work without cookies)
+    const cookieStore = await cookies();
+    const storedNonce = cookieStore.get("meta_oauth_nonce")?.value;
+    if (storedNonce && storedNonce !== parsedState.nonce) {
       return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=invalid_state", baseUrl));
     }
 
     // Clear state cookies
-    cookieStore.delete("meta_oauth_state");
-    cookieStore.delete("meta_oauth_type");
+    cookieStore.delete("meta_oauth_nonce");
+    cookieStore.delete("meta_oauth_flow");
 
     // Get environment variables
     const appId = process.env.META_APP_ID;
@@ -119,21 +147,48 @@ export async function GET(request: NextRequest) {
     }
 
     const tokenData = await tokenResponse.json();
-    const userAccessToken = tokenData.access_token;
+    const shortLivedAccessToken = tokenData.access_token as string | undefined;
 
-    if (!userAccessToken) {
+    if (!shortLivedAccessToken) {
       return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=no_access_token", baseUrl));
     }
 
+    // Exchange for long-lived token (deterministic; improves review friendliness)
+    let userAccessToken = shortLivedAccessToken;
+    let tokenExpiresAt: Date | null = null;
+    try {
+      const longResp = await fetch(
+        `https://graph.facebook.com/v21.0/oauth/access_token?` +
+          `grant_type=fb_exchange_token&` +
+          `client_id=${appId}&` +
+          `client_secret=${appSecret}&` +
+          `fb_exchange_token=${encodeURIComponent(shortLivedAccessToken)}`,
+        { method: "GET" }
+      );
+      if (longResp.ok) {
+        const longData = await longResp.json().catch(() => ({} as any));
+        if (typeof longData.access_token === "string" && longData.access_token.length > 0) {
+          userAccessToken = longData.access_token;
+          if (typeof longData.expires_in === "number") {
+            tokenExpiresAt = new Date(Date.now() + longData.expires_in * 1000);
+          }
+        }
+      } else {
+        // Non-fatal: proceed with short-lived token
+        const txt = await longResp.text().catch(() => "");
+        console.warn("[Meta OAuth Callback] Long-lived exchange failed (non-fatal):", txt.substring(0, 200));
+      }
+    } catch (err) {
+      console.warn("[Meta OAuth Callback] Long-lived exchange exception (non-fatal):", err instanceof Error ? err.message : String(err));
+    }
+
     // Determine if this is a pages access request or basic connect
-    const isPagesAccessRequest = oauthType === "pages_access";
+    const isPagesAccessRequest = flow === "pages_access";
 
     if (isPagesAccessRequest) {
       // Stage 2: Pages Access Request
-      // Fetch user's pages with the new token
-      const pagesResponse = await fetch(
-        `https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}`
-      );
+      // Fetch user's pages with the new token (verification only; selection happens via /meta/pages + /meta/select-page)
+      const pagesResponse = await fetch(`https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}`);
 
       if (!pagesResponse.ok) {
         const errorText = await pagesResponse.text();
@@ -148,66 +203,43 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=no_pages", baseUrl));
       }
 
-      // Select the first page that has a page access token
-      let selectedPage = null;
-      for (const page of pages) {
-        if (page.access_token) {
-          selectedPage = page;
-          break;
-        }
-      }
-
-      if (!selectedPage || !selectedPage.access_token) {
-        return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=no_page_token", baseUrl));
-      }
-
       // Update existing Facebook connection with pages access
       const existingConnection = await prisma.socialAccountConnection.findFirst({
         where: {
           userId,
           platform: "facebook",
+          metaJson: {
+            path: ["businessId"],
+            equals: businessId,
+          },
         },
       });
 
-      if (existingConnection) {
-        // Update with page token and pages access info
-        await prisma.socialAccountConnection.update({
-          where: { id: existingConnection.id },
-          data: {
-            accessToken: selectedPage.access_token, // Page access token (long-lived)
-            providerAccountId: selectedPage.id,
-            displayName: selectedPage.name || "Facebook Page",
-            metaJson: {
-              ...(existingConnection.metaJson as Record<string, unknown> || {}),
-              pageId: selectedPage.id,
-              pageName: selectedPage.name,
-              category: selectedPage.category,
-              pagesAccessGranted: true,
-              pagesAccessGrantedAt: new Date().toISOString(),
-            },
-          },
-        });
-
-        // Update or create Facebook destination selection
-        await prisma.socialPostingDestination.upsert({
-          where: {
-            userId_platform: {
-              userId,
-              platform: "facebook",
-            },
-          },
-          create: {
-            userId,
-            platform: "facebook",
-            selectedAccountId: selectedPage.id,
-            selectedDisplayName: selectedPage.name || "Facebook Page",
-          },
-          update: {
-            selectedAccountId: selectedPage.id,
-            selectedDisplayName: selectedPage.name || "Facebook Page",
-          },
-        });
+      if (!existingConnection) {
+        return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=invalid_state", baseUrl));
       }
+
+      // Update with pages access info (keep user token; do not auto-select a page)
+      const existingMeta = (existingConnection.metaJson as Record<string, unknown> | null) || {};
+      const prevScopes = Array.isArray((existingMeta as any).scopesRequested)
+        ? ((existingMeta as any).scopesRequested as unknown[]).filter((s) => typeof s === "string") as string[]
+        : [];
+      const nextScopes = Array.from(new Set([...prevScopes, "pages_show_list", "pages_read_engagement"]));
+
+      await prisma.socialAccountConnection.update({
+        where: { id: existingConnection.id },
+        data: {
+          accessToken: userAccessToken, // user long-lived token (preferred)
+          tokenExpiresAt,
+          metaJson: {
+            ...existingMeta,
+            businessId,
+            pagesAccessGranted: true,
+            pagesAccessGrantedAt: new Date().toISOString(),
+            scopesRequested: nextScopes,
+          },
+        },
+      });
 
       // Redirect back to setup page with pages access success
       return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?pages_access=1", baseUrl));
@@ -240,31 +272,33 @@ export async function GET(request: NextRequest) {
           platform: "facebook",
           providerAccountId: userInfo.id,
           displayName: userInfo.name || "Facebook Account",
-          accessToken: userAccessToken, // User access token (basic)
-          tokenExpiresAt: tokenData.expires_in 
-            ? new Date(Date.now() + tokenData.expires_in * 1000)
-            : null,
+          accessToken: userAccessToken, // user access token (prefer long-lived)
+          tokenExpiresAt,
           refreshToken: null,
           metaJson: {
+            businessId,
             userId: userInfo.id,
             userName: userInfo.name,
             basicConnectGranted: true,
             basicConnectGrantedAt: new Date().toISOString(),
             pagesAccessGranted: false,
+            scopesRequested: ["public_profile"],
+            connectedAt: new Date().toISOString(),
           },
         },
         update: {
           displayName: userInfo.name || "Facebook Account",
           accessToken: userAccessToken,
-          tokenExpiresAt: tokenData.expires_in 
-            ? new Date(Date.now() + tokenData.expires_in * 1000)
-            : null,
+          tokenExpiresAt,
           metaJson: {
+            businessId,
             userId: userInfo.id,
             userName: userInfo.name,
             basicConnectGranted: true,
             basicConnectGrantedAt: new Date().toISOString(),
             pagesAccessGranted: false,
+            scopesRequested: ["public_profile"],
+            connectedAt: new Date().toISOString(),
           },
         },
       });

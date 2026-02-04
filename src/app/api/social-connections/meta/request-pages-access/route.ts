@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { hasPremiumAccess } from "@/lib/premium";
 import { cookies } from "next/headers";
-import { randomBytes } from "crypto";
 import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 import { prisma } from "@/lib/prisma";
+import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
+import { requirePermission } from "@/lib/auth/permissions.server";
+import { createMetaOAuthState } from "@/lib/apps/social-auto-poster/metaOAuthState";
 
 /**
  * POST /api/social-connections/meta/request-pages-access
@@ -20,9 +21,22 @@ export async function POST(request: NextRequest) {
   if (demoBlock) return demoBlock;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    let ctx: { userId: string; businessId: string } | null = null;
+    try {
+      const context = await requirePermission("SOCIAL_AUTO_POSTER", "APPLY");
+      ctx = { userId: context.userId, businessId: context.businessId };
+    } catch (err) {
+      if (err instanceof BusinessContextError) {
+        const code = err.status === 401 ? "AUTH_REQUIRED" : "BUSINESS_CONTEXT_REQUIRED";
+        return NextResponse.json(
+          { ok: false, code, message: err.message },
+          { status: err.status }
+        );
+      }
+      return NextResponse.json(
+        { ok: false, code: "BUSINESS_CONTEXT_REQUIRED", message: "Business context required" },
+        { status: 403 }
+      );
     }
 
     const hasAccess = await hasPremiumAccess();
@@ -39,17 +53,21 @@ export async function POST(request: NextRequest) {
 
     if (!appId || !appSecret) {
       return NextResponse.json(
-        { error: "Meta connection not configured" },
+        { ok: false, code: "META_ENV_MISSING", message: "Meta connection not configured (META_APP_ID/META_APP_SECRET missing)" },
         { status: 500 }
       );
     }
 
     // Verify user has basic Facebook connection first
-    const userId = session.user.id;
+    const userId = ctx.userId;
     const basicConnection = await prisma.socialAccountConnection.findFirst({
       where: {
         userId,
         platform: "facebook",
+        metaJson: {
+          path: ["businessId"],
+          equals: ctx.businessId,
+        },
       },
     });
 
@@ -73,20 +91,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate state token for CSRF protection
-    const state = randomBytes(32).toString("hex");
-    
-    // Store state in signed cookie with type indicator
+    // Create signed state token (includes businessId, time-limited)
+    const { state, nonce } = createMetaOAuthState({
+      userId: ctx.userId,
+      businessId: ctx.businessId,
+      flow: "pages_access",
+    });
+
+    // Store nonce + flow in httpOnly cookies (optional extra CSRF hardening)
     const cookieStore = await cookies();
-    cookieStore.set("meta_oauth_state", state, {
+    cookieStore.set("meta_oauth_nonce", nonce, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       maxAge: 600, // 10 minutes
       path: "/",
     });
-    // Store that this is a pages access request
-    cookieStore.set("meta_oauth_type", "pages_access", {
+    cookieStore.set("meta_oauth_flow", "pages_access", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -122,7 +143,8 @@ export async function POST(request: NextRequest) {
     // Stage 2: Request Pages access scopes only
     // pages_show_list: List pages user manages
     // pages_read_engagement: Read page info
-    const scopes = ["pages_show_list", "pages_read_engagement"].join(",");
+    const scopesRequested = ["pages_show_list", "pages_read_engagement"];
+    const scopes = scopesRequested.join(",");
 
     const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
     authUrl.searchParams.set("client_id", appId);
@@ -135,11 +157,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       authUrl: authUrl.toString(),
+      scopesRequested,
     });
   } catch (error) {
     console.error("Error initiating Meta Pages access request:", error);
     return NextResponse.json(
-      { error: "Failed to initiate pages access request" },
+      { ok: false, code: "REQUEST_FAILED", message: "Failed to initiate pages access request" },
       { status: 500 }
     );
   }

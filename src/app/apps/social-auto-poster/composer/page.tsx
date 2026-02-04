@@ -18,6 +18,7 @@ import { parseSocialAutoPosterHandoff, normalizePlatform, type SocialAutoPosterH
 import { parseSocialHandoff } from "@/lib/apps/social-auto-poster/handoff/parseSocialHandoff";
 import { clearHandoff, readHandoff } from "@/lib/obd-framework/social-handoff-transport";
 import { getSourceDisplayName, type SocialComposerHandoffPayload } from "@/lib/apps/social-auto-poster/handoff/socialHandoffTypes";
+import { mapMetaError } from "@/lib/apps/social-auto-poster/metaErrorMapper";
 import PopularCustomerQuestionsPanel from "./components/PopularCustomerQuestionsPanel";
 import { flags } from "@/lib/flags";
 import ConnectionStatusBadge from "@/components/obd/ConnectionStatusBadge";
@@ -32,6 +33,12 @@ import {
   clearHandoffParamsFromUrl,
   replaceUrlWithoutReload,
 } from "@/lib/utils/clear-handoff-params";
+import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import {
+  SMPC_HANDOFF_KEY,
+  isSmpcHandoffPayloadV1,
+  type SmpcToSocialAutoPosterHandoffPayloadV1,
+} from "@/lib/apps/social-media-post-creator/handoff";
 // Note: computeContentFingerprint is server-only, so we use a simple client-side duplicate check
 import OBDToast from "@/components/obd/OBDToast";
 import type {
@@ -175,6 +182,42 @@ function clearAiLogoSenderKey(): void {
   }
 }
 
+function readSmpcHandoffFromSessionStorage():
+  | { payload: SmpcToSocialAutoPosterHandoffPayloadV1; expired: false }
+  | { payload: null; expired: true }
+  | { payload: null; expired: false } {
+  if (typeof window === "undefined") return { payload: null, expired: false };
+  try {
+    const raw = sessionStorage.getItem(SMPC_HANDOFF_KEY);
+    if (!raw) return { payload: null, expired: false };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isSmpcHandoffPayloadV1(parsed)) return { payload: null, expired: false };
+
+    const expiresAt = parsed.createdAt + parsed.ttlMs;
+    if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
+      try {
+        sessionStorage.removeItem(SMPC_HANDOFF_KEY);
+      } catch {
+        // ignore
+      }
+      return { payload: null, expired: true };
+    }
+
+    return { payload: parsed, expired: false };
+  } catch {
+    return { payload: null, expired: false };
+  }
+}
+
+function clearSmpcSenderKey(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(SMPC_HANDOFF_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 function normalizeAiLogoHandoffItems(
   payload: AILogoGeneratorDraftHandoffV1 | AiLogoToSocialHandoffPayloadV1
 ): Array<{
@@ -278,6 +321,12 @@ function SocialAutoPosterComposerPageContent() {
   const [connectionStatus, setConnectionStatus] = useState<{
     ok?: boolean;
     configured?: boolean;
+    metaReviewMode?: boolean;
+    assets?: {
+      pageId?: string | null;
+      igBusinessId?: string | null;
+    };
+    nextSteps?: string[];
     errorCode?: string;
     errorMessage?: string;
     facebook?: {
@@ -288,6 +337,15 @@ function SocialAutoPosterComposerPageContent() {
       enabled?: boolean;
       reasonIfDisabled?: string;
     };
+  } | null>(null);
+
+  const reviewModeEnabled = connectionStatus?.metaReviewMode === true;
+  const reviewReady = !!connectionStatus?.assets?.pageId && !!connectionStatus?.assets?.igBusinessId;
+  const [metaTestPostLoading, setMetaTestPostLoading] = useState(false);
+  const [metaTestPostError, setMetaTestPostError] = useState<string | null>(null);
+  const [metaTestPostResults, setMetaTestPostResults] = useState<{
+    facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string };
+    instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string };
   } | null>(null);
 
   // Handoff state
@@ -315,6 +373,9 @@ function SocialAutoPosterComposerPageContent() {
   const [aiLogoHandoff, setAiLogoHandoff] = useState<
     AILogoGeneratorDraftHandoffV1 | AiLogoToSocialHandoffPayloadV1 | null
   >(null);
+  const [smpcHandoff, setSmpcHandoff] = useState<SmpcToSocialAutoPosterHandoffPayloadV1 | null>(null);
+  const [smpcHandoffModalOpen, setSmpcHandoffModalOpen] = useState(false);
+  const [smpcPreviewExpanded, setSmpcPreviewExpanded] = useState<Record<string, boolean>>({});
   const [draftMedia, setDraftMedia] = useState<DraftMediaItem[]>([]);
 
   const isLocalHiringAssistantHandoff = (payload: unknown): payload is LocalHiringAssistantDraftHandoff => {
@@ -381,6 +442,33 @@ function SocialAutoPosterComposerPageContent() {
           const senderKeyResult = readAiLogoSenderHandoffFromSessionStorage();
           if (senderKeyResult.payload) {
             setAiLogoHandoff(senderKeyResult.payload);
+            handoffProcessed.current = true;
+            setHandoffImportCompleted(true);
+            return;
+          }
+        }
+
+        // SMPC (Social Media Post Creator) handoff (sessionStorage + TTL; apply/dismiss modal)
+        // Only attempt read when explicit hint flag is present.
+        if (searchParams.get("handoff") === "smpc") {
+          const senderKeyResult = readSmpcHandoffFromSessionStorage();
+          if (senderKeyResult.payload) {
+            // Tenant guard: must match current business context (deny-by-default).
+            const currentBusinessId = resolveBusinessId(searchParams);
+            if (!currentBusinessId || senderKeyResult.payload.businessId !== currentBusinessId) {
+              clearSmpcSenderKey();
+              handoffProcessed.current = true;
+              setHandoffImportCompleted(true);
+              return;
+            }
+            setSmpcHandoff(senderKeyResult.payload);
+            setSmpcHandoffModalOpen(true);
+            handoffProcessed.current = true;
+            setHandoffImportCompleted(true);
+            return;
+          }
+          if (senderKeyResult.expired) {
+            // Expired; already cleared. Keep quiet.
             handoffProcessed.current = true;
             setHandoffImportCompleted(true);
             return;
@@ -563,6 +651,232 @@ function SocialAutoPosterComposerPageContent() {
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // SMPC (Social Media Post Creator) handoff helpers (Tier 5C receiver: draft-only, additive-only)
+  const smpcTenantGuard = useMemo(() => {
+    const currentBusinessId = resolveBusinessId(searchParams);
+    const payloadBusinessId = (smpcHandoff?.businessId ?? "").trim();
+    const businessIdMissing = !currentBusinessId || !payloadBusinessId;
+    const businessIdMismatch =
+      !!payloadBusinessId && !!currentBusinessId && payloadBusinessId !== currentBusinessId;
+    return { currentBusinessId, payloadBusinessId, businessIdMissing, businessIdMismatch };
+  }, [smpcHandoff?.businessId, searchParams]);
+
+  const normalizeSmpcPlatform = (platform: string): SocialPlatform | null => {
+    const normalized = platform.toLowerCase().trim();
+    if (normalized === "facebook" || normalized.includes("facebook")) return "facebook";
+    if (normalized === "instagram" || normalized.includes("instagram")) return "instagram";
+    if (normalized === "x" || normalized.includes("twitter") || normalized.includes("x ")) return "x";
+    if (normalized.includes("google")) return "googleBusiness";
+    return null;
+  };
+
+  type SmpcModalPlatformKey =
+    | "facebook"
+    | "instagram"
+    | "instagram_carousel"
+    | "x"
+    | "google_business_profile"
+    | "linkedin"
+    | "tiktok"
+    | "youtube_shorts"
+    | "pinterest"
+    | "other";
+
+  const SMPC_MODAL_PLATFORM_ORDER: SmpcModalPlatformKey[] = [
+    "facebook",
+    "instagram",
+    "instagram_carousel",
+    "x",
+    "google_business_profile",
+    "linkedin",
+    "tiktok",
+    "youtube_shorts",
+    "pinterest",
+    "other",
+  ];
+
+  const smpcModalPlatformLabel = (key: SmpcModalPlatformKey): string => {
+    switch (key) {
+      case "facebook":
+        return "Facebook";
+      case "instagram":
+        return "Instagram";
+      case "instagram_carousel":
+        return "Instagram (Carousel)";
+      case "x":
+        return "X";
+      case "google_business_profile":
+        return "Google Business Profile";
+      case "linkedin":
+        return "LinkedIn";
+      case "tiktok":
+        return "TikTok";
+      case "youtube_shorts":
+        return "YouTube Shorts";
+      case "pinterest":
+        return "Pinterest";
+      default:
+        return "Other";
+    }
+  };
+
+  const normalizeSmpcModalPlatform = (input: string): { key: SmpcModalPlatformKey; label: string } => {
+    const original = (input ?? "").trim();
+    if (!original) return { key: "other", label: "" };
+
+    const cleaned = original.toLowerCase().replace(/\s+/g, " ").trim();
+    const underscored = cleaned.replace(/\s/g, "_");
+
+    const keyFromCanonical = (k: string): SmpcModalPlatformKey | null => {
+      if (k === "facebook") return "facebook";
+      if (k === "instagram") return "instagram";
+      if (k === "instagram_carousel") return "instagram_carousel";
+      if (k === "x") return "x";
+      if (k === "google_business_profile") return "google_business_profile";
+      if (k === "linkedin") return "linkedin";
+      if (k === "tiktok") return "tiktok";
+      if (k === "youtube_shorts") return "youtube_shorts";
+      if (k === "pinterest") return "pinterest";
+      if (k === "other") return "other";
+      return null;
+    };
+
+    const direct = keyFromCanonical(cleaned) ?? keyFromCanonical(underscored);
+    if (direct) return { key: direct, label: smpcModalPlatformLabel(direct) };
+
+    if (cleaned === "fb") return { key: "facebook", label: smpcModalPlatformLabel("facebook") };
+    if (cleaned === "ig") return { key: "instagram", label: smpcModalPlatformLabel("instagram") };
+    if (cleaned === "twitter") return { key: "x", label: smpcModalPlatformLabel("x") };
+    if (cleaned === "instagram (carousel)" || cleaned === "instagram carousel") {
+      return { key: "instagram_carousel", label: smpcModalPlatformLabel("instagram_carousel") };
+    }
+    if (
+      cleaned === "gbp" ||
+      cleaned === "google business" ||
+      cleaned === "google business profile" ||
+      cleaned === "google business listing"
+    ) {
+      return { key: "google_business_profile", label: smpcModalPlatformLabel("google_business_profile") };
+    }
+
+    if (cleaned.includes("facebook")) return { key: "facebook", label: smpcModalPlatformLabel("facebook") };
+    if (cleaned.includes("instagram")) return { key: "instagram", label: smpcModalPlatformLabel("instagram") };
+    if (cleaned.includes("twitter") || cleaned.includes("x")) return { key: "x", label: smpcModalPlatformLabel("x") };
+    if (cleaned.includes("google")) return { key: "google_business_profile", label: smpcModalPlatformLabel("google_business_profile") };
+
+    return { key: "other", label: original };
+  };
+
+  const smpcImportPreview = useMemo(() => {
+    const items = smpcHandoff?.items ?? [];
+    const existingKeys = new Set(previews.map((p) => `${p.platform}:${(p.content || "").trim()}`));
+    const seenIncoming = new Set<string>();
+
+    const incoming: Array<{
+      platform: SocialPlatform;
+      platformKey: SmpcModalPlatformKey;
+      platformLabel: string;
+      text: string;
+    }> = [];
+
+    let duplicatesSkipped = 0;
+    let invalidSkipped = 0;
+
+    for (const item of items) {
+      const platform = normalizeSmpcPlatform(item.platform);
+      const text = (item.text || "").trim();
+      const modalPlatform = normalizeSmpcModalPlatform(item.platform);
+      if (!platform || !text) {
+        invalidSkipped++;
+        continue;
+      }
+
+      const key = `${platform}:${text}`;
+      if (existingKeys.has(key) || seenIncoming.has(key)) {
+        duplicatesSkipped++;
+        continue;
+      }
+
+      seenIncoming.add(key);
+      incoming.push({
+        platform,
+        platformKey: modalPlatform.key,
+        platformLabel: modalPlatform.label,
+        text,
+      });
+    }
+
+    return { incoming, duplicatesSkipped, invalidSkipped };
+  }, [smpcHandoff?.items, previews]);
+
+  useEffect(() => {
+    if (!smpcHandoffModalOpen) return;
+    setSmpcPreviewExpanded({});
+  }, [smpcHandoffModalOpen, smpcHandoff?.createdAt]);
+
+  const applySmpcHandoff = () => {
+    if (!smpcHandoff) return;
+    const { businessIdMissing, businessIdMismatch } = smpcTenantGuard;
+    if (businessIdMissing || businessIdMismatch) return;
+
+    const imported = smpcImportPreview.incoming.length;
+    const skipped = smpcImportPreview.duplicatesSkipped + smpcImportPreview.invalidSkipped;
+
+    const incoming: SocialPostPreview[] = [];
+    for (const item of smpcImportPreview.incoming) {
+      const platform = item.platform;
+      const text = item.text;
+
+      const maxCharacters = PLATFORMS.find((p) => p.value === platform)?.maxChars ?? 280;
+      const characterCount = text.length;
+      const isValid = characterCount <= maxCharacters;
+
+      incoming.push({
+        platform,
+        content: text,
+        characterCount,
+        maxCharacters,
+        isValid,
+        preview: text,
+        reason: "Imported from Social Media Post Creator (draft-only)",
+      });
+    }
+
+    if (incoming.length) {
+      setPreviews((prev) => [...prev, ...incoming]);
+    }
+
+    // Consume handoff + URL cleanup (idempotent)
+    clearSmpcSenderKey();
+    setSmpcHandoff(null);
+    setSmpcHandoffModalOpen(false);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+
+    if (imported > 0) {
+      showToast(
+        skipped > 0
+          ? `Imported ${imported} draft${imported !== 1 ? "s" : ""} (Skipped ${skipped})`
+          : `Imported ${imported} draft${imported !== 1 ? "s" : ""}`
+      );
+    } else {
+      showToast("No new drafts to import.");
+    }
+  };
+
+  const dismissSmpcHandoff = () => {
+    clearSmpcSenderKey();
+    setSmpcHandoff(null);
+    setSmpcHandoffModalOpen(false);
+    if (typeof window !== "undefined") {
+      const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
+      replaceUrlWithoutReload(cleanUrl);
+    }
+    showToast("Import dismissed.");
   };
 
   // AI Logo Generator handoff helpers (Tier 5C receiver: apply-only / conservative)
@@ -1269,6 +1583,66 @@ function SocialAutoPosterComposerPageContent() {
     }
   };
 
+  const handleRunMetaTestPost = async () => {
+    setMetaTestPostLoading(true);
+    setMetaTestPostError(null);
+    setMetaTestPostResults(null);
+    try {
+      // Check status first for deterministic reviewer guidance
+      const statusRes = await fetch("/api/social-connections/meta/status");
+      const statusData = await statusRes.json().catch(() => ({}));
+      if (!statusRes.ok) {
+        setMetaTestPostError(statusData?.errorMessage || statusData?.message || "Unable to verify Meta connection status.");
+        return;
+      }
+      const nextSteps = Array.isArray(statusData?.nextSteps) ? (statusData.nextSteps as string[]) : [];
+      if (nextSteps.length > 0) {
+        setMetaTestPostError(`Next steps: ${nextSteps.join(" · ")}`);
+        return;
+      }
+
+      const res = await fetch("/api/social-connections/meta/test-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          data?.message ||
+          data?.error ||
+          "Unable to run test post. Please check connection and try again.";
+        setMetaTestPostError(message);
+        return;
+      }
+
+      const results = (data.results || data.result || {}) as Record<string, { ok?: boolean; error?: string; postId?: string; permalink?: string }>;
+      // Map provider-ish errors to safe UI text when possible
+      if (results.facebook && results.facebook.ok === false && results.facebook.error) {
+        results.facebook.error = mapMetaError(null, results.facebook.error).message;
+      }
+      if (results.instagram && results.instagram.ok === false && results.instagram.error) {
+        results.instagram.error = mapMetaError(null, results.instagram.error).message;
+      }
+
+      setMetaTestPostResults({
+        facebook: results.facebook
+          ? { ok: !!results.facebook.ok, postId: results.facebook.postId, permalink: results.facebook.permalink, error: results.facebook.error }
+          : undefined,
+        instagram: results.instagram
+          ? { ok: !!results.instagram.ok, postId: results.instagram.postId, permalink: results.instagram.permalink, error: results.instagram.error }
+          : undefined,
+      });
+    } catch (err) {
+      setMetaTestPostError(err instanceof Error ? err.message : "Failed to run Meta test post");
+    } finally {
+      setMetaTestPostLoading(false);
+      // Refresh status after attempting (non-blocking)
+      loadConnectionStatus();
+    }
+  };
+
   // Load connection status on mount
   useEffect(() => {
     loadConnectionStatus();
@@ -1446,6 +1820,69 @@ function SocialAutoPosterComposerPageContent() {
         }
       })()}
 
+      {/* Meta Review Mode Callout + Manual Test CTA */}
+      {reviewModeEnabled && (
+        <OBDPanel isDark={isDark} className="mb-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div className={`font-semibold ${themeClasses.headingText}`}>Review Mode: Manual publish only</div>
+              <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>
+                Scheduling is disabled. Use the button below to run a manual Meta test post.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRunMetaTestPost}
+              disabled={metaTestPostLoading || !reviewReady}
+              className={`${SUBMIT_BUTTON_CLASSES} ${metaTestPostLoading ? "opacity-70 cursor-not-allowed" : ""}`}
+            >
+              {metaTestPostLoading ? "Running…" : "Run Meta Test Post"}
+            </button>
+          </div>
+          {!reviewReady && Array.isArray(connectionStatus?.nextSteps) && connectionStatus!.nextSteps!.length > 0 && (
+            <div className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+              Next steps: {connectionStatus!.nextSteps!.join(" · ")}
+            </div>
+          )}
+
+          {metaTestPostError && (
+            <div className={`mt-4 ${getErrorPanelClasses(isDark)}`}>
+              <div className="font-medium">Test post failed</div>
+              <div className="text-sm mt-1">{metaTestPostError}</div>
+            </div>
+          )}
+
+          {metaTestPostResults && (
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {(["facebook", "instagram"] as const).map((platform) => {
+                const r = metaTestPostResults?.[platform];
+                if (!r) return null;
+                return (
+                  <div
+                    key={platform}
+                    className={`p-3 rounded-xl border ${
+                      isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${themeClasses.headingText}`}>
+                      {platform === "facebook" ? "Facebook" : "Instagram"}: {r.ok ? "Success" : "Failed"}
+                    </div>
+                    {r.permalink ? (
+                      <div className="text-sm mt-1">
+                        <a className="text-[#29c4a9] hover:underline" href={r.permalink} target="_blank" rel="noopener noreferrer">
+                          View post
+                        </a>
+                      </div>
+                    ) : null}
+                    {r.error ? <div className={`text-sm mt-2 ${themeClasses.mutedText}`}>{r.error}</div> : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </OBDPanel>
+      )}
+
       {/* First-run Callout: Workflow */}
       <SessionCallout
         dismissKey={DISMISS_KEYS.composerWorkflow}
@@ -1538,6 +1975,177 @@ function SocialAutoPosterComposerPageContent() {
             ) : undefined
           }
         />
+      )}
+
+      {/* Tier 5C: SMPC Import Modal (apply/dismiss; draft-only; additive-only) */}
+      {smpcHandoffModalOpen && smpcHandoff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            className={`rounded-xl border max-w-2xl w-full max-h-[80vh] overflow-y-auto ${
+              isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="p-6">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="min-w-0">
+                  <h3 className={`text-lg font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                    Import drafts from Social Media Post Creator
+                  </h3>
+                  <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                    Draft-only. Apply will append reviewable drafts to this composer. Nothing is queued, scheduled, or posted automatically.
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-semibold ${
+                        isDark
+                          ? "bg-slate-900/30 border-slate-700 text-slate-200"
+                          : "bg-white border-slate-200 text-slate-700"
+                      }`}
+                      title="Source"
+                    >
+                      Social Media Post Creator
+                    </span>
+                    <span className={`text-xs ${themeClasses.mutedText}`}>
+                      Importing {smpcImportPreview.incoming.length} draft{smpcImportPreview.incoming.length === 1 ? "" : "s"}
+                    </span>
+                    {smpcImportPreview.duplicatesSkipped > 0 && (
+                      <span className={`text-xs ${themeClasses.mutedText}`}>
+                        {smpcImportPreview.duplicatesSkipped} duplicate{smpcImportPreview.duplicatesSkipped === 1 ? "" : "s"} skipped.
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissSmpcHandoff}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  Dismiss
+                </button>
+              </div>
+
+              {(() => {
+                const { businessIdMissing, businessIdMismatch, currentBusinessId, payloadBusinessId } = smpcTenantGuard;
+                if (businessIdMismatch) {
+                  return (
+                    <div className={`rounded-lg border p-3 mb-3 text-sm ${
+                      isDark ? "bg-red-900/10 border-red-800 text-red-200" : "bg-red-50 border-red-200 text-red-800"
+                    }`}>
+                      Draft did not match this business.
+                    </div>
+                  );
+                }
+                if (businessIdMissing) {
+                  return (
+                    <div className={`rounded-lg border p-3 mb-3 text-sm ${
+                      isDark ? "bg-amber-900/10 border-amber-800 text-amber-200" : "bg-amber-50 border-amber-200 text-amber-800"
+                    }`}>
+                      Business context required to apply this draft import (tenant safety).
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className="space-y-2 mb-5">
+                {(() => {
+                  const groups = new Map<SmpcModalPlatformKey, Array<{ text: string }>>();
+                  for (const item of smpcImportPreview.incoming) {
+                    const current = groups.get(item.platformKey) ?? [];
+                    current.push({ text: item.text });
+                    groups.set(item.platformKey, current);
+                  }
+
+                  const COLLAPSE_THRESHOLD = 3;
+
+                  return SMPC_MODAL_PLATFORM_ORDER.filter((key) => (groups.get(key) ?? []).length > 0).map((key) => {
+                    const items = groups.get(key) ?? [];
+                    const expanded = !!smpcPreviewExpanded[key];
+                    const showToggle = items.length > COLLAPSE_THRESHOLD;
+                    const visible = showToggle && !expanded ? items.slice(0, COLLAPSE_THRESHOLD) : items;
+
+                    return (
+                      <div key={key} className={`rounded-lg border p-3 ${
+                        isDark ? "bg-slate-900/30 border-slate-700" : "bg-slate-50 border-slate-200"
+                      }`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className={`text-sm font-medium ${isDark ? "text-slate-100" : "text-slate-900"}`}>
+                            {smpcModalPlatformLabel(key)}{" "}
+                            <span className={`text-xs font-normal ${themeClasses.mutedText}`}>
+                              ({items.length})
+                            </span>
+                          </div>
+                          {showToggle && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSmpcPreviewExpanded((prev) => ({
+                                  ...prev,
+                                  [key]: !prev[key],
+                                }))
+                              }
+                              className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                isDark
+                                  ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                                  : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                              }`}
+                            >
+                              {expanded ? "Show less" : "Show all"}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mt-2 space-y-2">
+                          {visible.map((it, idx) => (
+                            <div
+                              key={`${key}:${idx}`}
+                              className={`rounded-md border px-3 py-2 ${
+                                isDark ? "bg-slate-800/30 border-slate-700" : "bg-white border-slate-200"
+                              }`}
+                            >
+                              <div className={`text-xs whitespace-pre-wrap ${themeClasses.mutedText}`}>
+                                {it.text.length > 220 ? it.text.slice(0, 220) + "…" : it.text}
+                              </div>
+                            </div>
+                          ))}
+                          {showToggle && !expanded && items.length > COLLAPSE_THRESHOLD && (
+                            <div className={`text-xs ${themeClasses.mutedText}`}>
+                              Showing {COLLAPSE_THRESHOLD} of {items.length}.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={dismissSmpcHandoff}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    isDark ? "bg-slate-700 text-slate-200 hover:bg-slate-600" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={applySmpcHandoff}
+                  disabled={smpcTenantGuard.businessIdMissing || smpcTenantGuard.businessIdMismatch}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]" : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                  }`}
+                >
+                  Apply (add drafts)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast Notification */}

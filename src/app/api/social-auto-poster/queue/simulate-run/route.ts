@@ -6,6 +6,7 @@ import { processScheduledPost } from "@/lib/apps/social-auto-poster/processSched
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
+import { isMetaReviewMode } from "@/lib/premium";
 
 /**
  * POST /api/social-auto-poster/queue/simulate-run
@@ -21,6 +22,17 @@ export async function POST(request: NextRequest) {
   const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
+
+  if (isMetaReviewMode()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "META_REVIEW_MODE_AUTOMATION_DISABLED",
+        message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+      },
+      { status: 403 }
+    );
+  }
 
   try {
     const { userId } = await requireTenant();

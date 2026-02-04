@@ -10,6 +10,7 @@ import { publishToFacebookPage, publishToInstagram, isTemporaryError } from "./p
 import { publishToGoogleBusiness, isTemporaryError as isGoogleTemporaryError } from "./publishers/googleBusinessPublisher";
 import { resolvePostImage } from "./resolvePostImage";
 import { isMetaPublishingEnabled } from "./metaConnectionStatus";
+import { isMetaReviewMode } from "@/lib/premium";
 import { requireString } from "@/lib/utils/requireString";
 import type { Prisma } from "@prisma/client";
 
@@ -34,6 +35,13 @@ export async function processScheduledPost(queueItemId: string, userId: string):
   success: boolean;
   errorMessage?: string;
 }> {
+  if (isMetaReviewMode()) {
+    return {
+      success: false,
+      errorMessage: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+    };
+  }
+
   // Get queue item with optimistic locking
   const queueItem = await prisma.socialQueueItem.findUnique({
     where: { id: queueItemId },

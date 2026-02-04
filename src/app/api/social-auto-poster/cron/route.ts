@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runDuePosts } from "@/lib/apps/social-auto-poster/runDuePosts";
 import { isLikelyVercelCron } from "@/lib/apps/social-auto-poster/vercelCronVerification";
+import { isMetaReviewMode } from "@/lib/premium";
 
 /**
  * GET /api/social-auto-poster/cron
@@ -23,6 +24,18 @@ export async function GET(request: NextRequest) {
       { status: 403 }
     );
   }
+
+  if (isMetaReviewMode()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "META_REVIEW_MODE_AUTOMATION_DISABLED",
+        message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+      },
+      { status: 403 }
+    );
+  }
+
   return handleCronRequest(request);
 }
 
@@ -32,11 +45,33 @@ export async function POST(request: NextRequest) {
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
 
+  if (isMetaReviewMode()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "META_REVIEW_MODE_AUTOMATION_DISABLED",
+        message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+      },
+      { status: 403 }
+    );
+  }
+
   return handleCronRequest(request);
 }
 
 async function handleCronRequest(request: NextRequest) {
   try {
+    if (isMetaReviewMode()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "META_REVIEW_MODE_AUTOMATION_DISABLED",
+          message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+        },
+        { status: 403 }
+      );
+    }
+
     // Verify request is from Vercel Cron
     if (!isLikelyVercelCron(request.headers)) {
       return NextResponse.json(

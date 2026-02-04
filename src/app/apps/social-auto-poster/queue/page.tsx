@@ -98,6 +98,7 @@ export default function SocialAutoPosterQueuePage() {
   const [connectionStatus, setConnectionStatus] = useState<{
     ok?: boolean;
     configured?: boolean;
+    metaReviewMode?: boolean;
     errorCode?: string;
     errorMessage?: string;
     facebook?: {
@@ -109,6 +110,8 @@ export default function SocialAutoPosterQueuePage() {
       reasonIfDisabled?: string;
     };
   } | null>(null);
+
+  const reviewModeEnabled = connectionStatus?.metaReviewMode === true;
 
   useEffect(() => {
     loadQueue();
@@ -628,19 +631,21 @@ export default function SocialAutoPosterQueuePage() {
                       >
                         Approve
                       </button>
-                      <button
-                        onClick={handleBulkSchedule}
-                        disabled={!!bulkActionProgress}
-                        className={`px-4 py-2 rounded-full text-sm transition-colors ${
-                          bulkActionProgress
-                            ? "bg-slate-400 text-white cursor-not-allowed"
-                            : isDark
-                            ? "bg-amber-600 text-white hover:bg-amber-700"
-                            : "bg-amber-500 text-white hover:bg-amber-600"
-                        }`}
-                      >
-                        Schedule
-                      </button>
+                      {!reviewModeEnabled && (
+                        <button
+                          onClick={handleBulkSchedule}
+                          disabled={!!bulkActionProgress}
+                          className={`px-4 py-2 rounded-full text-sm transition-colors ${
+                            bulkActionProgress
+                              ? "bg-slate-400 text-white cursor-not-allowed"
+                              : isDark
+                              ? "bg-amber-600 text-white hover:bg-amber-700"
+                              : "bg-amber-500 text-white hover:bg-amber-600"
+                          }`}
+                        >
+                          Schedule
+                        </button>
+                      )}
                       <button
                         onClick={handleBulkDelete}
                         disabled={!!bulkActionProgress}
@@ -879,12 +884,22 @@ export default function SocialAutoPosterQueuePage() {
                         Approve
                       </button>
                     )}
-                    {item.status === "approved" && (
+                    {item.status === "approved" && !reviewModeEnabled && (
                       <button
                         onClick={() => handleSchedule(item.id)}
                         className="px-3 py-1 bg-yellow-500 text-white rounded-full text-sm hover:bg-yellow-600 transition-colors"
                       >
                         Schedule
+                      </button>
+                    )}
+                    {item.status === "approved" && reviewModeEnabled && (
+                      <button
+                        type="button"
+                        disabled
+                        title="Scheduling is disabled in Meta Review Mode"
+                        className="px-3 py-1 bg-slate-400 text-white rounded-full text-sm cursor-not-allowed opacity-70"
+                      >
+                        Scheduling disabled
                       </button>
                     )}
                     {item.status === "scheduled" && (
@@ -981,7 +996,7 @@ export default function SocialAutoPosterQueuePage() {
                       Approve
                     </button>
                   )}
-                  {selectedItem.status === "approved" && (
+                  {selectedItem.status === "approved" && !reviewModeEnabled && (
                     <button
                       onClick={async () => {
                         await handleSchedule(selectedItem.id);
@@ -990,6 +1005,16 @@ export default function SocialAutoPosterQueuePage() {
                       className="px-3 py-1 bg-yellow-500 text-white rounded-full text-sm hover:bg-yellow-600 transition-colors"
                     >
                       Schedule
+                    </button>
+                  )}
+                  {selectedItem.status === "approved" && reviewModeEnabled && (
+                    <button
+                      type="button"
+                      disabled
+                      title="Scheduling is disabled in Meta Review Mode"
+                      className="px-3 py-1 bg-slate-400 text-white rounded-full text-sm cursor-not-allowed opacity-70"
+                    >
+                      Scheduling disabled
                     </button>
                   )}
                   {selectedItem.status === "scheduled" && (

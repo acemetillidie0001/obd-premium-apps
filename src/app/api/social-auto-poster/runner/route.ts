@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runDuePosts } from "@/lib/apps/social-auto-poster/runDuePosts";
+import { isMetaReviewMode } from "@/lib/premium";
 
 /**
  * POST /api/social-auto-poster/runner
@@ -23,6 +24,17 @@ export async function POST(request: NextRequest) {
   const { assertNotDemoRequest } = await import("@/lib/demo/assert-not-demo");
   const demoBlock = assertNotDemoRequest(request);
   if (demoBlock) return demoBlock;
+
+  if (isMetaReviewMode()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "META_REVIEW_MODE_AUTOMATION_DISABLED",
+        message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+      },
+      { status: 403 }
+    );
+  }
 
   try {
     // Verify CRON_SECRET is configured

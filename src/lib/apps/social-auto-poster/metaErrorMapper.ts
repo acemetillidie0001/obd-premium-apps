@@ -7,6 +7,61 @@ export interface MetaErrorMapping {
   action?: string;
 }
 
+export type MetaStableErrorCode =
+  | "TOKEN_EXPIRED"
+  | "PERMISSION_MISSING"
+  | "PAGE_ACCESS_DENIED"
+  | "RATE_LIMITED"
+  | "UNKNOWN";
+
+export function mapMetaApiErrorToStableCode(input: {
+  code?: number | string;
+  message?: string;
+  type?: string;
+}): { code: MetaStableErrorCode; message: string } {
+  const rawCode = input.code !== undefined ? String(input.code) : "";
+  const msg = (input.message || "").toLowerCase();
+  const type = (input.type || "").toLowerCase();
+
+  // Token invalid/expired (Meta often uses error.code=190)
+  if (rawCode === "190" || msg.includes("expired") || msg.includes("invalid oauth") || msg.includes("invalid token")) {
+    return { code: "TOKEN_EXPIRED", message: input.message || "Token expired. Please reconnect." };
+  }
+
+  // Missing/insufficient permissions
+  if (
+    rawCode === "10" ||
+    rawCode === "200" ||
+    msg.includes("permission") ||
+    msg.includes("insufficient") ||
+    msg.includes("missing permission") ||
+    type.includes("oauth")
+  ) {
+    return { code: "PERMISSION_MISSING", message: input.message || "Permissions not granted." };
+  }
+
+  // Page access denied / not admin
+  if (
+    msg.includes("page") && (msg.includes("access") || msg.includes("not authorized") || msg.includes("not an admin"))
+  ) {
+    return { code: "PAGE_ACCESS_DENIED", message: input.message || "Page access denied." };
+  }
+
+  // Rate limiting
+  if (
+    rawCode === "4" ||
+    rawCode === "17" ||
+    rawCode === "32" ||
+    rawCode === "613" ||
+    msg.includes("rate limit") ||
+    msg.includes("too many requests")
+  ) {
+    return { code: "RATE_LIMITED", message: input.message || "Rate limited. Try again later." };
+  }
+
+  return { code: "UNKNOWN", message: input.message || "Unknown error." };
+}
+
 /**
  * Maps Meta error codes/messages to user-friendly error messages
  */

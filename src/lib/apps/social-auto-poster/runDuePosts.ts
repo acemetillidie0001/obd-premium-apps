@@ -5,6 +5,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { processScheduledPost } from "./processScheduledPost";
+import { isMetaReviewMode } from "@/lib/premium";
 
 export interface RunDuePostsResult {
   ok: boolean;
@@ -28,6 +29,17 @@ export interface RunDuePostsResult {
  */
 export async function runDuePosts(): Promise<RunDuePostsResult> {
   const now = new Date();
+
+  if (isMetaReviewMode()) {
+    return {
+      ok: false,
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+      message: "Automation is disabled in Meta Review Mode. Use manual publish/test post.",
+      timestamp: now.toISOString(),
+    };
+  }
 
   // Find due posts
   const dueItems = await prisma.socialQueueItem.findMany({

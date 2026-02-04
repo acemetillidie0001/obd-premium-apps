@@ -6,6 +6,7 @@
  */
 
 // Headers is a Web API, available globally in Node.js 18+
+import { isMetaReviewMode } from "@/lib/premium";
 
 /**
  * Checks if a request is likely from Vercel Cron.
@@ -18,6 +19,11 @@
  * @returns true if request appears to be from Vercel Cron, false otherwise
  */
 export function isLikelyVercelCron(headers: Headers): boolean {
+  if (isMetaReviewMode()) {
+    // Meta Review Mode: automation is disabled; do not treat any request as authorized cron.
+    return false;
+  }
+
   // Check for any x-vercel-* headers (strong indicator of Vercel infrastructure)
   const hasVercelHeader = Array.from(headers.keys()).some((key) =>
     key.toLowerCase().startsWith("x-vercel-")

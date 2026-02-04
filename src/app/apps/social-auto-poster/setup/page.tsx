@@ -12,7 +12,6 @@ import { mapMetaError, mapCallbackError } from "@/lib/apps/social-auto-poster/me
 import { getMetaPublishingBannerMessage, isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
 import { getConnectionUIModel } from "@/lib/apps/social-auto-poster/connection/connectionState";
 import { getSetupCompletion } from "@/lib/apps/social-auto-poster/setup/setupValidation";
-import { isMetaReviewMode } from "@/lib/premium-client";
 import ConnectionStatusBadge from "@/components/obd/ConnectionStatusBadge";
 import SetupSection from "./components/SetupSection";
 import SetupProgress from "./components/SetupProgress";
@@ -110,6 +109,7 @@ export default function SocialAutoPosterSetupPage() {
   const [connectionStatus, setConnectionStatus] = useState<{
     ok?: boolean;
     configured?: boolean;
+    metaReviewMode?: boolean;
     errorCode?: string;
     errorMessage?: string;
     facebook: { 
@@ -140,6 +140,17 @@ export default function SocialAutoPosterSetupPage() {
     instagram?: { ok: boolean; postId?: string; permalink?: string; error?: string };
     google?: { ok: boolean; postId?: string; permalink?: string; error?: string };
   } | null>(null);
+
+  // Page discovery + selection (review-safe)
+  const [availablePages, setAvailablePages] = useState<Array<{ pageId: string; name: string; canPublish: boolean }>>([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [pagesError, setPagesError] = useState<string | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string>("");
+  const [pageSelectLoading, setPageSelectLoading] = useState(false);
+  const [igDetected, setIgDetected] = useState<{ connected: boolean; igBusinessId: string | null; username: string | null } | null>(null);
+
+  // Server-truthful review mode flag (provided by /api/social-connections/meta/status)
+  const reviewModeEnabled = connectionStatus?.metaReviewMode === true;
 
   // Google Business Profile connection state
   const [googleStatus, setGoogleStatus] = useState<{
@@ -229,6 +240,20 @@ export default function SocialAutoPosterSetupPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPremiumUser]); // loadConnectionStatus is stable and doesn't need to be in deps
+
+  // Load pages when Pages Access is granted (manual reviewer flow)
+  useEffect(() => {
+    const pagesAccessGranted = connectionStatus?.facebook?.pagesAccessGranted === true;
+    const fbConnected = connectionStatus?.facebook?.connected === true;
+    if (fbConnected && pagesAccessGranted) {
+      loadPages();
+    } else {
+      setAvailablePages([]);
+      setSelectedPageId("");
+      setIgDetected(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionStatus?.facebook?.connected, connectionStatus?.facebook?.pagesAccessGranted]);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -426,6 +451,54 @@ export default function SocialAutoPosterSetupPage() {
       setConnectionStatus(null);
     } finally {
       setConnectionLoading(false);
+    }
+  };
+
+  const loadPages = async () => {
+    setPagesLoading(true);
+    setPagesError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/pages");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const msg = data?.error?.message || data?.message || "Failed to load pages";
+        setPagesError(msg);
+        setAvailablePages([]);
+        return;
+      }
+      setAvailablePages(Array.isArray(data.pages) ? data.pages : []);
+    } catch (err) {
+      setPagesError(err instanceof Error ? err.message : "Failed to load pages");
+      setAvailablePages([]);
+    } finally {
+      setPagesLoading(false);
+    }
+  };
+
+  const handleSelectPage = async (pageId: string) => {
+    setSelectedPageId(pageId);
+    setPageSelectLoading(true);
+    setPagesError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/select-page", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        const msg = data?.error?.message || data?.message || "Failed to select page";
+        setPagesError(msg);
+        setIgDetected(null);
+        return;
+      }
+      setIgDetected(data.instagram || null);
+      // refresh status so nextSteps reflect selection + IG
+      await loadConnectionStatus();
+    } catch (err) {
+      setPagesError(err instanceof Error ? err.message : "Failed to select page");
+    } finally {
+      setPageSelectLoading(false);
     }
   };
 
@@ -710,6 +783,45 @@ export default function SocialAutoPosterSetupPage() {
     >
       <SocialAutoPosterNav isDark={isDark} />
 
+      {/* Meta Review Mode Banner + Guided Checklist */}
+      {reviewModeEnabled && (
+        <div className="mt-3 mb-4 space-y-3">
+          <div
+            className={`p-4 rounded-xl border ${
+              isDark
+                ? "border-amber-700/50 bg-amber-900/10 text-amber-200"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}
+          >
+            <div className="font-semibold">Meta Review Mode</div>
+            <div className="text-sm mt-1">
+              This mode disables scheduling/automation and guides reviewers through manual connection + manual publish.
+            </div>
+          </div>
+
+          <OBDPanel isDark={isDark}>
+            <div className={`font-semibold ${themeClasses.headingText}`}>Reviewer checklist</div>
+            <ol className={`mt-2 text-sm list-decimal pl-5 ${themeClasses.mutedText} space-y-1`}>
+              <li>Connect Meta (Facebook Login)</li>
+              <li>Confirm Pages access</li>
+              <li>Open Composer and create a draft post</li>
+              <li>Click “Test Post” (Facebook)</li>
+              <li>View Activity log / success confirmation</li>
+            </ol>
+            <div className="mt-3 text-xs">
+              <span className={themeClasses.mutedText}>Shortcuts: </span>
+              <a className="text-[#29c4a9] hover:underline" href="/apps/social-auto-poster/composer">
+                Composer
+              </a>
+              <span className={themeClasses.mutedText}> · </span>
+              <a className="text-[#29c4a9] hover:underline" href="/apps/social-auto-poster/activity">
+                Activity
+              </a>
+            </div>
+          </OBDPanel>
+        </div>
+      )}
+
       {/* Connection Status Badge */}
       {(() => {
         try {
@@ -811,8 +923,83 @@ export default function SocialAutoPosterSetupPage() {
                   Connect your Facebook and Instagram accounts to enable automatic posting.
                 </p>
 
+                {/* Reviewer-safe next steps (from status endpoint) */}
+                {Array.isArray((connectionStatus as any)?.nextSteps) && (connectionStatus as any).nextSteps.length > 0 && (
+                  <div className={`mb-4 p-4 rounded-xl border ${
+                    isDark
+                      ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                      : "border-slate-200 bg-white text-slate-800"
+                  }`}>
+                    <div className={`font-medium mb-2 ${themeClasses.headingText}`}>Next steps</div>
+                    <ul className={`text-sm list-disc pl-5 ${themeClasses.mutedText} space-y-1`}>
+                      {(connectionStatus as any).nextSteps.map((s: string, idx: number) => (
+                        <li key={idx}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Page selection + IG detection (after Pages access) */}
+                {connectionStatus?.facebook?.connected && connectionStatus?.facebook?.pagesAccessGranted && (
+                  <div className="mb-4">
+                    <div className={`text-sm font-medium mb-2 ${themeClasses.headingText}`}>
+                      Select a Facebook Page
+                    </div>
+                    {reviewModeEnabled && (
+                      <div className={`text-xs mb-2 ${themeClasses.mutedText}`}>
+                        This step demonstrates how OBD verifies which Page and Instagram account content will be published to.
+                      </div>
+                    )}
+                    {pagesLoading ? (
+                      <div className={`text-sm ${themeClasses.mutedText}`}>Loading pages…</div>
+                    ) : pagesError ? (
+                      <div className={`text-sm ${themeClasses.mutedText}`}>Unable to load pages: {pagesError}</div>
+                    ) : availablePages.length === 0 ? (
+                      <div className={`text-sm ${themeClasses.mutedText}`}>No publish-capable Pages found.</div>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <select
+                          value={selectedPageId}
+                          onChange={(e) => handleSelectPage(e.target.value)}
+                          disabled={pageSelectLoading}
+                          className={getInputClasses(isDark)}
+                        >
+                          <option value="">Choose a Page…</option>
+                          {availablePages.map((p) => (
+                            <option key={p.pageId} value={p.pageId}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                        {pageSelectLoading && (
+                          <span className={`text-sm ${themeClasses.mutedText}`}>Saving…</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* IG Business detection result */}
+                    {selectedPageId && (
+                      <div className="mt-3">
+                        {igDetected?.connected ? (
+                          <div className={`text-sm ${themeClasses.mutedText}`}>
+                            Instagram Business connected ✓{" "}
+                            {igDetected.username ? <span>({igDetected.username})</span> : null}
+                          </div>
+                        ) : (
+                          <div className={`text-sm ${themeClasses.mutedText}`}>
+                            Instagram Business not connected ✕
+                            <div className="text-xs mt-1">
+                              Convert Instagram to a Professional account and link it to this Facebook Page.
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Non-premium users: Show upgrade prompt (unless review mode) */}
-                {isPremiumUser === false && !isMetaReviewMode() ? (
+                {isPremiumUser === false && !reviewModeEnabled ? (
                   <div className={`p-6 rounded-xl border ${
                     isDark 
                       ? "border-slate-700 bg-slate-800/50" 
@@ -844,7 +1031,7 @@ export default function SocialAutoPosterSetupPage() {
                       </div>
                     </div>
                   </div>
-                ) : isMetaReviewMode() && (isPremiumUser === false || isPremiumUser === null) ? (
+                ) : reviewModeEnabled && (isPremiumUser === false || isPremiumUser === null) ? (
                   <div className={`p-4 rounded-xl border ${
                     isDark 
                       ? "border-yellow-700/50 bg-yellow-900/20 text-yellow-400" 
@@ -853,8 +1040,8 @@ export default function SocialAutoPosterSetupPage() {
                     <div className="flex items-start gap-2">
                       <span className="text-lg">⚠️</span>
                       <div className="text-sm">
-                        <div className="font-medium mb-1">Limited Review Mode</div>
-                        <div>Database temporarily unavailable — connection testing enabled for Meta App Review. Publishing remains gated by feature flag.</div>
+                        <div className="font-medium mb-1">Meta Review Mode</div>
+                        <div>Scheduling/automation is disabled for review. Manual connection and manual test posting remain available.</div>
                       </div>
                     </div>
                   </div>

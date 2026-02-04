@@ -36,6 +36,7 @@ export default function SocialAutoPosterDashboardPage() {
   const [connectionStatus, setConnectionStatus] = useState<{
     ok?: boolean;
     configured?: boolean;
+    metaReviewMode?: boolean;
     errorCode?: string;
     errorMessage?: string;
     facebook?: {
@@ -47,6 +48,8 @@ export default function SocialAutoPosterDashboardPage() {
       reasonIfDisabled?: string;
     };
   } | null>(null);
+
+  const reviewModeEnabled = connectionStatus?.metaReviewMode === true;
 
   useEffect(() => {
     loadAnalytics();
@@ -107,6 +110,18 @@ export default function SocialAutoPosterDashboardPage() {
       tagline="Generate, approve, schedule, and auto-publish platform-optimized social posts for your local business."
     >
       <SocialAutoPosterNav isDark={isDark} />
+
+      {reviewModeEnabled && (
+        <div
+          className={`mt-3 mb-4 p-3 rounded-xl border text-sm ${
+            isDark
+              ? "border-amber-700/50 bg-amber-900/10 text-amber-200"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          Review Mode enabled: Scheduling/automation disabled. Manual publish only.
+        </div>
+      )}
 
       {/* Connection Status Badge */}
       {(() => {

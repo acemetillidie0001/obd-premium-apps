@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Business memberships (Owner/Admin/Staff) + tokenized invitations + tenant-scoped access management UI.
   - Status: LOCK-eligible (maintenance-mode safe).
 
+- **Social Media Post Creator — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C (2026-02-04)**
+  - Tier 5A UX parity: accordion inputs with summaries, sticky action cluster, and draft-only trust microcopy.
+  - Tier 5B determinism: canonical post model + selector (Edited &gt; Generated), inline editing with reset flows, and regenerate safety (never overwrites edits).
+  - Tier 5B+ export integrity: Export Center + Copy Bundles are authoritative via active posts; raw output is labeled reference-only.
+  - Tier 5C ecosystem: SMPC → Social Auto-Poster handoff (draft-only, sessionStorage TTL, apply/dismiss, additive import, dedupe, tenant-safe).
+
 - **Google Business Profile Pro — Tier 5B+ + Tier 5C (2026-01-20)**
   - Tier 5B+ Export Center (authoritative exports + validation): exports resolve from the active canonical draft (`getActiveGbpDraft()`), with readiness blockers/warnings and correct copy/download behavior.
   - Tier 5C ecosystem awareness: ACW + Schema apply-only handoffs (`?handoff=gbp`, sessionStorage TTL, additive-only applies) and link-only CTAs (Local SEO Page Builder, SEO Audit & Roadmap).

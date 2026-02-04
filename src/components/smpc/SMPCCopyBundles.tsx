@@ -2,28 +2,18 @@
 
 import { useState } from "react";
 import { recordExport } from "@/lib/bdw/local-analytics";
-
-type GeneratedPost = {
-  postNumber: number;
-  platform: string;
-  hook: string;
-  bodyLines: string[];
-  cta: string;
-  raw: string;
-  characterCount: number;
-};
+import type { SMPCPostItem } from "@/lib/apps/social-media-post-creator/types";
 
 interface SMPCCopyBundlesProps {
-  posts: GeneratedPost[];
+  posts: SMPCPostItem[];
   isDark: boolean;
   storageKey?: string; // Optional storage key for analytics
 }
 
 // Format posts for a specific platform
-function formatPlatformBundle(posts: GeneratedPost[], platformFilter: string): string {
-  const filtered = posts.filter(post => 
-    post.platform.toLowerCase().includes(platformFilter.toLowerCase())
-  );
+function formatPlatformBundle(posts: SMPCPostItem[], platformKeys: string[]): string {
+  const keys = new Set(platformKeys);
+  const filtered = posts.filter((post) => keys.has(post.platformKey));
   
   if (filtered.length === 0) return "";
   
@@ -33,9 +23,9 @@ function formatPlatformBundle(posts: GeneratedPost[], platformFilter: string): s
 }
 
 // Format all posts bundle
-function formatAllPostsBundle(posts: GeneratedPost[]): string {
+function formatAllPostsBundle(posts: SMPCPostItem[]): string {
   return posts.map(post => {
-    return `Post ${post.postNumber} — ${post.platform}\n${[post.hook, ...post.bodyLines, post.cta].join(" ").trim()}`;
+    return `Post ${post.postNumber} — ${post.platformLabel}\n${[post.hook, ...post.bodyLines, post.cta].join(" ").trim()}`;
   }).join("\n\n");
 }
 
@@ -62,11 +52,11 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
   };
 
   // Check which platforms are present
-  const hasFacebook = posts.some(p => p.platform.toLowerCase().includes("facebook"));
-  const hasInstagram = posts.some(p => p.platform.toLowerCase().includes("instagram"));
-  const hasX = posts.some(p => p.platform.toLowerCase().includes("x") || p.platform.toLowerCase().includes("twitter"));
-  const hasLinkedIn = posts.some(p => p.platform.toLowerCase().includes("linkedin"));
-  const hasGBP = posts.some(p => p.platform.toLowerCase().includes("google") || p.platform.toLowerCase().includes("gbp"));
+  const hasFacebook = posts.some((p) => p.platformKey === "facebook");
+  const hasInstagram = posts.some((p) => p.platformKey === "instagram" || p.platformKey === "instagram_carousel");
+  const hasX = posts.some((p) => p.platformKey === "x");
+  const hasLinkedIn = posts.some((p) => p.platformKey === "linkedin");
+  const hasGBP = posts.some((p) => p.platformKey === "google_business_profile");
 
   return (
     <div className={`rounded-xl border p-4 ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
@@ -76,7 +66,7 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
         </span>
         {hasFacebook && (
           <button
-            onClick={() => handleCopy("facebook", formatPlatformBundle(posts, "facebook"), "bundle:facebook")}
+            onClick={() => handleCopy("facebook", formatPlatformBundle(posts, ["facebook"]), "bundle:facebook")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               copiedBundle === "facebook"
                 ? "bg-[#29c4a9] text-white"
@@ -90,7 +80,7 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
         )}
         {hasInstagram && (
           <button
-            onClick={() => handleCopy("instagram", formatPlatformBundle(posts, "instagram"), "bundle:instagram")}
+            onClick={() => handleCopy("instagram", formatPlatformBundle(posts, ["instagram", "instagram_carousel"]), "bundle:instagram")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               copiedBundle === "instagram"
                 ? "bg-[#29c4a9] text-white"
@@ -104,7 +94,7 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
         )}
         {hasX && (
           <button
-            onClick={() => handleCopy("x", formatPlatformBundle(posts, "x"), "bundle:x")}
+            onClick={() => handleCopy("x", formatPlatformBundle(posts, ["x"]), "bundle:x")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               copiedBundle === "x"
                 ? "bg-[#29c4a9] text-white"
@@ -118,7 +108,7 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
         )}
         {hasLinkedIn && (
           <button
-            onClick={() => handleCopy("linkedin", formatPlatformBundle(posts, "linkedin"), "bundle:linkedin")}
+            onClick={() => handleCopy("linkedin", formatPlatformBundle(posts, ["linkedin"]), "bundle:linkedin")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               copiedBundle === "linkedin"
                 ? "bg-[#29c4a9] text-white"
@@ -132,7 +122,7 @@ export default function SMPCCopyBundles({ posts, isDark, storageKey }: SMPCCopyB
         )}
         {hasGBP && (
           <button
-            onClick={() => handleCopy("gbp", formatPlatformBundle(posts, "google"), "bundle:gbp")}
+            onClick={() => handleCopy("gbp", formatPlatformBundle(posts, ["google_business_profile"]), "bundle:gbp")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
               copiedBundle === "gbp"
                 ? "bg-[#29c4a9] text-white"

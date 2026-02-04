@@ -2,29 +2,20 @@
 
 import { useState } from "react";
 import { runQualityAnalysis, generateSoftenHypeWordsFix, generateRemoveDuplicatesFix } from "@/lib/bdw";
-
-type GeneratedPost = {
-  postNumber: number;
-  platform: string;
-  hook: string;
-  bodyLines: string[];
-  cta: string;
-  raw: string;
-  characterCount: number;
-};
+import type { SMPCPostItem } from "@/lib/apps/social-media-post-creator/types";
 
 interface SMPCFixPacksProps {
-  posts: GeneratedPost[];
-  basePosts: GeneratedPost[];
-  editedPosts: GeneratedPost[] | null;
+  posts: SMPCPostItem[];
+  basePosts: SMPCPostItem[];
+  editedPosts: SMPCPostItem[] | null;
   isDark: boolean;
-  onApply: (updatedPosts: GeneratedPost[], fixPackId?: string) => void;
+  onApply: (updatedPosts: SMPCPostItem[], fixPackId?: string) => void;
   onReset: () => void;
   onUndo?: () => void;
 }
 
 // Convert posts to BDW format for analysis
-function postsToBDWFormat(posts: GeneratedPost[]) {
+function postsToBDWFormat(posts: SMPCPostItem[]) {
   // Combine all post text
   const allText = posts.map(post => {
     const fullText = [post.hook, ...post.bodyLines, post.cta].join(" ").trim();
@@ -53,14 +44,14 @@ export default function SMPCFixPacks({
     isOpen: boolean;
     fixId: string;
     fixTitle: string;
-    proposed: GeneratedPost[];
+    proposed: SMPCPostItem[];
   } | null>(null);
 
   const displayPosts = editedPosts ?? posts;
   const bdwFormat = postsToBDWFormat(displayPosts);
   const analysis = runQualityAnalysis(bdwFormat, "", "");
 
-  const handlePreviewFix = (fixId: string, fixTitle: string, proposed: GeneratedPost[]) => {
+  const handlePreviewFix = (fixId: string, fixTitle: string, proposed: SMPCPostItem[]) => {
     setPreviewState({
       isOpen: true,
       fixId,
@@ -85,7 +76,7 @@ export default function SMPCFixPacks({
     id: string;
     title: string;
     description: string;
-    proposed: GeneratedPost[];
+    proposed: SMPCPostItem[];
   }> = [];
 
   // Fix 1: Soften Hype Words
@@ -93,7 +84,7 @@ export default function SMPCFixPacks({
     const hypeFix = generateSoftenHypeWordsFix(bdwFormat);
     if (hypeFix && Object.keys(hypeFix).length > 0) {
       // Apply fix to posts
-      const proposed: GeneratedPost[] = displayPosts.map(post => {
+      const proposed: SMPCPostItem[] = displayPosts.map(post => {
         const fullText = [post.hook, ...post.bodyLines, post.cta].join(" ").trim();
         let updatedText = fullText;
         

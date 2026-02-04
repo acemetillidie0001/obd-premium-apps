@@ -2,25 +2,16 @@
 
 import { useState } from "react";
 import { runQualityAnalysis, generateSoftenHypeWordsFix, generateRemoveDuplicatesFix } from "@/lib/bdw";
-
-type GeneratedPost = {
-  postNumber: number;
-  platform: string;
-  hook: string;
-  bodyLines: string[];
-  cta: string;
-  raw: string;
-  characterCount: number;
-};
+import type { SMPCPostItem } from "@/lib/apps/social-media-post-creator/types";
 
 interface SMPCQualityControlsTabProps {
-  posts: GeneratedPost[];
+  posts: SMPCPostItem[];
   isDark: boolean;
-  onApplyFix?: (updatedPosts: GeneratedPost[]) => void;
+  onApplyFix?: (updatedPosts: SMPCPostItem[]) => void;
 }
 
 // Convert posts to BDW format for analysis
-function postsToBDWFormat(posts: GeneratedPost[]) {
+function postsToBDWFormat(posts: SMPCPostItem[]) {
   const allText = posts.map(post => {
     return [post.hook, ...post.bodyLines, post.cta].join(" ").trim();
   }).join("\n\n");
@@ -43,7 +34,7 @@ export default function SMPCQualityControlsTab({
     isOpen: boolean;
     fixId: string;
     fixTitle: string;
-    proposed: GeneratedPost[];
+    proposed: SMPCPostItem[];
   } | null>(null);
 
   const bdwFormat = postsToBDWFormat(posts);
@@ -52,7 +43,7 @@ export default function SMPCQualityControlsTab({
   const handlePreviewFix = (
     fixId: string,
     fixTitle: string,
-    proposed: GeneratedPost[]
+    proposed: SMPCPostItem[]
   ) => {
     setPreviewState({
       isOpen: true,

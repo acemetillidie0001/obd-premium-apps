@@ -2,29 +2,20 @@
 
 import { useState } from "react";
 import { recordExport } from "@/lib/bdw/local-analytics";
-
-type GeneratedPost = {
-  postNumber: number;
-  platform: string;
-  hook: string;
-  bodyLines: string[];
-  cta: string;
-  raw: string;
-  characterCount: number;
-};
+import type { SMPCPostItem } from "@/lib/apps/social-media-post-creator/types";
 
 interface SMPCExportCenterPanelProps {
-  posts: GeneratedPost[];
+  posts: SMPCPostItem[];
   isDark: boolean;
   storageKey?: string; // Optional storage key for analytics
 }
 
 // Format posts as plain text with platform-aware formatting
-function formatPostsPlainText(posts: GeneratedPost[]): string {
+function formatPostsPlainText(posts: SMPCPostItem[]): string {
   const parts: string[] = [];
   
   posts.forEach((post) => {
-    parts.push(`Post ${post.postNumber} — ${post.platform}`);
+    parts.push(`Post ${post.postNumber} — ${post.platformLabel}`);
     parts.push("");
     if (post.hook) {
       parts.push(`Hook: ${post.hook}`);
@@ -49,23 +40,23 @@ function formatPostsPlainText(posts: GeneratedPost[]): string {
 }
 
 // Format posts grouped by platform
-function formatPostsByPlatform(posts: GeneratedPost[]): string {
-  const byPlatform: Record<string, GeneratedPost[]> = {};
+function formatPostsByPlatform(posts: SMPCPostItem[]): string {
+  const byPlatform: Record<string, { label: string; posts: SMPCPostItem[] }> = {};
   
   posts.forEach(post => {
-    const platform = post.platform;
-    if (!byPlatform[platform]) {
-      byPlatform[platform] = [];
+    const platformKey = post.platformKey;
+    if (!byPlatform[platformKey]) {
+      byPlatform[platformKey] = { label: post.platformLabel, posts: [] };
     }
-    byPlatform[platform].push(post);
+    byPlatform[platformKey].posts.push(post);
   });
   
   const parts: string[] = [];
   
-  Object.entries(byPlatform).forEach(([platform, platformPosts]) => {
-    parts.push(`=== ${platform.toUpperCase()} ===`);
+  Object.entries(byPlatform).forEach(([platformKey, bucket]) => {
+    parts.push(`=== ${bucket.label.toUpperCase()} ===`);
     parts.push("");
-    platformPosts.forEach(post => {
+    bucket.posts.forEach(post => {
       parts.push(`Post ${post.postNumber}:`);
       const fullText = [post.hook, ...post.bodyLines, post.cta].join(" ").trim();
       parts.push(fullText);
@@ -78,7 +69,7 @@ function formatPostsByPlatform(posts: GeneratedPost[]): string {
 }
 
 // Format single post for a specific platform
-function formatSinglePost(post: GeneratedPost): string {
+function formatSinglePost(post: SMPCPostItem): string {
   return [post.hook, ...post.bodyLines, post.cta].join(" ").trim();
 }
 
@@ -134,13 +125,13 @@ export default function SMPCExportCenterPanel({ posts, isDark, storageKey }: SMP
   }
 
   // Group posts by platform
-  const postsByPlatform: Record<string, GeneratedPost[]> = {};
+  const postsByPlatform: Record<string, { label: string; posts: SMPCPostItem[] }> = {};
   posts.forEach(post => {
-    const platform = post.platform.toLowerCase();
-    if (!postsByPlatform[platform]) {
-      postsByPlatform[platform] = [];
+    const platformKey = post.platformKey;
+    if (!postsByPlatform[platformKey]) {
+      postsByPlatform[platformKey] = { label: post.platformLabel, posts: [] };
     }
-    postsByPlatform[platform].push(post);
+    postsByPlatform[platformKey].posts.push(post);
   });
 
   return (
@@ -203,44 +194,44 @@ export default function SMPCExportCenterPanel({ posts, isDark, storageKey }: SMP
           Platform-Specific Exports
         </h4>
         <div className="space-y-3">
-          {Object.entries(postsByPlatform).map(([platform, platformPosts]) => (
-            <div key={platform} className={`rounded-lg border p-3 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
+          {Object.entries(postsByPlatform).map(([platformKey, bucket]) => (
+            <div key={platformKey} className={`rounded-lg border p-3 ${isDark ? "bg-slate-900/50 border-slate-600" : "bg-white border-slate-300"}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-800"}`}>
-                  {platform.charAt(0).toUpperCase() + platform.slice(1)} ({platformPosts.length} {platformPosts.length === 1 ? "post" : "posts"})
+                  {bucket.label} ({bucket.posts.length} {bucket.posts.length === 1 ? "post" : "posts"})
                 </span>
                 <button
                   onClick={() => {
-                    const content = platformPosts.map(post => formatSinglePost(post)).join("\n\n");
-                    handleCopy(`platform-${platform}`, content, `platform:${platform}`);
+                    const content = bucket.posts.map(post => formatSinglePost(post)).join("\n\n");
+                    handleCopy(`platform-${platformKey}`, content, `platform:${platformKey}`);
                   }}
                   className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                    copiedItems[`platform-${platform}`]
+                    copiedItems[`platform-${platformKey}`]
                       ? "bg-[#29c4a9] text-white"
                       : isDark
                       ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                       : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
-                  {copiedItems[`platform-${platform}`] ? "Copied!" : "Copy All"}
+                  {copiedItems[`platform-${platformKey}`] ? "Copied!" : "Copy All"}
                 </button>
               </div>
               <div className="space-y-2">
-                {platformPosts.map((post, idx) => (
+                {bucket.posts.map((post, idx) => (
                   <div key={idx} className={`text-xs ${isDark ? "text-slate-300" : "text-slate-700"}`}>
                     <div className="flex items-center justify-between">
                       <span>Post {post.postNumber}</span>
                       <button
-                        onClick={() => handleCopy(`post-${post.postNumber}-${platform}`, formatSinglePost(post), `platform:${platform}`)}
+                        onClick={() => handleCopy(`post-${post.postNumber}-${platformKey}`, formatSinglePost(post), `platform:${platformKey}`)}
                         className={`px-2 py-0.5 text-xs font-medium rounded transition-colors ${
-                          copiedItems[`post-${post.postNumber}-${platform}`]
+                          copiedItems[`post-${post.postNumber}-${platformKey}`]
                             ? "bg-[#29c4a9] text-white"
                             : isDark
                             ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                       >
-                        {copiedItems[`post-${post.postNumber}-${platform}`] ? "Copied!" : "Copy"}
+                        {copiedItems[`post-${post.postNumber}-${platformKey}`] ? "Copied!" : "Copy"}
                       </button>
                     </div>
                   </div>

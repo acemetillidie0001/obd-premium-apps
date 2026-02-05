@@ -1,7 +1,7 @@
 # AI Review Responder — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C + Tier 6
 
-**Status:** **LOCK-eligible (maintenance-mode safe)**  
-**Last verified:** `main @ dff9b8b4a59defde5ce3204861079136c5b3cadb`  
+**Status:** **LOCKED (maintenance-mode safe)**  
+**Last verified:** `main @ 479620aaf2f26fd4acbd73c6bd555745fe0b72a3`  
 **Definition:** Draft-only review reply workspace. No automation. Nothing is posted automatically.
 
 **Route:** `/apps/review-responder`  

@@ -878,6 +878,18 @@ model BusinessDescriptionSavedVersion {
   @@index([businessId, isActive])
 }
 
+// Tier 6-1: AI Review Responder - immutable response history snapshots (tenant-scoped)
+model ReviewResponseSnapshot {
+  id          String   @id @default(uuid())
+  businessId  String
+  createdAt   DateTime @default(now())
+  inputSummary Json
+  responses    Json
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+}
+
 model SchedulerBusyBlock {
   id         String   @id @default(cuid())
   businessId String

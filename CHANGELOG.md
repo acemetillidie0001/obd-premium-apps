@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tier 5B+: Export Center (single authoritative copy/download from active state).
   - Tier 5C: safe link-only ecosystem awareness (Reputation Dashboard + CRM). Status: LOCK-eligible (maintenance-mode safe).
 
+- **AI Review Responder — Tier 6 (2026-02-05)**
+  - Response History: read-only snapshots (no apply/restore; no automation).
+  - Explain Mode: optional one-shot “Why this reply works” bullets (no auto-updates).
+  - Platform hints: static “Tips for this platform” helper copy.
+  - Keyboard shortcuts: scoped Save/Cancel/Copy shortcuts for the response editor/cards.
+  - Audit: `docs/deployments/AI_REVIEW_RESPONDER_TIER6_AUDIT_REPORT.md` — Status: LOCK-eligible (maintenance-mode safe).
+
 - **Google Business Profile Pro — Tier 5B+ + Tier 5C (2026-01-20)**
   - Tier 5B+ Export Center (authoritative exports + validation): exports resolve from the active canonical draft (`getActiveGbpDraft()`), with readiness blockers/warnings and correct copy/download behavior.
   - Tier 5C ecosystem awareness: ACW + Schema apply-only handoffs (`?handoff=gbp`, sessionStorage TTL, additive-only applies) and link-only CTAs (Local SEO Page Builder, SEO Audit & Roadmap).

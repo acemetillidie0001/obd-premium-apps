@@ -1,11 +1,13 @@
-# AI Review Responder — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C
+# AI Review Responder — Tier 5A + Tier 5B + Tier 5B+ + Tier 5C + Tier 6
 
 **Status:** **LOCK-eligible (maintenance-mode safe)**  
-**Last verified:** `main @ <COMMIT_HASH_PLACEHOLDER>`  
+**Last verified:** `main @ dff9b8b4a59defde5ce3204861079136c5b3cadb`  
 **Definition:** Draft-only review reply workspace. No automation. Nothing is posted automatically.
 
 **Route:** `/apps/review-responder`  
 **Category:** Reputation
+
+**Audit (Tier 6):** `docs/deployments/AI_REVIEW_RESPONDER_TIER6_AUDIT_REPORT.md`
 
 ---
 
@@ -28,6 +30,7 @@ Explicit non-goals / exclusions:
 - NOT scheduling
 - NOT bulk ingestion
 - NOT a sentiment dashboard
+- NOT history restore/apply automation (history is read-only snapshots)
 
 ---
 
@@ -100,4 +103,38 @@ The app includes safe, link-only callouts near the Export Center:
 Explicit rule:
 
 - “Links only — no data is transferred automatically.”
+
+---
+
+## Tier 6 upgrades (optional, draft-only)
+
+### Tier 6-1 — Response History (read-only snapshots)
+
+- Save the current outputs as an **immutable snapshot** (explicit “Save snapshot” action).
+- History is **read-only**:
+  - no apply/restore
+  - no background jobs
+  - no auto-posting
+- Snapshots are tenant-scoped (business boundary) and meant for **view + manual copy only**.
+
+### Tier 6-2 — Explain Mode (“Why this reply works”, one-shot)
+
+- Per response item, optionally generate a short **3–5 bullet** advisory explanation.
+- Generated **once** from the active text at the moment you click “Generate explanation”.
+- Edits do **not** auto-update the explanation unless you explicitly click **Regenerate**.
+- No scoring, grades, warnings, or blocking.
+
+### Tier 6-3 — Platform hints (static)
+
+- Expandable “Tips for this platform” helper text under the Platform selector.
+- Static copy only (not AI-generated).
+- Includes trust language: “Guidance only — you decide what to post.”
+
+### Tier 6-4 — Keyboard shortcuts (power-user, scoped)
+
+Shortcuts are scoped to the response card/editor only (no global shortcuts):
+
+- **Save edit:** Ctrl/⌘+Enter
+- **Cancel edit:** Esc
+- **Copy active response:** Ctrl/⌘+Shift+C (when focus is inside a response card)
 

@@ -49,6 +49,58 @@ function addDeployShaHeader(response: NextResponse, pathname: string): void {
   }
 }
 
+function getFirstPathSegment(pathname: string): string {
+  // "/foo/bar" -> "foo"
+  const seg = pathname.split("/")[1];
+  return seg ?? "";
+}
+
+const PUBLIC_FIRST_SEGMENTS = new Set<string>([
+  // Auth
+  "login",
+  // Public / informational
+  "help",
+  "help-center",
+  "data-deletion",
+  // Public widget + booking flows
+  "widget",
+  "book",
+]);
+
+type AuthTokenResult = { token: unknown | null; hasAuthSecret: boolean };
+
+async function getAuthTokenEdgeSafe(req: NextRequest): Promise<AuthTokenResult> {
+  const authSecret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+  if (!authSecret) {
+    // Fail open if not configured (consistent with prior hardened behavior).
+    return { token: null, hasAuthSecret: false };
+  }
+
+  // Try default first, then fall back to known cookie name variants
+  const cookieNames = [
+    undefined, // default (let getToken determine)
+    "__Secure-authjs.session-token",
+    "authjs.session-token",
+    "__Secure-next-auth.session-token",
+    "next-auth.session-token",
+  ];
+
+  for (const cookieName of cookieNames) {
+    try {
+      const token = await getToken({
+        req,
+        secret: authSecret,
+        ...(cookieName && { cookieName }),
+      });
+      if (token) return { token, hasAuthSecret: true };
+    } catch {
+      // continue to next cookie variant
+    }
+  }
+
+  return { token: null, hasAuthSecret: true };
+}
+
 export default async function middleware(req: NextRequest) {
   try {
     const nextUrl = req.nextUrl;
@@ -102,127 +154,83 @@ export default async function middleware(req: NextRequest) {
       addDeployShaHeader(response, pathname);
       return response;
     }
-    
-    // DEMO MODE: Allow /apps and /apps/:path* routes when demo cookie is present
-    // This enables view-only demo access without requiring login
-    // Check for demo cookie explicitly - must exist and have a non-empty value
-    // Pattern matches: /apps, /apps/anything, /apps/nested/anything, etc.
-    // Note: isAppsRoute is already defined above for canonical host check
-    
-    if (isAppsRoute) {
-      const hasDemo = hasDemoCookie(req);
-      
-      if (hasDemo) {
-        // Demo cookie present + apps route = allow without auth (bypass login redirect)
-        const response = NextResponse.next();
-        addDeployShaHeader(response, pathname);
-        return response;
-      }
-    }
-    
-    // CRITICAL: Only protect "/" and "/apps" (including "/apps/*") routes
-    // Everything else must pass through immediately
-    const isProtectedRoute = pathname === "/" || pathname.startsWith("/apps");
-    
-    if (!isProtectedRoute) {
-      // Not a protected route, allow through immediately
-      const response = NextResponse.next();
-      addDeployShaHeader(response, pathname);
-      return response;
-    }
-    
-    // Protected route - check authentication using getToken (Edge-safe)
-    const authSecret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
-    
-    if (!authSecret) {
-      // No secret configured, fail open (allow access)
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("[Middleware] AUTH_SECRET not configured, allowing access");
-      }
-      const response = NextResponse.next();
-      addDeployShaHeader(response, pathname);
-      return response;
-    }
-    
-    // Try to get token with different cookie names for robustness
-    // Try default first, then fallback to known cookie name variants
-    const cookieNames = [
-      undefined, // default (let getToken determine)
-      "__Secure-authjs.session-token",
-      "authjs.session-token",
-      "__Secure-next-auth.session-token",
-      "next-auth.session-token",
-    ];
-    
-    let token = null;
-    for (const cookieName of cookieNames) {
-      try {
-        token = await getToken({
-          req,
-          secret: authSecret,
-          ...(cookieName && { cookieName }),
-        });
-        if (token) {
-          break; // Found a valid token, stop trying
-        }
-      } catch (err) {
-        // Continue to next cookie name if this one fails
-        continue;
-      }
-    }
-    
-    // If we have a token, user is authenticated - allow access
-    if (token) {
-      const response = NextResponse.next();
-      addDeployShaHeader(response, pathname);
-      return response;
-    }
 
-    // Protected route without session - check demo mode before redirecting
-    // DEMO MODE BYPASS: If demo cookie is present, allow access (read-only mode)
-    // This ensures demo mode users can access protected routes without authentication
     const hasDemo = hasDemoCookie(req);
-    if (hasDemo) {
-      // Demo cookie present - allow access without auth (bypass login redirect)
-      // This enables view-only demo access to protected routes
+    const isDemoNamespace = pathname === "/apps" || pathname.startsWith("/apps/");
+
+    // PREMIUM ROUTES: "/" and "/<tool-slug>(/*)"
+    const firstSegment = getFirstPathSegment(pathname);
+    const isPremiumDashboard = pathname === "/";
+    const isPremiumTool = !!firstSegment && !PUBLIC_FIRST_SEGMENTS.has(firstSegment);
+    const isPremiumRoute = isPremiumDashboard || isPremiumTool;
+
+    // DEMO NAMESPACE ROUTES: /apps and /apps/*
+    // - If authenticated AND not demo-mode: redirect to Premium canonical URL (strip "/apps")
+    // - Otherwise: allow (demo/unauth stays on /apps)
+    if (isDemoNamespace) {
+      if (!hasDemo) {
+        const { token, hasAuthSecret } = await getAuthTokenEdgeSafe(req);
+        if (hasAuthSecret && token) {
+          const url = nextUrl.clone();
+          if (pathname === "/apps") {
+            url.pathname = "/";
+          } else if (pathname.startsWith("/apps/apps/")) {
+            url.pathname = pathname.replace(/^\/apps\/apps\//, "/");
+          } else {
+            url.pathname = pathname.replace(/^\/apps\//, "/");
+          }
+          return NextResponse.redirect(url);
+        }
+      }
+
       const response = NextResponse.next();
       addDeployShaHeader(response, pathname);
       return response;
     }
 
-    // Protected route without session and no demo cookie - redirect to login
-    // Build callbackUrl from pathname and search params
-    const callbackUrl = pathname + (nextUrl.search || "");
-    
-    // Cookie detection using raw header parsing
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const hasObdDemoInHeader = cookieHeader.includes("obd_demo=");
-    
-    // Presence-based detection (matches hasDemoCookie logic)
-    const parsedHasDemoCookie = cookieHeader
-      .split(";")
-      .some(c => {
-        const v = c.trim();
-        return v === "obd_demo" || v.startsWith("obd_demo=");
-      });
-    
-    const url = nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("callbackUrl", callbackUrl);
-    
-    const redirectResponse = NextResponse.redirect(url);
-    const host = req.headers.get("host") || "unknown";
-    
-    // Set diagnostic headers ONLY on redirect-to-login response
-    redirectResponse.headers.set("x-obd-mw", "redirect");
-    redirectResponse.headers.set("x-obd-mw-reason", "no_token_no_demo");
-    redirectResponse.headers.set("x-obd-mw-host", host);
-    redirectResponse.headers.set("x-obd-mw-path", pathname);
-    redirectResponse.headers.set("x-obd-mw-cookie-len", String(cookieHeader.length));
-    redirectResponse.headers.set("x-obd-mw-cookie-has-obd-demo", hasObdDemoInHeader ? "1" : "0");
-    redirectResponse.headers.set("x-obd-mw-parsed-has-demo", parsedHasDemoCookie ? "1" : "0");
-    
-    return redirectResponse;
+    // Not demo namespace
+    if (!isPremiumRoute) {
+      // Not a Premium tool/dashboard route; allow through without auth changes.
+      return NextResponse.next();
+    }
+
+    // Demo-mode users should stay on /apps (demo-only).
+    if (hasDemo) {
+      const url = nextUrl.clone();
+      url.pathname = pathname === "/" ? "/apps" : `/apps${pathname}`;
+      return NextResponse.redirect(url);
+    }
+
+    // Premium route: require authentication.
+    const { token, hasAuthSecret } = await getAuthTokenEdgeSafe(req);
+    if (!hasAuthSecret) {
+      // Fail open if auth secret is missing (don’t brick the site).
+      if (pathname === "/") {
+        return NextResponse.next();
+      }
+      const rewriteUrl = nextUrl.clone();
+      rewriteUrl.pathname = `/apps${pathname}`;
+      return NextResponse.rewrite(rewriteUrl);
+    }
+
+    if (!token) {
+      // Redirect to login with callbackUrl to preserve intended destination
+      const callbackUrl = pathname + (nextUrl.search || "");
+      const url = nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("callbackUrl", callbackUrl);
+      return NextResponse.redirect(url);
+    }
+
+    // Authenticated premium dashboard: allow
+    if (pathname === "/") {
+      return NextResponse.next();
+    }
+
+    // Authenticated premium tool route: serve the existing /apps/* page tree without changing URL
+    const rewriteUrl = nextUrl.clone();
+    rewriteUrl.pathname = `/apps${pathname}`;
+    return NextResponse.rewrite(rewriteUrl);
   } catch (error) {
     // FAIL OPEN: If anything errors, allow the request through
     // Log error in development only (production logs should be minimal)
@@ -238,10 +246,10 @@ export default async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Explicit matcher: Only protect these routes
-  // - "/" (homepage)
-  // - "/apps" (apps dashboard)
-  // - "/apps/:path*" (all nested app routes)
-  // Middleware will NOT run for unrelated routes (login, API routes, static assets, etc.)
-  matcher: ["/", "/apps", "/apps/:path*"],
+  // Run middleware for all non-static, non-API routes.
+  // We keep all auth/redirect logic inside the middleware function so we can:
+  // - protect Premium tools at "/<tool>" (canonical)
+  // - keep Demo at "/apps/*" (demo-only)
+  // - conditionally redirect "/apps/*" -> "/*" only when authenticated and not demo-mode
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)"],
 };

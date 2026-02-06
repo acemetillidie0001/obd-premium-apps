@@ -3,10 +3,10 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// Import the client component
-import HomeClient from "./HomeClient";
+import HomeClient from "@/app/HomeClient";
 
 // Server component wrapper that forces dynamic rendering
 export default function Home() {
   return <HomeClient />;
 }
+

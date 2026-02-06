@@ -5,6 +5,8 @@ import OBDAppSidebar from "./OBDAppSidebar";
 import ThemeToggle from "./ThemeToggle";
 import { getPageBackground, getBreadcrumbClasses, CONTAINER_WIDTH, CONTAINER_WIDTH_FULL, CONTAINER_WIDTH_CONSTRAINED } from "@/lib/obd-framework/layout-helpers";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
+import { usePathname } from "next/navigation";
+import { dashboardHrefForPathname } from "@/lib/routing/appBasePaths";
 
 interface OBDPageContainerProps {
   children: React.ReactNode;
@@ -35,6 +37,7 @@ export default function OBDPageContainer({
   fullWidth = false,
   constrained = false,
 }: OBDPageContainerProps) {
+  const pathname = usePathname();
   // Use controlled theme if provided, otherwise use isDark prop (backward compatible)
   const effectiveIsDark = controlledTheme ? controlledTheme === "dark" : isDark;
   const theme = getThemeClasses(effectiveIsDark);
@@ -74,7 +77,7 @@ export default function OBDPageContainer({
             {/* Breadcrumb */}
             <div className="mb-4">
               <Link
-                href="/apps"
+                href={dashboardHrefForPathname(pathname)}
                 className={getBreadcrumbClasses(effectiveIsDark)}
               >
                 ← Dashboard

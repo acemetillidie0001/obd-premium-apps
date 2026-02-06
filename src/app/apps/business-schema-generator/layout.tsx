@@ -20,7 +20,7 @@ export default async function BusinessSchemaGeneratorLayout({ children }: { chil
     return (
       <BusinessAccessGate
         mode="noBusiness"
-        primaryAction={{ href: "/apps/brand-profile", label: "Open Brand Profile" }}
+        primaryAction={{ href: isDemo ? "/apps/brand-profile" : "/brand-profile", label: "Open Brand Profile" }}
       />
     );
   }
@@ -29,7 +29,7 @@ export default async function BusinessSchemaGeneratorLayout({ children }: { chil
     return (
       <BusinessAccessGate
         mode="noMembership"
-        primaryAction={{ href: "/apps/teams-users", label: "Open Teams & Users" }}
+        primaryAction={{ href: isDemo ? "/apps/teams-users" : "/teams-users", label: "Open Teams & Users" }}
       />
     );
   }

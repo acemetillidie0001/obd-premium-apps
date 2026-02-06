@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
 import { OBD_APPS, AppCategory } from "@/lib/obd-framework/apps.config";
 import { getAppIcon } from "@/lib/obd-framework/app-icons";
+import { normalizeAppHrefForPathname, toolHrefForPathname } from "@/lib/routing/appBasePaths";
 
 interface OBDAppSidebarProps {
   isDark: boolean;
@@ -24,6 +25,8 @@ const CATEGORY_LABELS: Record<AppCategory, string> = {
 export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
   const pathname = usePathname();
   const theme = getThemeClasses(isDark);
+  const brandProfileHref = toolHrefForPathname("brand-profile", pathname);
+  const teamsUsersHref = toolHrefForPathname("teams-users", pathname);
 
   // Group apps by category
   const appsByCategory = CATEGORY_ORDER.reduce((acc, category) => {
@@ -48,9 +51,9 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
             </p>
             <div className="space-y-1">
               <Link
-                href="/apps/brand-profile"
+                href={brandProfileHref}
                 className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${
-                  pathname === "/apps/brand-profile"
+                  pathname === brandProfileHref
                     ? "text-[#29c4a9] font-semibold border-l-4 border-[#29c4a9] pl-4 bg-transparent"
                     : isDark
                     ? "text-slate-500 hover:bg-slate-800/60"
@@ -61,9 +64,9 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
                 <span>Brand Profile</span>
               </Link>
               <Link
-                href="/apps/teams-users"
+                href={teamsUsersHref}
                 className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${
-                  pathname === "/apps/teams-users"
+                  pathname === teamsUsersHref
                     ? "text-[#29c4a9] font-semibold border-l-4 border-[#29c4a9] pl-4 bg-transparent"
                     : isDark
                     ? "text-slate-500 hover:bg-slate-800/60"
@@ -83,7 +86,10 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
               </p>
               <div className="space-y-1">
                 {apps.map((app) => {
-                  const isActive = app.href && pathname === app.href;
+                  const resolvedHref = app.href
+                    ? normalizeAppHrefForPathname(app.href, pathname)
+                    : undefined;
+                  const isActive = resolvedHref ? pathname === resolvedHref : false;
                   const isLive = app.status === "live";
                   const isInProgress = app.status === "in-progress";
                   const hasHref = !!app.href && (isLive || isInProgress);
@@ -92,7 +98,7 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
                     return (
                       <Link
                         key={app.id}
-                        href={app.href!}
+                        href={resolvedHref!}
                         className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${
                           isActive
                             ? "text-[#29c4a9] font-semibold border-l-4 border-[#29c4a9] pl-4 bg-transparent"

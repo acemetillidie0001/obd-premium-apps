@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { OBD_APPS, AppCategory } from "@/lib/obd-framework/apps.config";
 import { getAppIcon } from "@/lib/obd-framework/app-icons";
 import { getAppPreview } from "@/lib/obd-framework/app-previews";
 import { useOBDTheme } from "@/lib/obd-framework/use-obd-theme";
+import { normalizeAppHrefForPathname } from "@/lib/routing/appBasePaths";
 
 const DASHBOARD_SECTIONS: { id: AppCategory; title: string; tagline: string }[] = [
   { id: "content", title: "Content & Writing Tools", tagline: "Create descriptions, posts, FAQs, and content tailored to Ocala customers." },
@@ -16,6 +18,7 @@ const DASHBOARD_SECTIONS: { id: AppCategory; title: string; tagline: string }[] 
 ];
 
 export default function HomeClient() {
+  const pathname = usePathname();
   const { theme, isDark, toggleTheme } = useOBDTheme();
 
   const pageBg = isDark ? "bg-slate-950" : "bg-slate-50";
@@ -86,7 +89,7 @@ export default function HomeClient() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {/* Brand Profile Card (ACTIVE) */}
                 <Link
-                  href="/apps/brand-profile"
+                  href="/brand-profile"
                   className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl ${cardBgLive} group`}
                 >
                   <div className="space-y-2">
@@ -113,7 +116,7 @@ export default function HomeClient() {
 
                 {/* Billing & Plan Card (ACTIVE) */}
                 <Link
-                  href="/apps/billing-plan"
+                  href="/billing-plan"
                   className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl ${cardBgLive} group`}
                 >
                   <div className="space-y-2">
@@ -144,7 +147,7 @@ export default function HomeClient() {
 
                 {/* Team & Users Card (ACTIVE) */}
                 <Link
-                  href="/apps/teams-users"
+                  href="/teams-users"
                   className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl ${cardBgLive} group`}
                 >
                   <div className="space-y-2">
@@ -326,10 +329,11 @@ export default function HomeClient() {
                       const hasPreview = !!previewText;
 
                       if (isLive && hasHref) {
+                        const resolvedHref = normalizeAppHrefForPathname(app.href!, pathname);
                         return (
                           <Link
                             key={app.id}
-                            href={app.href!}
+                            href={resolvedHref}
                             className={`relative flex h-full min-h-[200px] flex-col justify-between rounded-2xl border px-6 py-6 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-xl ${cardBgLive} group`}
                           >
                             <div className="space-y-2">

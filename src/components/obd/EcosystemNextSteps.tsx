@@ -5,7 +5,14 @@ import Link from "next/link";
 import { getThemeClasses } from "@/lib/obd-framework/theme";
 import { getSecondaryButtonClasses } from "@/lib/obd-framework/layout-helpers";
 
-export type EcosystemStepId = "faq" | "schema" | "helpdesk" | "content" | "website-draft";
+export type EcosystemStepId =
+  | "faq"
+  | "schema"
+  | "helpdesk"
+  | "content"
+  | "website-draft"
+  | "reputation-dashboard"
+  | "crm";
 
 export interface EcosystemStep {
   id: EcosystemStepId;

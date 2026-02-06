@@ -7,6 +7,10 @@ import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 import { verifyMetaOAuthState } from "@/lib/apps/social-auto-poster/metaOAuthState";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requirePermission } from "@/lib/auth/permissions.server";
+import {
+  META_OAUTH_SCOPES_PAGES_ACCESS,
+  META_OAUTH_SCOPES_PUBLISHING,
+} from "@/lib/apps/social-auto-poster/metaOAuthScopes";
 
 /**
  * GET /api/social-connections/meta/callback
@@ -94,7 +98,7 @@ export async function GET(request: NextRequest) {
 
     const userId = sessionUserId;
     const businessId = parsedState.businessId;
-    const flow = parsedState.flow; // "basic" | "pages_access"
+    const flow = parsedState.flow; // "basic" | "pages_access" | "publishing"
 
     // Optional extra CSRF hardening: compare nonce cookie if present (callback may work without cookies)
     const cookieStore = await cookies();
@@ -182,10 +186,11 @@ export async function GET(request: NextRequest) {
       console.warn("[Meta OAuth Callback] Long-lived exchange exception (non-fatal):", err instanceof Error ? err.message : String(err));
     }
 
-    // Determine if this is a pages access request or basic connect
+    // Determine which staged flow is completing
     const isPagesAccessRequest = flow === "pages_access";
+    const isPublishingRequest = flow === "publishing";
 
-    if (isPagesAccessRequest) {
+    if (isPagesAccessRequest || isPublishingRequest) {
       // Stage 2: Pages Access Request
       // Fetch user's pages with the new token (verification only; selection happens via /meta/pages + /meta/select-page)
       const pagesResponse = await fetch(`https://graph.facebook.com/v21.0/me/accounts?access_token=${userAccessToken}`);
@@ -203,7 +208,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=no_pages", baseUrl));
       }
 
-      // Update existing Facebook connection with pages access
+      // Update existing Facebook connection with staged access
       const existingConnection = await prisma.socialAccountConnection.findFirst({
         where: {
           userId,
@@ -219,12 +224,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?error=invalid_state", baseUrl));
       }
 
-      // Update with pages access info (keep user token; do not auto-select a page)
+      // Update with staged access info (keep user token; do not auto-select a page)
       const existingMeta = (existingConnection.metaJson as Record<string, unknown> | null) || {};
       const prevScopes = Array.isArray((existingMeta as any).scopesRequested)
         ? ((existingMeta as any).scopesRequested as unknown[]).filter((s) => typeof s === "string") as string[]
         : [];
-      const nextScopes = Array.from(new Set([...prevScopes, "pages_show_list", "pages_read_engagement"]));
+      const scopesToAdd = isPublishingRequest ? [...META_OAUTH_SCOPES_PUBLISHING] : [...META_OAUTH_SCOPES_PAGES_ACCESS];
+      const nextScopes = Array.from(new Set([...prevScopes, ...scopesToAdd]));
 
       await prisma.socialAccountConnection.update({
         where: { id: existingConnection.id },
@@ -236,13 +242,17 @@ export async function GET(request: NextRequest) {
             businessId,
             pagesAccessGranted: true,
             pagesAccessGrantedAt: new Date().toISOString(),
+            publishingAccessGranted: isPublishingRequest ? true : ((existingMeta as any).publishingAccessGranted === true),
+            publishingAccessGrantedAt: isPublishingRequest ? new Date().toISOString() : (existingMeta as any).publishingAccessGrantedAt,
             scopesRequested: nextScopes,
           },
         },
       });
 
-      // Redirect back to setup page with pages access success
-      return NextResponse.redirect(new URL("/apps/social-auto-poster/setup?pages_access=1", baseUrl));
+      // Redirect back to setup page with staged access success
+      return NextResponse.redirect(
+        new URL(isPublishingRequest ? "/apps/social-auto-poster/setup?publishing_access=1" : "/apps/social-auto-poster/setup?pages_access=1", baseUrl)
+      );
     } else {
       // Stage 1: Basic Connect
       // Fetch basic user info

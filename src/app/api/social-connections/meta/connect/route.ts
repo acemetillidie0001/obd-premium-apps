@@ -5,6 +5,11 @@ import { getMetaOAuthBaseUrl } from "@/lib/apps/social-auto-poster/getBaseUrl";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { createMetaOAuthState } from "@/lib/apps/social-auto-poster/metaOAuthState";
+import {
+  META_OAUTH_SCOPES_BASIC,
+  META_OAUTH_SCOPES_PAGES_ACCESS,
+  META_OAUTH_SCOPES_PUBLISHING,
+} from "@/lib/apps/social-auto-poster/metaOAuthScopes";
 
 /**
  * POST /api/social-connections/meta/connect
@@ -129,11 +134,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const flowParam = request.nextUrl.searchParams.get("flow");
+    const flow =
+      flowParam === "publishing" || flowParam === "pages_access" || flowParam === "basic"
+        ? flowParam
+        : "basic";
+
     // Create signed state token (includes businessId, time-limited)
     const { state, nonce } = createMetaOAuthState({
       userId: ctx.userId,
       businessId: ctx.businessId,
-      flow: "basic",
+      flow,
     });
 
     // Store nonce in httpOnly cookie (optional extra CSRF hardening; callback may still work without cookies)
@@ -145,7 +156,7 @@ export async function POST(request: NextRequest) {
       maxAge: 600, // 10 minutes
       path: "/",
     });
-    cookieStore.set("meta_oauth_flow", "basic", {
+    cookieStore.set("meta_oauth_flow", flow, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -153,9 +164,12 @@ export async function POST(request: NextRequest) {
       path: "/",
     });
     
-    // Stage 1: Minimal scopes for basic connection only
-    // public_profile: Basic user profile information
-    const scopesRequested = ["public_profile"];
+    const scopesRequested =
+      flow === "publishing"
+        ? [...META_OAUTH_SCOPES_PUBLISHING]
+        : flow === "pages_access"
+          ? [...META_OAUTH_SCOPES_PAGES_ACCESS]
+          : [...META_OAUTH_SCOPES_BASIC];
     const scopes = scopesRequested.join(",");
 
     const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");

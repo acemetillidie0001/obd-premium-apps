@@ -110,6 +110,8 @@ export default function SocialAutoPosterSetupPage() {
     ok?: boolean;
     configured?: boolean;
     metaReviewMode?: boolean;
+    requiredScopesMissing?: string[];
+    nextSteps?: string[];
     errorCode?: string;
     errorMessage?: string;
     facebook: { 
@@ -134,6 +136,7 @@ export default function SocialAutoPosterSetupPage() {
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [requestingPagesAccess, setRequestingPagesAccess] = useState(false);
+  const [requestingPublishingAccess, setRequestingPublishingAccess] = useState(false);
   const [testPostLoading, setTestPostLoading] = useState(false);
   const [testPostResults, setTestPostResults] = useState<{
     facebook?: { ok: boolean; postId?: string; permalink?: string; error?: string };
@@ -175,6 +178,7 @@ export default function SocialAutoPosterSetupPage() {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const pagesAccess = params.get("pages_access");
+    const publishingAccess = params.get("publishing_access");
     const googleConnected = params.get("google_connected");
     const error = params.get("error");
     
@@ -201,6 +205,20 @@ export default function SocialAutoPosterSetupPage() {
       // Clean URL immediately
       window.history.replaceState({}, "", window.location.pathname);
       
+      // Auto-refresh connection status if user is premium
+      if (isPremiumUser === true) {
+        setTimeout(() => {
+          loadConnectionStatus();
+        }, 500);
+      }
+    } else if (publishingAccess === "1") {
+      // Show success message for publishing access
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+
+      // Clean URL immediately
+      window.history.replaceState({}, "", window.location.pathname);
+
       // Auto-refresh connection status if user is premium
       if (isPremiumUser === true) {
         setTimeout(() => {
@@ -567,6 +585,27 @@ export default function SocialAutoPosterSetupPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to request pages access");
       setRequestingPagesAccess(false);
+    }
+  };
+
+  const handleRequestPublishingAccess = async () => {
+    setRequestingPublishingAccess(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social-connections/meta/request-publishing-access", {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Failed to request publishing access");
+      }
+      if (data.authUrl) {
+        // Redirect to Meta OAuth for publishing access
+        window.location.href = data.authUrl;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to request publishing access");
+      setRequestingPublishingAccess(false);
     }
   };
 
@@ -1385,15 +1424,31 @@ export default function SocialAutoPosterSetupPage() {
                       <button
                         type="button"
                         onClick={handleTestPost}
-                        disabled={testPostLoading || !connectionStatus?.facebook?.pagesAccessGranted}
+                        disabled={
+                          testPostLoading ||
+                          !connectionStatus?.facebook?.pagesAccessGranted ||
+                          connectionStatus?.publishing?.enabled !== true ||
+                          (connectionStatus?.requiredScopesMissing?.length || 0) > 0
+                        }
                         className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                          testPostLoading || !connectionStatus?.facebook?.pagesAccessGranted
+                          testPostLoading ||
+                          !connectionStatus?.facebook?.pagesAccessGranted ||
+                          connectionStatus?.publishing?.enabled !== true ||
+                          (connectionStatus?.requiredScopesMissing?.length || 0) > 0
                             ? isDark
                               ? "bg-slate-700 text-slate-400 cursor-not-allowed"
                               : "bg-slate-200 text-slate-400 cursor-not-allowed"
                             : "bg-blue-600 text-white hover:bg-blue-700"
                         }`}
-                        title={!connectionStatus?.facebook?.pagesAccessGranted ? "Enable Pages Access first" : ""}
+                        title={
+                          !connectionStatus?.facebook?.pagesAccessGranted
+                            ? "Enable Pages Access first"
+                            : connectionStatus?.publishing?.enabled !== true
+                              ? "Publishing is disabled until META_PUBLISHING_ENABLED=true"
+                              : (connectionStatus?.requiredScopesMissing?.length || 0) > 0
+                                ? "Request Publishing Access first"
+                                : ""
+                        }
                       >
                         {testPostLoading ? "Sending..." : "Send Test Post"}
                       </button>
@@ -1431,6 +1486,77 @@ export default function SocialAutoPosterSetupPage() {
                           Open Meta Status JSON
                         </a>
                       )}
+                    </div>
+
+                    {/* Publishing Access Panel */}
+                    <div
+                      className={`mt-4 p-4 rounded-xl border ${
+                        isDark ? "border-slate-700 bg-slate-800/30" : "border-slate-200 bg-slate-50"
+                      }`}
+                    >
+                      <div className={`font-medium mb-2 ${themeClasses.headingText}`}>Publishing Access</div>
+                      <div className={`text-sm ${themeClasses.mutedText}`}>
+                        Publishing to Facebook Pages and Instagram requires additional Meta permissions.
+                      </div>
+
+                      {connectionStatus.facebook.connected ? (
+                        (connectionStatus.requiredScopesMissing || []).length > 0 ? (
+                          <div
+                            className={`mt-3 p-3 rounded-lg border ${
+                              isDark
+                                ? "border-amber-700/50 bg-amber-900/10 text-amber-200"
+                                : "border-amber-200 bg-amber-50 text-amber-900"
+                            }`}
+                          >
+                            <div className="text-sm font-medium">
+                              Publishing requires additional Meta permissions. Request Publishing Access.
+                            </div>
+                            <div className={`mt-1 text-xs ${isDark ? "text-amber-200/80" : "text-amber-900/80"}`}>
+                              Missing: {(connectionStatus.requiredScopesMissing || []).join(", ")}
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            className={`mt-3 p-3 rounded-lg border ${
+                              isDark
+                                ? "border-emerald-700/40 bg-emerald-900/10 text-emerald-200"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            }`}
+                          >
+                            <div className="text-sm font-medium">Publishing permissions granted ✅</div>
+                            <div className={`mt-1 text-xs ${isDark ? "text-emerald-200/80" : "text-emerald-900/80"}`}>
+                              You can publish once `META_PUBLISHING_ENABLED=true` and a Page is selected.
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <div className={`mt-3 text-xs ${themeClasses.mutedText}`}>
+                          Connect Facebook first to request publishing permissions.
+                        </div>
+                      )}
+
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={handleRequestPublishingAccess}
+                          disabled={
+                            requestingPublishingAccess ||
+                            !connectionStatus.configured ||
+                            !connectionStatus.facebook.connected
+                          }
+                          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                            requestingPublishingAccess ||
+                            !connectionStatus.configured ||
+                            !connectionStatus.facebook.connected
+                              ? isDark
+                                ? "bg-slate-700 text-slate-400 cursor-not-allowed"
+                                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          }`}
+                        >
+                          {requestingPublishingAccess ? "Requesting..." : "Request Publishing Access"}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Revoke Access Guidance */}

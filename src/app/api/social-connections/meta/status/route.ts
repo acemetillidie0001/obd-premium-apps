@@ -6,6 +6,10 @@ import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { isMetaPublishingEnabled } from "@/lib/apps/social-auto-poster/metaConnectionStatus";
+import {
+  getMissingMetaScopes,
+  META_PUBLISHING_REQUIRED_SCOPES,
+} from "@/lib/apps/social-auto-poster/metaOAuthScopes";
 
 /**
  * GET /api/social-connections/meta/status
@@ -40,6 +44,7 @@ export async function GET() {
             metaReviewMode: reviewMode,
             errorCode: code,
             errorMessage: err.message,
+            requiredScopesMissing: [],
             facebook: { connected: false },
             instagram: { connected: false, available: false },
           },
@@ -54,6 +59,7 @@ export async function GET() {
           metaReviewMode: reviewMode,
           errorCode: "UNKNOWN_ERROR",
           errorMessage: "Unable to verify tenant context.",
+          requiredScopesMissing: [],
           facebook: { connected: false },
           instagram: { connected: false, available: false },
         },
@@ -111,6 +117,7 @@ export async function GET() {
         publishingEnabled,
         token: { present: false, expiresAt: null, scopes: [], isExpired: false },
         assets: { pageSelected: false, pageId: null, igBusinessId: null },
+        requiredScopesMissing: [],
         nextSteps: ["Configure META_APP_ID and META_APP_SECRET"],
         configured: false,
         metaReviewMode: reviewMode,
@@ -201,13 +208,15 @@ export async function GET() {
     const basicConnectGranted = facebookMeta?.basicConnectGranted === true;
 
     // Build successful response
+    const connected = !!facebookConnection;
     const tokenExpiresAt = facebookConnection?.tokenExpiresAt ?? null;
     const isExpired = tokenExpiresAt ? tokenExpiresAt.getTime() <= Date.now() : false;
     const requestedScopes = Array.isArray((facebookMeta as any)?.scopesRequested)
       ? ((facebookMeta as any).scopesRequested as string[]).filter((s) => typeof s === "string")
       : [];
-
-    const connected = !!facebookConnection;
+    const requiredScopesMissing = connected
+      ? getMissingMetaScopes(META_PUBLISHING_REQUIRED_SCOPES, requestedScopes)
+      : [];
     const selectedPageId = typeof (facebookMeta as any)?.selectedPageId === "string" ? (facebookMeta as any).selectedPageId : null;
     const pageId = pagesAccessGranted ? selectedPageId : null;
     const pageSelected = !!pageId;
@@ -218,6 +227,7 @@ export async function GET() {
     if (!connected) nextSteps.push("Connect Meta");
     if (connected && isExpired) nextSteps.push("Reconnect (token expired)");
     if (connected && !pagesAccessGranted) nextSteps.push("Enable Pages Access");
+    if (connected && requiredScopesMissing.includes("pages_manage_posts")) nextSteps.push("Request Publishing Access");
     if (connected && pagesAccessGranted && !pageSelected) nextSteps.push("Select a Facebook Page");
     if (connected && pagesAccessGranted && pageSelected && !igBusinessId) nextSteps.push("Link an Instagram Business account to this Page");
     if (connected && pagesAccessGranted && !publishingEnabled) nextSteps.push("Publishing disabled until META_PUBLISHING_ENABLED=true");
@@ -239,6 +249,7 @@ export async function GET() {
         pageId,
         igBusinessId,
       },
+      requiredScopesMissing,
       nextSteps,
 
       // Backward-compatible fields used by existing UI
@@ -253,12 +264,14 @@ export async function GET() {
       },
       instagram: {
         connected: !!instagramConnection,
-        available: false, // Instagram not available until publishing permissions are granted
+        available: requiredScopesMissing.length === 0, // Publishing permissions granted (as recorded)
         username: instagramConnection?.displayName || instagramDestination?.selectedDisplayName || undefined,
         igBusinessId: instagramConnection?.providerAccountId || undefined,
         reasonIfUnavailable: !pagesAccessGranted
           ? "Pages access must be enabled first"
-          : "Publishing permissions require additional Meta setup (Advanced Access / App Review)",
+          : requiredScopesMissing.length > 0
+            ? "Publishing requires additional Meta permissions. Request Publishing Access."
+            : undefined,
       },
       publishing: {
         enabled: publishingEnabled,

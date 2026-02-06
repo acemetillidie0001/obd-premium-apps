@@ -444,4 +444,46 @@
 - **IG not linked**: “Convert Instagram to a Professional account and link it to this Facebook Page.”
 - **Token expired**: nextSteps includes “Reconnect (token expired)”
 
+---
+
+## Publishing Access Flow (explicit OAuth step)
+
+### Why this exists
+
+- We keep the existing approved **Basic Connect** Facebook Login flow unchanged (minimal scopes).
+- Publishing to a Facebook Page and Instagram Business account requires additional Meta permissions that typically require **Advanced Access / App Review**.
+- To align with staged permission best practices, we request publishing scopes **only when the user explicitly clicks** “Request Publishing Access”.
+
+### Exact permissions requested (and why)
+
+**Facebook Pages**
+
+- `pages_show_list`: list Pages the user manages (Page selection)
+- `pages_read_engagement`: validate Page access + read basic Page info
+- `pages_manage_posts`: publish content to the selected Page
+
+**Instagram (IG Content Publishing API)**
+
+- `instagram_basic`: read basic IG account info (e.g., username) for UX and linking checks
+- `instagram_content_publish`: publish media to the linked IG Business account
+
+### Reviewer path (click-by-click)
+
+1. **Basic connect**: Setup → “Connect Facebook”
+2. **Publishing access**: Setup → “Request Publishing Access” (second consent screen)
+3. **Select Page**: Setup → pick a Page (stores page token + detects linked IG business account)
+4. **Detect IG**: Setup shows linked IG username/ID (if available)
+5. **Test post**: Setup → “Send Test Post” (guarded by `META_PUBLISHING_ENABLED=true`)
+
+### Troubleshooting
+
+- **Missing scopes**:
+  - `/api/social-connections/meta/status` returns `requiredScopesMissing` (stable order) and `nextSteps` includes “Request Publishing Access”.
+  - `/api/social-connections/meta/test-post` returns:
+    - `{ ok:false, code:"MISSING_PUBLISHING_SCOPES", missing:[...] }`
+- **Publishing disabled**:
+  - If `META_PUBLISHING_ENABLED` is not `true`, publishing routes return:
+    - `{ ok:false, code:"PUBLISHING_DISABLED", ... }`
+  - The Setup UI keeps publishing actions disabled until the flag is enabled.
+
 

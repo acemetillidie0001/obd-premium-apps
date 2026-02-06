@@ -7,6 +7,10 @@ import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { publishToFacebookPage, publishToInstagram } from "@/lib/apps/social-auto-poster/publishers/metaPublisher";
 import { mapMetaApiErrorToStableCode } from "@/lib/apps/social-auto-poster/metaErrorMapper";
+import {
+  getMissingMetaScopes,
+  META_PUBLISHING_REQUIRED_SCOPES,
+} from "@/lib/apps/social-auto-poster/metaOAuthScopes";
 
 /**
  * POST /api/social-connections/meta/test-post
@@ -56,6 +60,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           ok: false,
+          code: "PUBLISHING_DISABLED",
+          errorCode: "PUBLISHING_DISABLED",
           error: "PUBLISHING_DISABLED",
           message: "Facebook/Instagram publishing is in limited mode while we complete Meta App Review. You can still compose posts, queue them, and use simulate mode to preview how they'll look."
         },
@@ -81,6 +87,27 @@ export async function POST(request: NextRequest) {
         metaJson: { path: ["businessId"], equals: businessId },
       },
     });
+
+    // Deterministic scope guard (based on recorded scopesRequested in metaJson)
+    const fbMeta = (fbConnection?.metaJson as Record<string, unknown> | null) || {};
+    if (fbConnection?.accessToken) {
+      const recordedScopes = Array.isArray((fbMeta as any).scopesRequested)
+        ? ((fbMeta as any).scopesRequested as unknown[]).filter((s) => typeof s === "string") as string[]
+        : [];
+      const missingPublishingScopes = getMissingMetaScopes(META_PUBLISHING_REQUIRED_SCOPES, recordedScopes);
+      if (missingPublishingScopes.length > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            code: "MISSING_PUBLISHING_SCOPES",
+            errorCode: "MISSING_PUBLISHING_SCOPES",
+            missing: missingPublishingScopes,
+            message: "Publishing requires additional Meta permissions. Request Publishing Access.",
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     // Determine which platforms to attempt
     const attemptFacebook = !platforms || platforms.includes("facebook");
@@ -126,7 +153,6 @@ export async function POST(request: NextRequest) {
             },
           });
         } else {
-          const fbMeta = (fbConnection.metaJson as Record<string, unknown> | null) || {};
           const selectedPageId = typeof (fbMeta as any).selectedPageId === "string" ? (fbMeta as any).selectedPageId : "";
           const selectedPageAccessToken =
             typeof (fbMeta as any).selectedPageAccessToken === "string" ? (fbMeta as any).selectedPageAccessToken : "";

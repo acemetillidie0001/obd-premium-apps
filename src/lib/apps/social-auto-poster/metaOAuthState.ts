@@ -6,7 +6,7 @@
  */
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
-export type MetaOAuthFlow = "basic" | "pages_access";
+export type MetaOAuthFlow = "basic" | "pages_access" | "publishing";
 
 export type MetaOAuthStatePayloadV1 = {
   v: 1;
@@ -68,7 +68,7 @@ export function verifyMetaOAuthState(state: string): MetaOAuthStatePayloadV1 | n
     if (parsed.v !== 1) return null;
     if (typeof parsed.userId !== "string" || parsed.userId.trim().length === 0) return null;
     if (typeof parsed.businessId !== "string" || parsed.businessId.trim().length === 0) return null;
-    if (parsed.flow !== "basic" && parsed.flow !== "pages_access") return null;
+    if (parsed.flow !== "basic" && parsed.flow !== "pages_access" && parsed.flow !== "publishing") return null;
     if (typeof parsed.nonce !== "string" || parsed.nonce.trim().length === 0) return null;
     if (typeof parsed.iat !== "number" || typeof parsed.exp !== "number") return null;
 

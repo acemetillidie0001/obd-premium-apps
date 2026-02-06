@@ -30,11 +30,22 @@ Review Request Automation is a V3 OBD Premium App for planning, queuing, and man
   - no background syncing / no auto-creation
 - Not a delivery guarantee (deliverability depends on channel availability and recipient eligibility).
 
+## Why this is not autonomous automation
+
+- You work **draft-first** and intentionally queue: templates and queue items are only generated when you explicitly click **Create New Snapshot**.
+- Templates / Queue / Results are **snapshot-derived** and stay stable until you create a new snapshot.
+- Nothing runs in the background: no crawling, no cron-based scheduling, and no unattended “set-and-forget” behavior.
+- No platform manipulation: we do not log into review platforms, post on your behalf, or auto-submit anything.
+- No silent CRM integration during drafts: customers are not auto-synced while you edit; any downstream writes (if enabled) are tied to explicit user actions (e.g., manual send / status updates) and are best-effort.
+- Exports are snapshot-based so what you export matches what you reviewed.
+
 ## Snapshot-based behavior (canonical)
 
 - **Create New Snapshot** is the only action that computes templates, queue state, and results.
 - Viewing Templates / Queue / Results **never recomputes** anything.
 - Status changes (Sent / Clicked / Reviewed / Opted Out) update the snapshot state directly (no hidden recalculation).
+- Snapshot History is read-only: users can review prior snapshots without restoring/replaying or changing the active snapshot unless they explicitly click “Set Active Snapshot”.
+- “Review changes” step (UI-only) provides a compact, deterministic draft-vs-active snapshot preview before snapshot creation.
 - Storage:
   - **Draft edits** are saved locally (draft-only).
   - **Active snapshot** is stored locally (local-first acceptable).
@@ -459,13 +470,13 @@ The Results tab includes a "Best-Practice Guidance" section that provides non-bi
 - Exports send queue to CSV format
 - Includes: customerId, customerName, scheduledAt, variant, channel, status, skippedReason
 - Available from Queue tab when queue exists
-- Filename format: `send-queue-{businessName}-{date}.csv`
+- Filename format: `review-requests-snapshot-{snapshotIdShort}.csv`
 
 ### Export Snapshot JSON
 - Exports the active snapshot to JSON
 - Includes: campaign configuration, customers, events, computed response, and `exportedAt` timestamp (ISO format)
 - Available from Queue tab when an active snapshot exists
-- Filename format: `campaign-snapshot-{businessName}-{date}.json`
+- Filename format: `review-requests-snapshot-{snapshotIdShort}.json`
 - Useful for backup, migration, or analysis
 
 ## Database Persistence

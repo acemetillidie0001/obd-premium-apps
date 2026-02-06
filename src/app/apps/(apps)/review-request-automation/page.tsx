@@ -27,11 +27,15 @@ import {
 } from "@/lib/apps/review-request-automation/types";
 import { parseCSV, generateCSVTemplate, exportCustomersToCSV, CSVParseResult } from "@/lib/apps/review-request-automation/csv-utils";
 import {
+  addSnapshotToHistoryStore,
   generateSnapshotId,
   loadActiveSnapshot,
+  loadSnapshotHistoryStore,
   RRA_SNAPSHOT_SCHEMA_VERSION,
   saveActiveSnapshot,
+  setActiveSnapshotIdInHistoryStore,
   type ReviewRequestCampaignSnapshot,
+  type ReviewRequestSnapshotHistoryStore,
 } from "@/lib/apps/review-request-automation/snapshot-storage";
 import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
@@ -119,6 +123,14 @@ function ReviewRequestAutomationPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSnapshot, setActiveSnapshot] = useState<ReviewRequestCampaignSnapshot | null>(null);
+  const [snapshotHistory, setSnapshotHistory] = useState<ReviewRequestSnapshotHistoryStore>({
+    schemaVersion: RRA_SNAPSHOT_SCHEMA_VERSION,
+    snapshots: [],
+    activeSnapshotId: null,
+  });
+  const [snapshotHistoryExpanded, setSnapshotHistoryExpanded] = useState(true);
+  const [historyViewerSnapshotId, setHistoryViewerSnapshotId] = useState<string | null>(null);
+  const [showReviewChangesModal, setShowReviewChangesModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"campaign" | "customers" | "templates" | "queue" | "results">("campaign");
   const [showQuickStart, setShowQuickStart] = useState(false);
   const [selectedQueueItems, setSelectedQueueItems] = useState<Set<string>>(new Set());
@@ -199,6 +211,19 @@ function ReviewRequestAutomationPageContent() {
       setActiveSnapshot(snap);
       // If a snapshot exists, default away from quick start
       setShowQuickStart(false);
+    }
+
+    // Load snapshot history (read-only review; does not change active unless explicit)
+    const history = loadSnapshotHistoryStore();
+    setSnapshotHistory(history);
+    setSnapshotHistoryExpanded(history.snapshots.length > 0);
+
+    // If the legacy active snapshot key is missing, fall back to the history-selected active snapshot.
+    if (!snap && history.activeSnapshotId) {
+      const fromHistory = history.snapshots.find((s) => s.id === history.activeSnapshotId);
+      if (fromHistory) {
+        setActiveSnapshot(fromHistory);
+      }
     }
 
     // Check DB status on mount
@@ -495,9 +520,18 @@ function ReviewRequestAutomationPageContent() {
     setCrmReturnUrl(null);
   };
 
-  const persistActiveSnapshot = (snapshot: ReviewRequestCampaignSnapshot) => {
+  const persistNewSnapshot = (snapshot: ReviewRequestCampaignSnapshot) => {
     setActiveSnapshot(snapshot);
     saveActiveSnapshot(snapshot);
+    const nextHistory = addSnapshotToHistoryStore(snapshot, { setActive: true });
+    setSnapshotHistory(nextHistory);
+  };
+
+  const setActiveSnapshotExplicit = (snapshot: ReviewRequestCampaignSnapshot) => {
+    setActiveSnapshot(snapshot);
+    saveActiveSnapshot(snapshot);
+    const nextHistory = setActiveSnapshotIdInHistoryStore(snapshot.id);
+    setSnapshotHistory(nextHistory);
   };
 
   const updateActiveSnapshot = (
@@ -545,7 +579,7 @@ function ReviewRequestAutomationPageContent() {
         response: data,
       };
 
-      persistActiveSnapshot(snapshotBase);
+      persistNewSnapshot(snapshotBase);
       setActiveTab("results");
       setShowQuickStart(false); // Dismiss quick start when snapshot is created
       
@@ -609,6 +643,17 @@ function ReviewRequestAutomationPageContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openReviewChangesModal = () => {
+    // UI-only step right before snapshot creation (no API calls).
+    setShowReviewChangesModal(true);
+  };
+
+  const confirmCreateNewSnapshotFromPreview = () => {
+    setShowReviewChangesModal(false);
+    // Finalize: perform the actual snapshot creation.
+    handleCreateNewSnapshot();
   };
 
   const handleAddCustomer = () => {
@@ -809,7 +854,8 @@ function ReviewRequestAutomationPageContent() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `send-queue-${(activeSnapshot.campaign.businessName || "campaign").replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`;
+    const snapshotIdShort = activeSnapshot.id.slice(0, 8);
+    a.download = `review-requests-snapshot-${snapshotIdShort}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -826,7 +872,8 @@ function ReviewRequestAutomationPageContent() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `campaign-snapshot-${(activeSnapshot.campaign.businessName || "campaign").replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.json`;
+    const snapshotIdShort = activeSnapshot.id.slice(0, 8);
+    a.download = `review-requests-snapshot-${snapshotIdShort}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -913,12 +960,109 @@ function ReviewRequestAutomationPageContent() {
     return "queued";
   };
 
+  const formatSnapshotLabel = (snapshot: ReviewRequestCampaignSnapshot): string => {
+    const dt = new Date(snapshot.createdAt);
+    const formatted = Number.isFinite(dt.getTime())
+      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(dt)
+      : snapshot.createdAt;
+    return `Snapshot — ${formatted}`;
+  };
+
+  const buildReviewChangesLines = (): string[] => {
+    if (!activeSnapshot) {
+      const lines: string[] = ["This will create your first snapshot."];
+      lines.push(`Customers: ${customers.length}`);
+      lines.push(`Rules: Quiet hours ${campaign.rules.quietHours.start}–${campaign.rules.quietHours.end}`);
+      lines.push(`Review link / platform: ${campaign.platform}${campaign.reviewLink ? " (link set)" : " (no link)"}`);
+      return lines.slice(0, 6);
+    }
+
+    const lines: string[] = [];
+
+    const normalizeText = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const sameText = (a: unknown, b: unknown) => normalizeText(a) === normalizeText(b);
+
+    const fingerprintCustomers = (list: Customer[]): string => {
+      // Deterministic lightweight fingerprint (no heavy diff): id + a few stable fields, sorted.
+      return list
+        .map((c) => ({
+          id: c.id,
+          customerName: c.customerName,
+          email: c.email ?? "",
+          phone: c.phone ?? "",
+          optedOut: !!c.optedOut,
+          tags: (c.tags ?? []).slice().sort(),
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((c) => `${c.id}|${c.customerName}|${c.email}|${c.phone}|${c.optedOut ? "1" : "0"}|${c.tags.join(",")}`)
+        .join("~");
+    };
+
+    const prevCustomersCount = activeSnapshot.customers.length;
+    const nowCustomersCount = customers.length;
+    const customersChanged =
+      prevCustomersCount !== nowCustomersCount ||
+      fingerprintCustomers(activeSnapshot.customers) !== fingerprintCustomers(customers);
+    lines.push(
+      customersChanged
+        ? `Customers: Changed (now ${nowCustomersCount})`
+        : `Customers: Unchanged (${nowCustomersCount})`
+    );
+
+    const quietHoursChanged =
+      !sameText(campaign.rules.quietHours.start, activeSnapshot.campaign.rules.quietHours.start) ||
+      !sameText(campaign.rules.quietHours.end, activeSnapshot.campaign.rules.quietHours.end);
+    lines.push(quietHoursChanged ? "Rules: Quiet hours updated" : "Rules: Quiet hours unchanged");
+
+    const freqChanged = campaign.rules.frequencyCapDays !== activeSnapshot.campaign.rules.frequencyCapDays;
+    lines.push(freqChanged ? "Rules: Frequency cap updated" : "Rules: Frequency cap unchanged");
+
+    const reviewLinkOrPlatformChanged =
+      campaign.platform !== activeSnapshot.campaign.platform ||
+      !sameText(campaign.reviewLink, activeSnapshot.campaign.reviewLink);
+    lines.push(reviewLinkOrPlatformChanged ? "Review link / platform: Updated" : "Review link / platform: Unchanged");
+
+    // Templates are snapshot-derived; we only show an "Updated" boolean based on draft inputs that affect generation.
+    const templateRelevantChanged =
+      !sameText(campaign.businessName, activeSnapshot.campaign.businessName) ||
+      !sameText(campaign.businessType, activeSnapshot.campaign.businessType) ||
+      campaign.platform !== activeSnapshot.campaign.platform ||
+      !sameText(campaign.reviewLink, activeSnapshot.campaign.reviewLink) ||
+      campaign.language !== activeSnapshot.campaign.language ||
+      campaign.toneStyle !== activeSnapshot.campaign.toneStyle ||
+      !sameText(campaign.brandVoice, activeSnapshot.campaign.brandVoice);
+    lines.push(templateRelevantChanged ? "Templates: Updated" : "Templates: Unchanged");
+
+    const queuedNow = activeSnapshot.response?.sendQueue?.length ?? 0;
+    lines.push(`Current snapshot queued: ${queuedNow}`);
+
+    return lines.slice(0, 6);
+  };
+
+  const getSnapshotChannels = (snapshot: ReviewRequestCampaignSnapshot): string[] => {
+    const sendQueue = snapshot.response?.sendQueue ?? [];
+    const channels = new Set<string>();
+    for (const item of sendQueue) {
+      const raw = (item as unknown as { channel?: string | null }).channel;
+      if (typeof raw === "string" && raw.trim()) channels.add(raw);
+    }
+    return Array.from(channels).sort();
+  };
+
+  const historyViewerSnapshot =
+    historyViewerSnapshotId
+      ? snapshotHistory.snapshots.find((s) => s.id === historyViewerSnapshotId) ?? null
+      : null;
+
+  const reviewChangesLines = showReviewChangesModal ? buildReviewChangesLines() : [];
+
   const filteredCustomers = customers;
   const snapshotResponse = activeSnapshot?.response ?? null;
   const snapshotCampaign = activeSnapshot?.campaign ?? null;
   const snapshotCustomers = activeSnapshot?.customers ?? [];
   const snapshotSendQueue = snapshotResponse?.sendQueue ?? [];
   const hasActiveSnapshot = !!activeSnapshot;
+  const activeSnapshotIdShort = activeSnapshot?.id ? activeSnapshot.id.slice(0, 8) : null;
   const hasQueueItems = snapshotSendQueue.length > 0;
   const pendingQueueCount = snapshotSendQueue.filter((q) => q.status === "pending").length;
   const hasPendingEmailQueueItems = snapshotSendQueue.some((q) => q.status === "pending" && q.channel === "email");
@@ -1252,6 +1396,95 @@ function ReviewRequestAutomationPageContent() {
           </div>
         </OBDPanel>
       )}
+
+      {/* Snapshot History (read-only) */}
+      <OBDPanel isDark={isDark} className="mt-7">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
+              Snapshot History
+            </h3>
+            <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+              Review prior campaign snapshots without restoring, replaying, or re-queuing.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSnapshotHistoryExpanded((v) => !v)}
+            className={`shrink-0 text-xs px-3 py-1 rounded-full border transition-colors ${
+              isDark
+                ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+            }`}
+            aria-expanded={snapshotHistoryExpanded}
+            aria-label={snapshotHistoryExpanded ? "Collapse snapshot history" : "Expand snapshot history"}
+            title={snapshotHistoryExpanded ? "Collapse" : "Expand"}
+          >
+            {snapshotHistoryExpanded ? "Hide" : "Show"} ({snapshotHistory.snapshots.length})
+          </button>
+        </div>
+
+        {snapshotHistoryExpanded && (
+          snapshotHistory.snapshots.length > 0 ? (
+            <div className="mt-4 space-y-2 max-h-72 overflow-y-auto">
+              {snapshotHistory.snapshots.map((s) => {
+                const isActive = snapshotHistory.activeSnapshotId === s.id;
+                const queuedCount = s.response?.sendQueue?.length ?? 0;
+                const channels = getSnapshotChannels(s);
+                const channelLabel = channels.length > 0 ? channels.join(", ") : "—";
+
+                const chipClass = `inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                  isDark
+                    ? "bg-slate-800 border-slate-700 text-slate-300"
+                    : "bg-slate-50 border-slate-200 text-slate-600"
+                }`;
+
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setHistoryViewerSnapshotId(s.id)}
+                    className={`w-full text-left p-3 rounded-xl border transition-colors ${
+                      isDark
+                        ? "bg-slate-900/30 border-slate-800 hover:bg-slate-800/40"
+                        : "bg-white border-slate-200 hover:bg-slate-50"
+                    }`}
+                    aria-label={`Open ${formatSnapshotLabel(s)} viewer`}
+                    title="Open read-only snapshot viewer"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className={`text-sm font-medium truncate ${themeClasses.headingText}`}>
+                          {formatSnapshotLabel(s)}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className={chipClass}>Customers: {s.customers.length}</span>
+                          <span className={chipClass}>Queued: {queuedCount}</span>
+                          <span className={chipClass}>Channels: {channelLabel}</span>
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span
+                          className={`shrink-0 text-xs px-2 py-1 rounded-full ${
+                            isDark ? "bg-[#29c4a9]/20 text-[#76f2de] border border-[#29c4a9]/40" : "bg-[#29c4a9]/10 text-[#0f766e] border border-[#29c4a9]/30"
+                          }`}
+                          title="This is your active snapshot"
+                        >
+                          Active
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className={`text-sm mt-4 ${themeClasses.mutedText}`}>
+              No snapshots yet. Create one to start a reviewable history.
+            </p>
+          )
+        )}
+      </OBDPanel>
 
       {/* Tabs */}
       <div className="mt-7 flex gap-2 border-b border-slate-300 dark:border-slate-700">
@@ -1826,7 +2059,7 @@ function ReviewRequestAutomationPageContent() {
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
-                  onClick={handleCreateNewSnapshot}
+                  onClick={openReviewChangesModal}
                   disabled={loading || savingToDb}
                   className={SUBMIT_BUTTON_CLASSES}
                 title="Create a new snapshot (templates + queue computed once)"
@@ -2051,7 +2284,7 @@ function ReviewRequestAutomationPageContent() {
               </h3>
               <button
                 type="button"
-                onClick={handleCreateNewSnapshot}
+                onClick={openReviewChangesModal}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isDark
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
@@ -2062,7 +2295,7 @@ function ReviewRequestAutomationPageContent() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    handleCreateNewSnapshot();
+                    openReviewChangesModal();
                   }
                 }}
               >
@@ -2257,7 +2490,11 @@ function ReviewRequestAutomationPageContent() {
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                     : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                 }`}
-                title="Export send queue to CSV"
+                title={
+                  !hasQueueItems
+                    ? "No queue items to export"
+                    : `Export send queue from active snapshot${activeSnapshotIdShort ? ` (${activeSnapshotIdShort})` : ""}`
+                }
                 aria-label="Export send queue to CSV"
               >
                 Export Queue CSV
@@ -2273,7 +2510,11 @@ function ReviewRequestAutomationPageContent() {
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                     : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                 }`}
-                title={!hasActiveSnapshot ? "Create a new snapshot first" : "Export active snapshot to JSON"}
+                title={
+                  !hasActiveSnapshot
+                    ? "Create a new snapshot first"
+                    : `Export active snapshot to JSON${activeSnapshotIdShort ? ` (${activeSnapshotIdShort})` : ""}`
+                }
                 aria-label="Export campaign data to JSON"
               >
                 Export Campaign JSON
@@ -2905,6 +3146,179 @@ function ReviewRequestAutomationPageContent() {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Review Changes Modal (UI-only, deterministic summary) */}
+      {showReviewChangesModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setShowReviewChangesModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="review-changes-title"
+        >
+          <div
+            className={`${getPanelClasses(isDark)} max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="review-changes-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Review changes
+              </h2>
+              <button
+                onClick={() => setShowReviewChangesModal(false)}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close review changes"
+              >
+                ×
+              </button>
+            </div>
+
+            <p className={`text-sm ${themeClasses.mutedText}`}>
+              A compact preview of what will change compared to your current active snapshot. No values are recomputed here.
+            </p>
+
+            <div className={`mt-4 p-4 rounded-lg border ${isDark ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <ul className={`list-disc pl-5 space-y-1 text-sm ${themeClasses.labelText}`}>
+                {reviewChangesLines.map((line, idx) => (
+                  <li key={idx}>{line}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-5 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={confirmCreateNewSnapshotFromPreview}
+                disabled={loading || savingToDb}
+                className={SUBMIT_BUTTON_CLASSES}
+                aria-label="Confirm create new snapshot"
+                title="Create snapshot (templates + queue computed once)"
+              >
+                {loading ? "Processing..." : savingToDb ? "Saving..." : "Create New Snapshot"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReviewChangesModal(false)}
+                className={`px-6 py-3 rounded-full font-medium transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+                aria-label="Cancel review changes"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Viewer Modal (read-only) */}
+      {historyViewerSnapshot && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={() => setHistoryViewerSnapshotId(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="snapshot-viewer-title"
+        >
+          <div
+            className={`${getPanelClasses(isDark)} max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="snapshot-viewer-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Snapshot Viewer (Read-only)
+              </h2>
+              <button
+                onClick={() => setHistoryViewerSnapshotId(null)}
+                className={`text-2xl ${themeClasses.mutedText} hover:${themeClasses.headingText}`}
+                aria-label="Close snapshot viewer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={`p-4 rounded-lg border ${isDark ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+              <div className={`text-sm font-medium ${themeClasses.headingText}`}>
+                {formatSnapshotLabel(historyViewerSnapshot)}
+              </div>
+              <div className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                Snapshot ID: <span className={themeClasses.labelText}>{historyViewerSnapshot.id}</span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(() => {
+                  const channels = getSnapshotChannels(historyViewerSnapshot);
+                  const queuedCount = historyViewerSnapshot.response?.sendQueue?.length ?? 0;
+                  const chipClass = `inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${
+                    isDark
+                      ? "bg-slate-900/30 border-slate-700 text-slate-300"
+                      : "bg-white border-slate-200 text-slate-600"
+                  }`;
+                  return (
+                    <>
+                      <span className={chipClass}>Customers: {historyViewerSnapshot.customers.length}</span>
+                      <span className={chipClass}>Queued: {queuedCount}</span>
+                      <span className={chipClass}>Channels: {channels.length > 0 ? channels.join(", ") : "—"}</span>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <div className={`text-xs font-medium ${themeClasses.labelText}`}>Business</div>
+                  <div className={`text-sm ${themeClasses.mutedText}`}>
+                    {historyViewerSnapshot.campaign.businessName || "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-xs font-medium ${themeClasses.labelText}`}>Platform</div>
+                  <div className={`text-sm ${themeClasses.mutedText}`}>
+                    {historyViewerSnapshot.campaign.platform || "—"}
+                  </div>
+                </div>
+              </div>
+              <p className={`text-xs mt-4 ${themeClasses.mutedText}`}>
+                This viewer is snapshot-derived and does not recompute templates, queue items, or results.
+              </p>
+            </div>
+
+            <div className="mt-5 flex flex-col sm:flex-row gap-3">
+              {(() => {
+                const isAlreadyActive = snapshotHistory.activeSnapshotId === historyViewerSnapshot.id;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveSnapshotExplicit(historyViewerSnapshot);
+                      setHistoryViewerSnapshotId(null);
+                    }}
+                    disabled={isAlreadyActive}
+                    className={`${SUBMIT_BUTTON_CLASSES} ${isAlreadyActive ? "opacity-50 cursor-not-allowed" : ""}`}
+                    aria-label="Set active snapshot"
+                    title={isAlreadyActive ? "This snapshot is already active" : "Set this snapshot as active (explicit)"}
+                  >
+                    {isAlreadyActive ? "Active Snapshot" : "Set Active Snapshot"}
+                  </button>
+                );
+              })()}
+
+              <button
+                type="button"
+                onClick={() => setHistoryViewerSnapshotId(null)}
+                className={`px-6 py-3 rounded-full font-medium transition-colors ${
+                  isDark
+                    ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                    : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                }`}
+                aria-label="Close snapshot viewer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

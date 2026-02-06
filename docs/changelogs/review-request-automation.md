@@ -5,8 +5,12 @@
 ### Added
 - Snapshot-first canonical state: Templates / Queue / Results are derived only from the active snapshot (created explicitly by the user).
 - Local-first snapshot storage (`activeSnapshot`) with draft-only persistence for edits.
+- Snapshot History panel (read-only): newest-first snapshot list + read-only viewer; active snapshot changes only via explicit “Set Active Snapshot”.
+- “Review changes” step before snapshot creation: compact, deterministic draft-vs-active snapshot summary (no heavy diff; UI-only).
 - Ecosystem awareness (safe, read-only): link-only Reputation Dashboard awareness; no silent integration.
 - Calm advisory framing (Tier 6-lite): Campaign Readiness checklist (no scoring, no urgency).
+- Snapshot-safe exports: queue CSV + snapshot JSON filenames are explicitly snapshot-derived (`review-requests-snapshot-{snapshotIdShort}.*`) with stable columns.
+- Lock audit doc: `docs/deployments/REVIEW_REQUEST_AUTOMATION_TIER5_LOCK_AUDIT.md`.
 
 ### Changed
 - Primary action now creates a snapshot ("Create New Snapshot") instead of implying ongoing automation.

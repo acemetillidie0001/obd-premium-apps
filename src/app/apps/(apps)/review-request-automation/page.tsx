@@ -26,6 +26,13 @@ import {
   CustomerStatus,
 } from "@/lib/apps/review-request-automation/types";
 import { parseCSV, generateCSVTemplate, exportCustomersToCSV, CSVParseResult } from "@/lib/apps/review-request-automation/csv-utils";
+import {
+  generateSnapshotId,
+  loadActiveSnapshot,
+  RRA_SNAPSHOT_SCHEMA_VERSION,
+  saveActiveSnapshot,
+  type ReviewRequestCampaignSnapshot,
+} from "@/lib/apps/review-request-automation/snapshot-storage";
 import { CrmIntegrationIndicator } from "@/components/crm/CrmIntegrationIndicator";
 import { isValidReturnUrl } from "@/lib/utils/crm-integration-helpers";
 
@@ -111,7 +118,7 @@ function ReviewRequestAutomationPageContent() {
   // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<ReviewRequestAutomationResponse | null>(null);
+  const [activeSnapshot, setActiveSnapshot] = useState<ReviewRequestCampaignSnapshot | null>(null);
   const [activeTab, setActiveTab] = useState<"campaign" | "customers" | "templates" | "queue" | "results">("campaign");
   const [showQuickStart, setShowQuickStart] = useState(false);
   const [selectedQueueItems, setSelectedQueueItems] = useState<Set<string>>(new Set());
@@ -119,7 +126,7 @@ function ReviewRequestAutomationPageContent() {
   
   // Database save state
   const [saveToDb, setSaveToDb] = useState(true); // Default ON
-  const [savedDatasetId, setSavedDatasetId] = useState<string | null>(null);
+  const [savedDatasetId, setSavedDatasetId] = useState<string | null>(null); // UI banner only
   const [savingToDb, setSavingToDb] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dbStatus, setDbStatus] = useState<"connected" | "fallback" | "local-only" | "checking">("checking");
@@ -153,13 +160,13 @@ function ReviewRequestAutomationPageContent() {
   const modalRef = useRef<HTMLDivElement>(null);
   const csvModalRef = useRef<HTMLDivElement>(null);
 
-  // localStorage persistence
-  const STORAGE_KEY = "review-request-automation-data";
+  // localStorage persistence (draft edits only; snapshots are stored separately)
+  const DRAFT_STORAGE_KEY = "review-request-automation-draft.v1";
 
   useEffect(() => {
-    // Load from localStorage on mount
+    // Load draft edits from localStorage on mount
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
       if (saved) {
         const data = JSON.parse(saved);
         if (data.campaign) {
@@ -170,9 +177,6 @@ function ReviewRequestAutomationPageContent() {
         }
         if (data.events && Array.isArray(data.events)) {
           setEvents(data.events);
-        }
-        if (data.result) {
-          setResult(data.result);
         }
         // If we have data, don't show quick start
         if (data.campaign?.businessName || (data.customers && data.customers.length > 0)) {
@@ -189,6 +193,14 @@ function ReviewRequestAutomationPageContent() {
       setShowQuickStart(true);
     }
 
+    // Load active snapshot (canonical view for templates/queue/results)
+    const snap = loadActiveSnapshot();
+    if (snap) {
+      setActiveSnapshot(snap);
+      // If a snapshot exists, default away from quick start
+      setShowQuickStart(false);
+    }
+
     // Check DB status on mount
     const checkDbStatus = async () => {
       try {
@@ -200,7 +212,7 @@ function ReviewRequestAutomationPageContent() {
             setDbStatus("connected");
           } else {
             // No campaign yet, but DB is connected
-            const saved = localStorage.getItem(STORAGE_KEY);
+            const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
             if (saved) {
               setDbStatus("fallback");
             } else {
@@ -209,7 +221,7 @@ function ReviewRequestAutomationPageContent() {
           }
         } else if (res.status !== 401) {
           // Not 401, so DB issue
-          const saved = localStorage.getItem(STORAGE_KEY);
+          const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
           if (saved) {
             setDbStatus("fallback");
           } else {
@@ -221,7 +233,7 @@ function ReviewRequestAutomationPageContent() {
         }
       } catch (err) {
         // DB unavailable
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
         if (saved) {
           setDbStatus("fallback");
         } else {
@@ -239,19 +251,18 @@ function ReviewRequestAutomationPageContent() {
   }, []);
 
   useEffect(() => {
-    // Save to localStorage whenever data changes
+    // Save draft edits to localStorage whenever they change
     try {
       const data = {
         campaign,
         customers,
         events,
-        result,
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(data));
     } catch {
       // Silently fail - localStorage may be unavailable or quota exceeded
     }
-  }, [campaign, customers, events, result]);
+  }, [campaign, customers, events]);
 
   // ESC key handler for modals
   useEffect(() => {
@@ -484,7 +495,23 @@ function ReviewRequestAutomationPageContent() {
     setCrmReturnUrl(null);
   };
 
-  const handleProcess = async () => {
+  const persistActiveSnapshot = (snapshot: ReviewRequestCampaignSnapshot) => {
+    setActiveSnapshot(snapshot);
+    saveActiveSnapshot(snapshot);
+  };
+
+  const updateActiveSnapshot = (
+    updater: (prev: ReviewRequestCampaignSnapshot) => ReviewRequestCampaignSnapshot
+  ) => {
+    setActiveSnapshot((prev) => {
+      if (!prev) return prev;
+      const next = updater(prev);
+      saveActiveSnapshot(next);
+      return next;
+    });
+  };
+
+  const handleCreateNewSnapshot = async () => {
     setError(null);
     setLoading(true);
 
@@ -507,9 +534,20 @@ function ReviewRequestAutomationPageContent() {
       }
 
       const data = await res.json() as ReviewRequestAutomationResponse;
-      setResult(data);
+
+      const snapshotBase: ReviewRequestCampaignSnapshot = {
+        id: generateSnapshotId(),
+        createdAt: new Date().toISOString(),
+        schemaVersion: RRA_SNAPSHOT_SCHEMA_VERSION,
+        campaign,
+        customers,
+        events,
+        response: data,
+      };
+
+      persistActiveSnapshot(snapshotBase);
       setActiveTab("results");
-      setShowQuickStart(false); // Dismiss quick start when templates are generated
+      setShowQuickStart(false); // Dismiss quick start when snapshot is created
       
       if (data.validationErrors.length > 0) {
         setError(data.validationErrors.join("; "));
@@ -537,6 +575,10 @@ function ReviewRequestAutomationPageContent() {
           }
 
           const saveResult = await saveRes.json();
+          updateActiveSnapshot((prev) => ({
+            ...prev,
+            datasetId: saveResult.datasetId || null,
+          }));
           setSavedDatasetId(saveResult.datasetId || null);
           setDbStatus("connected");
         } catch (err) {
@@ -562,7 +604,7 @@ function ReviewRequestAutomationPageContent() {
       setError(
         err instanceof Error
           ? err.message
-          : "Something went wrong processing the automation. Please try again."
+          : "Something went wrong while processing your request. Please try again."
       );
     } finally {
       setLoading(false);
@@ -664,7 +706,8 @@ function ReviewRequestAutomationPageContent() {
   };
 
   const handleMarkStatus = (queueItemId: string, status: "sent" | "clicked" | "reviewed" | "optedOut") => {
-    const queueItem = result?.sendQueue.find((q) => q.id === queueItemId);
+    if (!activeSnapshot) return;
+    const queueItem = activeSnapshot.response.sendQueue.find((q) => q.id === queueItemId);
     if (!queueItem) return;
 
     const event: Event = {
@@ -674,20 +717,28 @@ function ReviewRequestAutomationPageContent() {
       timestamp: new Date().toISOString(),
     };
 
-    setEvents([...events, event]);
-    
-    // Re-process to update results
-    setTimeout(() => {
-      handleProcess();
-    }, 100);
+    // Keep draft event history in sync (explicit user action; no recomputation).
+    setEvents((prev) => [...prev, event]);
+
+    // Snapshot-derived only: update snapshot state (no recomputation).
+    updateActiveSnapshot((prev) => ({
+      ...prev,
+      events: [...prev.events, event],
+      response: {
+        ...prev.response,
+        sendQueue: prev.response.sendQueue.map((q) =>
+          q.id === queueItemId ? { ...q, status } : q
+        ),
+      },
+    }));
   };
 
   const handleBulkMarkStatus = (status: "sent" | "clicked" | "reviewed" | "optedOut") => {
-    if (!result || selectedQueueItems.size === 0) return;
+    if (!activeSnapshot || selectedQueueItems.size === 0) return;
 
     const newEvents: Event[] = [];
     selectedQueueItems.forEach((queueItemId) => {
-      const queueItem = result.sendQueue.find((q) => q.id === queueItemId);
+      const queueItem = activeSnapshot.response.sendQueue.find((q) => q.id === queueItemId);
       if (queueItem && queueItem.status === "pending") {
         newEvents.push({
           id: generateUUID(),
@@ -699,13 +750,20 @@ function ReviewRequestAutomationPageContent() {
     });
 
     if (newEvents.length > 0) {
-      setEvents([...events, ...newEvents]);
+      // Keep draft event history in sync (explicit user action; no recomputation).
+      setEvents((prev) => [...prev, ...newEvents]);
       setSelectedQueueItems(new Set());
-      
-      // Re-process to update results
-      setTimeout(() => {
-        handleProcess();
-      }, 100);
+
+      updateActiveSnapshot((prev) => ({
+        ...prev,
+        events: [...prev.events, ...newEvents],
+        response: {
+          ...prev.response,
+          sendQueue: prev.response.sendQueue.map((q) =>
+            selectedQueueItems.has(q.id) && q.status === "pending" ? { ...q, status } : q
+          ),
+        },
+      }));
     }
   };
 
@@ -720,8 +778,8 @@ function ReviewRequestAutomationPageContent() {
   };
 
   const handleSelectAllQueueItems = () => {
-    if (!result) return;
-    const pendingItems = result.sendQueue.filter((q) => q.status === "pending");
+    if (!activeSnapshot) return;
+    const pendingItems = activeSnapshot.response.sendQueue.filter((q) => q.status === "pending");
     if (selectedQueueItems.size === pendingItems.length) {
       setSelectedQueueItems(new Set());
     } else {
@@ -730,11 +788,11 @@ function ReviewRequestAutomationPageContent() {
   };
 
   const handleExportQueueCSV = () => {
-    if (!result || result.sendQueue.length === 0) return;
+    if (!activeSnapshot || activeSnapshot.response.sendQueue.length === 0) return;
     
     const headers = ["customerId", "customerName", "scheduledAt", "variant", "channel", "status", "skippedReason"];
-    const rows = result.sendQueue.map((item) => {
-      const customer = customers.find((c) => c.id === item.customerId);
+    const rows = activeSnapshot.response.sendQueue.map((item) => {
+      const customer = activeSnapshot.customers.find((c) => c.id === item.customerId);
       return [
         item.customerId,
         customer?.customerName || "Unknown",
@@ -751,17 +809,15 @@ function ReviewRequestAutomationPageContent() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `send-queue-${campaign.businessName.replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `send-queue-${(activeSnapshot.campaign.businessName || "campaign").replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleExportCampaignJSON = () => {
+    if (!activeSnapshot) return;
     const exportData = {
-      campaign,
-      customers,
-      events,
-      result,
+      snapshot: activeSnapshot,
       exportedAt: new Date().toISOString(),
     };
     
@@ -770,7 +826,7 @@ function ReviewRequestAutomationPageContent() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `campaign-${campaign.businessName.replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.json`;
+    a.download = `campaign-snapshot-${(activeSnapshot.campaign.businessName || "campaign").replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -784,9 +840,13 @@ function ReviewRequestAutomationPageContent() {
   };
 
   const handleSendEmails = async (queueItemIds?: string[]) => {
-    // Check if data is saved to database
-    if (!saveToDb || !savedDatasetId) {
-      setError("Please save your campaign to the database first (enable 'Save to database' toggle and generate templates)");
+    if (!activeSnapshot) {
+      setError("Create a new snapshot first to enable send actions.");
+      return;
+    }
+    // Check if data is saved to database (required for send-email route)
+    if (!saveToDb || !activeSnapshot.datasetId) {
+      setError("Please save your snapshot to the database first (enable “Save to database” and create a new snapshot).");
       return;
     }
 
@@ -816,12 +876,8 @@ function ReviewRequestAutomationPageContent() {
         failed: data.failed || 0,
       });
 
-      // Re-process to update local state
-      if (result) {
-        setTimeout(() => {
-          handleProcess();
-        }, 1000);
-      }
+      // Snapshot is canonical and does not recompute automatically.
+      // If the user wants an updated computed view, they can explicitly create a new snapshot.
     } catch (err) {
       setError(
         err instanceof Error
@@ -858,13 +914,35 @@ function ReviewRequestAutomationPageContent() {
   };
 
   const filteredCustomers = customers;
+  const snapshotResponse = activeSnapshot?.response ?? null;
+  const snapshotCampaign = activeSnapshot?.campaign ?? null;
+  const snapshotCustomers = activeSnapshot?.customers ?? [];
+  const snapshotSendQueue = snapshotResponse?.sendQueue ?? [];
+  const hasActiveSnapshot = !!activeSnapshot;
+  const hasQueueItems = snapshotSendQueue.length > 0;
+  const pendingQueueCount = snapshotSendQueue.filter((q) => q.status === "pending").length;
+  const hasPendingEmailQueueItems = snapshotSendQueue.some((q) => q.status === "pending" && q.channel === "email");
+  const quietHoursConfigured = !!(
+    snapshotCampaign?.rules?.quietHours?.start &&
+    snapshotCampaign?.rules?.quietHours?.end &&
+    snapshotCampaign.rules.quietHours.start !== snapshotCampaign.rules.quietHours.end
+  );
+  const frequencyCapsSet = typeof snapshotCampaign?.rules?.frequencyCapDays === "number";
+  const templatesReviewed = !!snapshotResponse?.templates;
+  const TAB_LABELS: Record<"campaign" | "customers" | "templates" | "queue" | "results", string> = {
+    campaign: "Campaign",
+    customers: "Customers",
+    templates: "Templates",
+    queue: "Queue",
+    results: "Campaign Results (Snapshot)",
+  };
 
   return (
     <OBDPageContainer
       isDark={isDark}
       onThemeToggle={() => setTheme(theme === "light" ? "dark" : "light")}
       title="Review Request Automation"
-      tagline="Send automatic review requests by email or SMS after each visit."
+      tagline="Plan, queue, and manage review request messages — safely and on your terms."
     >
       <CrmIntegrationIndicator
         isDark={isDark}
@@ -873,6 +951,37 @@ function ReviewRequestAutomationPageContent() {
         returnUrl={crmReturnUrl}
         onDismissContext={() => setCrmContextLoaded(false)}
       />
+
+      {/* Tier 5A: Trust banner (draft-first, calm, no automation claims) */}
+      <div
+        className={`mt-7 rounded-2xl border p-4 md:p-5 ${
+          isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"
+        }`}
+      >
+        <p className={`text-sm font-semibold ${themeClasses.headingText}`}>Draft-first &amp; controlled delivery</p>
+        <ul className={`mt-2 list-disc space-y-1 pl-4 text-xs md:text-sm ${themeClasses.labelText}`}>
+          <li>
+            <span className="font-medium">Templates and queue items are generated on-demand, when you click Create New Snapshot.</span>
+          </li>
+          <li>
+            <span className="font-medium">Nothing is sent in the background—sending (or exporting) is always user-initiated.</span>
+          </li>
+          <li>
+            <span className="font-medium">No background crawling. No platform manipulation. No auto-sending.</span>
+          </li>
+        </ul>
+        <div className="mt-3">
+          <a
+            href="/apps/reputation-dashboard"
+            className={`text-xs underline ${
+              isDark ? "text-slate-300 hover:text-slate-100" : "text-slate-600 hover:text-slate-900"
+            }`}
+            title="Open Reputation Dashboard (link only)"
+          >
+            View review impact in Reputation Dashboard
+          </a>
+        </div>
+      </div>
 
       {/* LEVEL 3: From RD Banner */}
       {showFromRDBanner && (
@@ -1088,7 +1197,7 @@ function ReviewRequestAutomationPageContent() {
                   >
                     Create your campaign
                   </button>
-                  {" "}— Set up business info, review link, and automation rules
+                  {" "}— Set up business info, review link, and delivery rules
                 </li>
                 <li>
                   <button
@@ -1112,9 +1221,9 @@ function ReviewRequestAutomationPageContent() {
                     }}
                     className="text-[#29c4a9] hover:underline font-medium"
                   >
-                    Generate templates
+                    Create a snapshot
                   </button>
-                  {" "}— Click &quot;Generate Templates &amp; Queue&quot; to create message templates
+                  {" "}— Click &quot;Create New Snapshot&quot; to compute templates and build your queue once
                 </li>
                 <li>
                   <button
@@ -1125,7 +1234,7 @@ function ReviewRequestAutomationPageContent() {
                     }}
                     className="text-[#29c4a9] hover:underline font-medium"
                   >
-                    Work the send queue
+                    Review the queue
                   </button>
                   {" "}— Copy messages, mark status, and track progress
                 </li>
@@ -1157,11 +1266,11 @@ function ReviewRequestAutomationPageContent() {
                 ? "text-slate-400 hover:text-slate-200"
                 : "text-slate-600 hover:text-slate-900"
             }`}
-            title={`Switch to ${tab} tab`}
-            aria-label={`${tab} tab`}
+            title={`Switch to ${TAB_LABELS[tab]}`}
+            aria-label={`${TAB_LABELS[tab]} tab`}
             aria-current={activeTab === tab ? "page" : undefined}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -1169,7 +1278,7 @@ function ReviewRequestAutomationPageContent() {
       {/* Campaign Tab */}
       {activeTab === "campaign" && (
         <OBDPanel isDark={isDark} className="mt-7">
-          <form onSubmit={(e) => { e.preventDefault(); handleProcess(); }}>
+          <form onSubmit={(e) => e.preventDefault()}>
             <div className="space-y-6">
               <div>
                 <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
@@ -1206,28 +1315,28 @@ function ReviewRequestAutomationPageContent() {
                       placeholder="e.g., Restaurant, Retail, Service"
                       aria-label="Business type"
                     />
-                    {result?.businessTypeRecommendation && (
+                    {snapshotResponse?.businessTypeRecommendation && (
                       <div className={`mt-2 p-3 rounded-lg ${isDark ? "bg-slate-800 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1">
                             <div className={`text-xs font-semibold mb-1 ${themeClasses.headingText}`}>
-                              Recommended Settings for {result.businessTypeRecommendation.businessType}
+                              Recommended Settings for {snapshotResponse.businessTypeRecommendation.businessType}
                             </div>
                             <p className={`text-xs mb-2 ${themeClasses.mutedText}`}>
-                              {result.businessTypeRecommendation.explanation}
+                              {snapshotResponse.businessTypeRecommendation.explanation}
                             </p>
                             <div className={`text-xs space-y-1 ${themeClasses.mutedText}`}>
-                              <div>Send Delay: {result.businessTypeRecommendation.sendDelayHours.recommended} hours (range: {result.businessTypeRecommendation.sendDelayHours.min}-{result.businessTypeRecommendation.sendDelayHours.max})</div>
+                              <div>Send Delay: {snapshotResponse.businessTypeRecommendation.sendDelayHours.recommended} hours (range: {snapshotResponse.businessTypeRecommendation.sendDelayHours.min}-{snapshotResponse.businessTypeRecommendation.sendDelayHours.max})</div>
                               {campaign.rules.followUpEnabled && (
-                                <div>Follow-Up Delay: {result.businessTypeRecommendation.followUpDelayDays.recommended} days (range: {result.businessTypeRecommendation.followUpDelayDays.min}-{result.businessTypeRecommendation.followUpDelayDays.max})</div>
+                                <div>Follow-Up Delay: {snapshotResponse.businessTypeRecommendation.followUpDelayDays.recommended} days (range: {snapshotResponse.businessTypeRecommendation.followUpDelayDays.min}-{snapshotResponse.businessTypeRecommendation.followUpDelayDays.max})</div>
                               )}
-                              <div>Tone Style: {result.businessTypeRecommendation.toneStyle.join(" or ")}</div>
+                              <div>Tone Style: {snapshotResponse.businessTypeRecommendation.toneStyle.join(" or ")}</div>
                             </div>
                           </div>
                           <button
                             type="button"
                             onClick={() => {
-                              const rec = result.businessTypeRecommendation;
+                              const rec = snapshotResponse.businessTypeRecommendation;
                               if (rec) {
                                 setCampaign({
                                   ...campaign,
@@ -1250,7 +1359,7 @@ function ReviewRequestAutomationPageContent() {
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                const rec = result.businessTypeRecommendation;
+                                const rec = snapshotResponse.businessTypeRecommendation;
                                 if (rec) {
                                   setCampaign({
                                     ...campaign,
@@ -1373,7 +1482,7 @@ function ReviewRequestAutomationPageContent() {
                       ))}
                     </select>
                     <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
-                      Template preview will appear after generating templates
+                      Template preview will appear after creating a snapshot
                     </p>
                   </div>
                   <div>
@@ -1437,7 +1546,7 @@ function ReviewRequestAutomationPageContent() {
 
               <div>
                 <h3 className={`text-sm font-semibold mb-3 ${themeClasses.headingText}`}>
-                  Automation Rules
+                  Delivery Rules
                 </h3>
                 <div className="space-y-4">
                   <div>
@@ -1662,7 +1771,7 @@ function ReviewRequestAutomationPageContent() {
                     {expandedInfo.has("quietHours") && (
                       <div className={`mb-2 p-3 rounded-lg text-xs ${isDark ? "bg-slate-800 border border-slate-700" : "bg-slate-50 border border-slate-200"}`}>
                         <p className={themeClasses.mutedText}>
-                          Quiet hours prevent sending messages during times when customers are likely sleeping or busy. Messages sent during quiet hours are automatically scheduled for the next allowed time. Default is 9 AM to 7 PM.
+                          Quiet hours prevent sending messages during times when customers are likely sleeping or busy. Queue items that fall inside quiet hours are scheduled for the next allowed time. Default is 9 AM to 7 PM.
                         </p>
                       </div>
                     )}
@@ -1714,15 +1823,37 @@ function ReviewRequestAutomationPageContent() {
                 <div className={getErrorPanelClasses(isDark)}>{error}</div>
               )}
 
-              <button
-                type="submit"
-              disabled={loading || savingToDb}
-              className={SUBMIT_BUTTON_CLASSES}
-              title="Generate message templates and compute send queue"
-              aria-label="Generate templates and queue"
-            >
-              {loading ? "Processing..." : savingToDb ? "Saving..." : "Generate Templates & Queue"}
-            </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={handleCreateNewSnapshot}
+                  disabled={loading || savingToDb}
+                  className={SUBMIT_BUTTON_CLASSES}
+                title="Create a new snapshot (templates + queue computed once)"
+                  aria-label="Create new snapshot"
+                >
+                  {loading ? "Processing..." : savingToDb ? "Saving..." : "Create New Snapshot"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("queue");
+                    setShowQuickStart(false);
+                  }}
+                  disabled={!hasActiveSnapshot}
+                  className={`px-6 py-3 rounded-full font-medium transition-colors ${
+                    !hasActiveSnapshot
+                      ? "opacity-50 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                  title={!hasActiveSnapshot ? "Create a new snapshot first" : "Review your queue before sending or exporting"}
+                  aria-label="Review and queue messages"
+                >
+                  Review &amp; Queue Messages
+                </button>
+              </div>
             </div>
           </form>
         </OBDPanel>
@@ -1799,29 +1930,41 @@ function ReviewRequestAutomationPageContent() {
                 >
                   Download CSV Template
                 </button>
-                {customers.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleExportCSV}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      isDark
-                        ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
-                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                    }`}
-                    title="Export customers to CSV file"
-                    aria-label="Export customers CSV"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        handleExportCSV();
-                      }
-                    }}
-                  >
-                    Export CSV
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  disabled={customers.length === 0}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    customers.length === 0
+                      ? "opacity-50 cursor-not-allowed"
+                      : isDark
+                      ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
+                      : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                  }`}
+                  title={customers.length === 0 ? "Add or import customers first" : "Export customers to CSV"}
+                  aria-label="Export customers to CSV"
+                  onKeyDown={(e) => {
+                    if (customers.length === 0) return;
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleExportCSV();
+                    }
+                  }}
+                >
+                  Export CSV
+                </button>
               </div>
             </div>
+
+            {customers.length > 0 ? (
+              <div
+                className={`text-xs rounded-lg border p-3 ${
+                  isDark ? "bg-slate-800 border-slate-700 text-slate-300" : "bg-slate-50 border-slate-200 text-slate-600"
+                }`}
+              >
+                Customers remain independent of CRM unless you manually import them.
+              </div>
+            ) : null}
 
             {customers.length === 0 ? (
               <p className={`text-sm ${themeClasses.mutedText} py-4`}>
@@ -1899,7 +2042,7 @@ function ReviewRequestAutomationPageContent() {
             focusRefs.current["cta"] = el;
           }}
         >
-        {result ? (
+        {snapshotResponse ? (
           <div className="mt-7 space-y-7">
           <OBDPanel isDark={isDark}>
             <div className="flex items-center justify-between mb-4">
@@ -1908,32 +2051,32 @@ function ReviewRequestAutomationPageContent() {
               </h3>
               <button
                 type="button"
-                onClick={handleProcess}
+                onClick={handleCreateNewSnapshot}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   isDark
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                     : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                 }`}
-                title="Regenerate message templates"
-                aria-label="Generate templates again"
+                title="Create a new snapshot (recompute templates + queue)"
+                aria-label="Create a new snapshot"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    handleProcess();
+                    handleCreateNewSnapshot();
                   }
                 }}
               >
-                Generate Again
+                Create New Snapshot
               </button>
             </div>
             <div className="space-y-4">
-              {result.templateQuality.map((quality) => {
+              {snapshotResponse.templateQuality.map((quality) => {
                 const templateKey = quality.templateKey;
                 const templateText = templateKey === "email" 
-                  ? `${result.templates.email.subject}\n\n${result.templates.email.body}`
-                  : result.templates[templateKey];
+                  ? `${snapshotResponse.templates.email.subject}\n\n${snapshotResponse.templates.email.body}`
+                  : snapshotResponse.templates[templateKey];
                 const copyText = templateKey === "email"
-                  ? `Subject: ${result.templates.email.subject}\n\n${result.templates.email.body}`
+                  ? `Subject: ${snapshotResponse.templates.email.subject}\n\n${snapshotResponse.templates.email.body}`
                   : templateText;
                 const title = templateKey === "smsShort" ? "SMS Short"
                   : templateKey === "smsStandard" ? "SMS Standard"
@@ -1983,11 +2126,11 @@ function ReviewRequestAutomationPageContent() {
                         <div className="space-y-2">
                           <div>
                             <p className={`font-medium mb-1 ${themeClasses.headingText}`}>Subject:</p>
-                            <p>{result.templates.email.subject}</p>
+                            <p>{snapshotResponse.templates.email.subject}</p>
                           </div>
                           <div>
                             <p className={`font-medium mb-1 ${themeClasses.headingText}`}>Body:</p>
-                            <p className="whitespace-pre-wrap">{result.templates.email.body}</p>
+                            <p className="whitespace-pre-wrap">{snapshotResponse.templates.email.body}</p>
                           </div>
                         </div>
                       ) : (
@@ -2015,7 +2158,7 @@ function ReviewRequestAutomationPageContent() {
         ) : (
           <OBDPanel isDark={isDark} className="mt-7">
             <p className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
-              No templates generated yet. Configure your campaign and click &quot;Generate Templates &amp; Queue&quot; to create message templates.
+              No snapshot yet. Configure your campaign and click &quot;Create New Snapshot&quot; to compute templates and build your queue.
             </p>
           </OBDPanel>
         )}
@@ -2029,17 +2172,20 @@ function ReviewRequestAutomationPageContent() {
             focusRefs.current["skips"] = el;
           }}
         >
-        {result ? (
+        {snapshotResponse ? (
         <>
-          {/* Send Timeline */}
-          {result.sendTimeline.events.length > 0 ? (
+          {/* Planned Send Timeline */}
+          {snapshotResponse.sendTimeline.events.length > 0 ? (
             <OBDPanel isDark={isDark} className="mt-7">
               <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
-                Send Timeline
+                Planned Send Timeline
               </h3>
+              <p className={`text-xs mb-4 ${themeClasses.mutedText}`}>
+                Actual delivery depends on channel availability and recipient eligibility.
+              </p>
               <div className="relative">
                 <div className="flex items-center justify-between relative">
-                  {result.sendTimeline.events.map((event) => {
+                  {snapshotResponse.sendTimeline.events.map((event) => {
                     const eventDate = new Date(event.timestamp);
                     const isPast = eventDate < new Date();
                     return (
@@ -2070,42 +2216,42 @@ function ReviewRequestAutomationPageContent() {
           ) : (
             <OBDPanel isDark={isDark} className="mt-7">
               <p className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
-                Timeline appears after customers are queued.
+                Timeline appears after a snapshot is created.
               </p>
             </OBDPanel>
           )}
           <OBDPanel isDark={isDark} className="mt-7">
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-              Send Queue ({result.sendQueue.length} items)
+              Send Queue ({snapshotSendQueue.length} items)
             </h3>
             <div className="flex gap-2">
-              {result.sendQueue.some((q) => q.status === "pending" && q.channel === "email") && (
-                <button
-                  type="button"
-                  onClick={() => handleSendEmails()}
-                  disabled={sendingEmails || !saveToDb || !savedDatasetId}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    sendingEmails || !saveToDb || !savedDatasetId
-                      ? "opacity-50 cursor-not-allowed"
-                      : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
-                  }`}
-                  title={
-                    !saveToDb || !savedDatasetId
-                      ? "Please save your campaign to the database first"
-                      : "Send all pending EMAIL queue items via Resend"
-                  }
-                  aria-label="Send emails now"
-                >
-                  {sendingEmails ? "Sending..." : "Send Emails Now"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleSendEmails()}
+                disabled={sendingEmails || !hasPendingEmailQueueItems || !saveToDb || !activeSnapshot?.datasetId}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  sendingEmails || !hasPendingEmailQueueItems || !saveToDb || !activeSnapshot?.datasetId
+                    ? "opacity-50 cursor-not-allowed"
+                    : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
+                }`}
+                title={
+                  !hasPendingEmailQueueItems
+                    ? "No pending email items to send"
+                    : !saveToDb || !activeSnapshot?.datasetId
+                    ? "Save to database first (create a snapshot with Save to database enabled)"
+                    : "Send pending email queue items now (manual, one-time)"
+                }
+                aria-label="Send pending emails"
+              >
+                {sendingEmails ? "Sending..." : "Send Pending Emails"}
+              </button>
               <button
                 type="button"
                 onClick={handleExportQueueCSV}
-                disabled={!result || result.sendQueue.length === 0}
+                disabled={!hasQueueItems}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !result || result.sendQueue.length === 0
+                  !hasQueueItems
                     ? "opacity-50 cursor-not-allowed"
                     : isDark
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
@@ -2119,15 +2265,15 @@ function ReviewRequestAutomationPageContent() {
               <button
                 type="button"
                 onClick={handleExportCampaignJSON}
-                disabled={!campaign.businessName}
+                disabled={!hasActiveSnapshot}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  !campaign.businessName
+                  !hasActiveSnapshot
                     ? "opacity-50 cursor-not-allowed"
                     : isDark
                     ? "bg-slate-700 text-slate-200 hover:bg-slate-600"
                     : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                 }`}
-                title="Export campaign data to JSON"
+                title={!hasActiveSnapshot ? "Create a new snapshot first" : "Export active snapshot to JSON"}
                 aria-label="Export campaign data to JSON"
               >
                 Export Campaign JSON
@@ -2158,78 +2304,100 @@ function ReviewRequestAutomationPageContent() {
           )}
 
           {/* Bulk Actions */}
-          {result.sendQueue.length > 0 && result.sendQueue.some((q) => q.status === "pending") && (
-            <div className={`mb-4 p-3 rounded-lg border ${
+          <div
+            className={`mb-4 p-3 rounded-lg border ${
               isDark ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"
-            }`}>
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={result.sendQueue.filter((q) => q.status === "pending").length > 0 && 
-                             selectedQueueItems.size === result.sendQueue.filter((q) => q.status === "pending").length}
-                    onChange={handleSelectAllQueueItems}
-                    className="rounded"
-                    aria-label="Select all pending queue items"
-                  />
-                  <span className={`text-sm ${themeClasses.labelText}`}>
-                    Select All ({result.sendQueue.filter((q) => q.status === "pending").length} pending)
-                  </span>
-                </label>
-                {selectedQueueItems.size > 0 && (
-                  <>
-                    <span className={`text-sm ${themeClasses.mutedText}`}>
-                      {selectedQueueItems.size} selected
-                    </span>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleBulkMarkStatus("sent")}
-                        className="px-3 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-300"
-                        title="Mark selected items as sent"
-                        aria-label="Mark selected items as sent"
-                      >
-                        Mark Selected as Sent
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleBulkMarkStatus("clicked")}
-                        className="px-3 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300"
-                        title="Mark selected items as clicked"
-                        aria-label="Mark selected items as clicked"
-                      >
-                        Mark Selected as Clicked
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleBulkMarkStatus("reviewed")}
-                        className="px-3 py-1 rounded text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/50 dark:text-green-300"
-                        title="Mark selected items as reviewed"
-                        aria-label="Mark selected items as reviewed"
-                      >
-                        Mark Selected as Reviewed
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+            }`}
+          >
+            <div className="flex items-center gap-4 flex-wrap">
+              <label className={`flex items-center gap-2 ${pendingQueueCount === 0 ? "opacity-50" : "cursor-pointer"}`}>
+                <input
+                  type="checkbox"
+                  disabled={pendingQueueCount === 0}
+                  checked={
+                    pendingQueueCount > 0 && selectedQueueItems.size === pendingQueueCount
+                  }
+                  onChange={handleSelectAllQueueItems}
+                  className="rounded"
+                  aria-label="Select all pending queue items"
+                  title={pendingQueueCount === 0 ? "No pending items to select" : "Select all pending items"}
+                />
+                <span className={`text-sm ${themeClasses.labelText}`}>
+                  Select All ({pendingQueueCount} pending)
+                </span>
+              </label>
 
-          {result.sendQueue.length === 0 ? (
+              <span className={`text-sm ${themeClasses.mutedText}`}>
+                {selectedQueueItems.size} selected
+              </span>
+
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleBulkMarkStatus("sent")}
+                  disabled={selectedQueueItems.size === 0}
+                  className={`px-3 py-1 rounded text-xs font-medium ${
+                    selectedQueueItems.size === 0
+                      ? "opacity-50 cursor-not-allowed bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300"
+                      : "bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-300"
+                  }`}
+                  title={selectedQueueItems.size === 0 ? "Select one or more pending items first" : "Mark selected items as sent"}
+                  aria-label="Mark selected items as sent"
+                >
+                  Mark Selected as Sent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkMarkStatus("clicked")}
+                  disabled={selectedQueueItems.size === 0}
+                  className={`px-3 py-1 rounded text-xs font-medium ${
+                    selectedQueueItems.size === 0
+                      ? "opacity-50 cursor-not-allowed bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                      : "bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300"
+                  }`}
+                  title={selectedQueueItems.size === 0 ? "Select one or more pending items first" : "Mark selected items as clicked"}
+                  aria-label="Mark selected items as clicked"
+                >
+                  Mark Selected as Clicked
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkMarkStatus("reviewed")}
+                  disabled={selectedQueueItems.size === 0}
+                  className={`px-3 py-1 rounded text-xs font-medium ${
+                    selectedQueueItems.size === 0
+                      ? "opacity-50 cursor-not-allowed bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                      : "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/50 dark:text-green-300"
+                  }`}
+                  title={selectedQueueItems.size === 0 ? "Select one or more pending items first" : "Mark selected items as reviewed"}
+                  aria-label="Mark selected items as reviewed"
+                >
+                  Mark Selected as Reviewed
+                </button>
+              </div>
+
+              {pendingQueueCount === 0 ? (
+                <div className={`text-xs ${themeClasses.mutedText}`}>
+                  No pending items available for bulk updates.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {snapshotSendQueue.length === 0 ? (
             <p className={`text-sm ${themeClasses.mutedText} py-4`}>
-              No items in send queue. Generate templates and queue to see scheduled sends.
+              No items in the queue yet. Create a new snapshot to build a queue you can review.
             </p>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {result.sendQueue.map((item) => {
-                const customer = customers.find((c) => c.id === item.customerId);
+              {snapshotSendQueue.map((item) => {
+                const customer = snapshotCustomers.find((c) => c.id === item.customerId);
                 const firstName = customer?.customerName?.split(" ")[0] || "Customer";
                 let personalizedText: string;
                 if (item.variant === "email") {
-                  personalizedText = `Subject: ${result.templates.email.subject.replace(/{firstName}/g, firstName)}\n\n${result.templates.email.body.replace(/{firstName}/g, firstName)}`;
+                  personalizedText = `Subject: ${snapshotResponse.templates.email.subject.replace(/{firstName}/g, firstName)}\n\n${snapshotResponse.templates.email.body.replace(/{firstName}/g, firstName)}`;
                 } else {
-                  const templateText = result.templates[item.variant];
+                  const templateText = snapshotResponse.templates[item.variant];
                   personalizedText = templateText.replace(/{firstName}/g, firstName);
                 }
                 
@@ -2294,22 +2462,22 @@ function ReviewRequestAutomationPageContent() {
                               <button
                                 type="button"
                                 onClick={() => handleSendEmails()}
-                                disabled={sendingEmails || !saveToDb || !savedDatasetId}
+                                disabled={sendingEmails || !saveToDb || !activeSnapshot?.datasetId}
                                 className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                                  sendingEmails || !saveToDb || !savedDatasetId
+                                  sendingEmails || !saveToDb || !activeSnapshot?.datasetId
                                     ? "opacity-50 cursor-not-allowed bg-slate-400 text-slate-200"
                                     : "bg-[#29c4a9] text-white hover:bg-[#1EB9A7]"
                                 }`}
                                 title={
-                                  !saveToDb || !savedDatasetId
-                                    ? "Please save your campaign to the database first"
+                                  !saveToDb || !activeSnapshot?.datasetId
+                                    ? "Save to database first (create a snapshot with Save to database enabled)"
                                     : "Send all pending emails (including this one)"
                                 }
                                 aria-label="Send emails"
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter" || e.key === " ") {
                                     e.preventDefault();
-                                    if (!sendingEmails && saveToDb && savedDatasetId) {
+                                    if (!sendingEmails && saveToDb && activeSnapshot?.datasetId) {
                                       handleSendEmails();
                                     }
                                   }
@@ -2392,7 +2560,7 @@ function ReviewRequestAutomationPageContent() {
         ) : (
           <OBDPanel isDark={isDark} className="mt-7">
             <p className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
-              No send queue available. Generate templates and queue to see scheduled sends.
+              No queue available yet. Create a new snapshot to build a queue you can review.
             </p>
           </OBDPanel>
         )}
@@ -2401,48 +2569,54 @@ function ReviewRequestAutomationPageContent() {
 
       {/* Results Tab */}
       {activeTab === "results" && (
-        result ? (
+        snapshotResponse ? (
           <div className="mt-7 space-y-7">
-            {/* Campaign Health Badge */}
+            <OBDPanel isDark={isDark}>
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                These results reflect the state of your campaign at the time it was queued.
+              </p>
+            </OBDPanel>
+            {/* Campaign Readiness (Tier 6-lite, calm, no scoring) */}
             <OBDPanel isDark={isDark}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>
-                  Campaign Health
+                  Campaign Readiness
                 </h3>
-                <div className="relative group">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    result.campaignHealth.status === "Good" 
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
-                      : result.campaignHealth.status === "Needs Attention"
-                      ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300"
-                      : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300"
-                  }`}>
-                    {result.campaignHealth.status} ({result.campaignHealth.score}/100)
+              </div>
+              <div className="space-y-2">
+                <div className={`flex items-center justify-between text-sm ${themeClasses.labelText}`}>
+                  <span>Quiet hours configured</span>
+                  <span className={quietHoursConfigured ? (isDark ? "text-green-300" : "text-green-700") : themeClasses.mutedText}>
+                    {quietHoursConfigured ? "✓" : "—"}
                   </span>
-                  <div className={`absolute right-0 top-full mt-2 w-64 p-3 rounded-lg shadow-lg z-10 hidden group-hover:block ${
-                    isDark ? "bg-slate-800 border border-slate-700" : "bg-white border border-slate-200"
-                  }`}>
-                    <div className={`text-xs font-semibold mb-2 ${themeClasses.headingText}`}>
-                      How it&apos;s calculated:
-                    </div>
-                    <ul className={`text-xs space-y-1 ${themeClasses.mutedText} list-disc list-inside`}>
-                      {result.campaignHealth.reasons.map((reason, idx) => (
-                        <li key={idx}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
+                </div>
+                <div className={`flex items-center justify-between text-sm ${themeClasses.labelText}`}>
+                  <span>Frequency caps set</span>
+                  <span className={frequencyCapsSet ? (isDark ? "text-green-300" : "text-green-700") : themeClasses.mutedText}>
+                    {frequencyCapsSet ? "✓" : "—"}
+                  </span>
+                </div>
+                <div className={`flex items-center justify-between text-sm ${themeClasses.labelText}`}>
+                  <span>Templates reviewed</span>
+                  <span className={templatesReviewed ? (isDark ? "text-green-300" : "text-green-700") : themeClasses.mutedText}>
+                    {templatesReviewed ? "✓" : "—"}
+                  </span>
+                </div>
+                <div className={`flex items-center justify-between text-sm ${themeClasses.labelText}`}>
+                  <span>Customers queued</span>
+                  <span className={themeClasses.headingText}>{snapshotSendQueue.length}</span>
                 </div>
               </div>
             </OBDPanel>
             
             {/* Guidance Benchmarks */}
-            {result.guidanceBenchmarks.length > 0 && (
+            {snapshotResponse.guidanceBenchmarks.length > 0 && (
               <OBDPanel isDark={isDark}>
                 <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
                   Best-Practice Guidance
                 </h3>
                 <div className="space-y-3">
-                  {result.guidanceBenchmarks.map((benchmark) => (
+                  {snapshotResponse.guidanceBenchmarks.map((benchmark) => (
                     <div
                       key={benchmark.id}
                       className={`p-3 rounded-lg border ${
@@ -2485,7 +2659,7 @@ function ReviewRequestAutomationPageContent() {
             <OBDPanel isDark={isDark}>
               <div className="text-center">
                 <div className={`text-3xl font-bold ${themeClasses.headingText}`}>
-                  {result.metrics.loaded}
+                  {snapshotResponse.metrics.loaded}
                 </div>
                 <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>Loaded</div>
               </div>
@@ -2493,7 +2667,7 @@ function ReviewRequestAutomationPageContent() {
             <OBDPanel isDark={isDark}>
               <div className="text-center">
                 <div className={`text-3xl font-bold ${themeClasses.headingText}`}>
-                  {result.metrics.ready}
+                  {snapshotResponse.metrics.ready}
                 </div>
                 <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>Ready</div>
               </div>
@@ -2501,7 +2675,7 @@ function ReviewRequestAutomationPageContent() {
             <OBDPanel isDark={isDark}>
               <div className="text-center">
                 <div className={`text-3xl font-bold ${themeClasses.headingText}`}>
-                  {result.metrics.queued}
+                  {snapshotResponse.metrics.queued}
                 </div>
                 <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>Queued</div>
               </div>
@@ -2509,7 +2683,7 @@ function ReviewRequestAutomationPageContent() {
             <OBDPanel isDark={isDark}>
               <div className="text-center">
                 <div className={`text-3xl font-bold ${themeClasses.headingText}`}>
-                  {result.metrics.reviewed}
+                  {snapshotResponse.metrics.reviewed}
                 </div>
                 <div className={`text-sm mt-1 ${themeClasses.mutedText}`}>Reviewed</div>
               </div>
@@ -2517,13 +2691,13 @@ function ReviewRequestAutomationPageContent() {
           </div>
 
           {/* Quality Checks */}
-          {result.qualityChecks.length > 0 && (
+          {snapshotResponse.qualityChecks.length > 0 && (
             <OBDPanel isDark={isDark}>
               <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
                 Quality Checks
               </h3>
               <div className="space-y-3">
-                {result.qualityChecks.map((check) => {
+                {snapshotResponse.qualityChecks.map((check) => {
                   const severityColors = {
                     info: isDark ? "bg-blue-900/20 border-blue-700 text-blue-300" : "bg-blue-50 border-blue-200 text-blue-700",
                     warning: isDark ? "bg-yellow-900/20 border-yellow-700 text-yellow-300" : "bg-yellow-50 border-yellow-200 text-yellow-700",
@@ -2563,13 +2737,13 @@ function ReviewRequestAutomationPageContent() {
           )}
 
           {/* Next Actions */}
-          {result.nextActions.length > 0 && (
+          {snapshotResponse.nextActions.length > 0 && (
             <OBDPanel isDark={isDark}>
               <h3 className={`text-sm font-semibold mb-4 ${themeClasses.headingText}`}>
                 Next Actions
               </h3>
               <div className="space-y-3">
-                {result.nextActions.map((action) => (
+                {snapshotResponse.nextActions.map((action) => (
                   <ResultCard
                     key={action.id}
                     title={action.title}
@@ -2588,7 +2762,7 @@ function ReviewRequestAutomationPageContent() {
         ) : (
           <OBDPanel isDark={isDark} className="mt-7">
             <p className={`text-sm ${themeClasses.mutedText} py-4 text-center`}>
-              No results available. Generate templates and queue to see metrics and insights.
+              No results available yet. Create a new snapshot to see metrics and insights.
             </p>
           </OBDPanel>
         )

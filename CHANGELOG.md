@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Review Request Automation — Tier 5A + Tier 5B + Tier 5C + Tier 6-lite (2026-02-06)**
+  - Tier 5A: trust microcopy + disabled-not-hidden parity; calm, user-driven step language (no autonomous claims).
+  - Tier 5B: canonical active snapshot (local-first) with explicit “Create New Snapshot”; Templates/Queue/Results are snapshot-derived only (no silent recomputation).
+  - Tier 5C: safe ecosystem awareness (link-only Reputation Dashboard; CRM independence note; no silent integration).
+  - Tier 6-lite: Campaign Readiness checklist + Planned Send Timeline disclaimer (no scores, no urgency).
+
 - **Public Help Center (Read-Only)**
   - Added public Help Center: public, search-first, read-only discovery layer backed by a global AnythingLLM workspace. No automation. No mutation. Status: LOCKED (maintenance-mode safe).
 

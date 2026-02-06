@@ -2,18 +2,50 @@
 
 ## Overview
 
-The Review Request Automation is a V3 production-ready OBD Premium App that generates review request templates and manages a send queue for review request campaigns. V3.6 adds real email sending via Resend (manual trigger), while SMS templates remain manual copy/paste. The app generates templates, produces a "Send Queue", and provides manual email sending with click/review tracking.
+Review Request Automation is a V3 OBD Premium App for planning, queuing, and managing review request messages. It follows a **snapshot-first** workflow: templates, queue items, and results are computed **once** when the user explicitly creates a snapshot. There is no live recomputation, no background scheduling, and no implied “set-and-forget” behavior.
 
 **Status:** Live (V3.6)  
 **Route:** `/apps/review-request-automation`  
 **Category:** Reputation
+
+## What this app IS
+
+- A **draft → snapshot** workflow for review request messaging.
+- A place to configure:
+  - business info
+  - review platform + review link
+  - delivery rules (quiet hours, frequency caps, delays, follow-ups)
+  - customer list (manual entry or CSV import)
+- A **snapshot-backed** Templates / Queue / Results experience:
+  - deterministic outputs
+  - stable exports
+  - no silent recalculation
+
+## What this app is NOT
+
+- Not an autonomous “automation engine”.
+- Not background scheduling or unattended sending.
+- Not a CRM sync tool:
+  - customers remain independent of CRM unless manually imported
+  - no background syncing / no auto-creation
+- Not a delivery guarantee (deliverability depends on channel availability and recipient eligibility).
+
+## Snapshot-based behavior (canonical)
+
+- **Create New Snapshot** is the only action that computes templates, queue state, and results.
+- Viewing Templates / Queue / Results **never recomputes** anything.
+- Status changes (Sent / Clicked / Reviewed / Opted Out) update the snapshot state directly (no hidden recalculation).
+- Storage:
+  - **Draft edits** are saved locally (draft-only).
+  - **Active snapshot** is stored locally (local-first acceptable).
+  - Optional database persistence is explicit and user-initiated (Save to database toggle + Create New Snapshot).
 
 ## V3 Scope (Production Polish)
 
 ### What's Included
 
 - **Quick Start Banner**: Interactive guide on first load with clickable steps
-- **Campaign Builder**: Configure business info, review platform, message settings, and automation rules
+- **Campaign Builder**: Configure business info, review platform, message settings, and delivery rules
 - **Customer Management**: 
   - Manual customer entry via modal
   - CSV import with tolerant parsing and row-level validation
@@ -26,29 +58,29 @@ The Review Request Automation is a V3 production-ready OBD Premium App that gene
   - Includes STOP opt-out line for SMS templates
   - Includes personalization tokens like {firstName}
   - Shows character count + segment warning for SMS (160/320/480…)
-  - "Generate again" button for regeneration
-- **Send Queue (V3 "automation simulation")**: 
-  - Computes queue items deterministically based on trigger rules
+  - "Create New Snapshot" computes templates and queue once
+- **Queue (Snapshot-derived)**: 
+  - Queue is computed deterministically at snapshot creation time
   - Respects quiet hours, frequency caps, and follow-up rules
   - **Bulk Actions**: Select multiple items and mark as sent/clicked/reviewed
   - Copy button per row (fills tokens)
   - Manual status tracking: "Mark Sent", "Mark Clicked", "Mark Reviewed", "Mark Opted Out"
-  - **Email Sending (V3.6)**: "Send Emails Now" button and per-item send for EMAIL queue items via Resend
-  - Status changes update metrics and remove/advance follow-up items
+  - **Email Sending (V3.6)**: manual, user-triggered sending for EMAIL queue items via Resend (no background sending)
+  - Status changes update snapshot state (no hidden recomputation)
   - Export queue to CSV
-- **Results + Insights**: 
+- **Results + Insights (Snapshot)**: 
   - Funnel counters: loaded, ready, queued, sent, clicked, reviewed, optedOut
   - Quality checks insights (invalid review link, SMS too long, follow-up too aggressive, etc.)
   - Next actions checklist with copy buttons
 - **Export Functionality**:
   - Export customers to CSV
   - Export send queue to CSV
-  - Export campaign JSON (includes campaign, customers, events, and results)
+  - Export snapshot JSON (includes the active snapshot + exportedAt)
 - **Data Persistence**: 
-  - Automatic localStorage save/restore (fallback)
-  - Database persistence via Prisma (canonical storage)
-  - "Save to Database" toggle (default ON)
-  - Integration with Reputation Dashboard
+  - Draft edits saved locally (localStorage)
+  - Active snapshot saved locally (localStorage)
+  - Optional database persistence is explicit (Save to database + Create New Snapshot)
+  - Reputation Dashboard awareness is link-only (no silent integration)
 - **Accessibility**:
   - All buttons have tooltips and aria-labels
   - Keyboard support (Enter/Space for button activation)
@@ -61,10 +93,10 @@ The Review Request Automation is a V3 production-ready OBD Premium App that gene
 
 **Status:** ✅ **NEW** - Email sending via Resend is now available
 
-Review Request Automation V3.6 adds real email sending functionality using Resend, with click tracking and self-confirmed review tracking.
+Review Request Automation V3.6 includes optional, manual email sending functionality using Resend, with click tracking and self-confirmed review tracking. Sending is always user-triggered (no background sending).
 
 **Features:**
-- **Manual Email Sending**: "Send Emails Now" button in Queue tab sends all pending EMAIL queue items (max 25 per batch)
+- **Manual Email Sending**: "Send Pending Emails" button in Queue tab sends pending EMAIL queue items (max 25 per batch)
 - **Per-Item Send**: Optional "Send" button for individual EMAIL queue items
 - **Click Tracking**: Review links in emails are replaced with secure tracking URLs that update queue item status to CLICKED
 - **Self-Confirmed Review Tracking**: "I left a review" confirmation link allows customers to confirm they left a review
@@ -83,7 +115,7 @@ Review Request Automation V3.6 adds real email sending functionality using Resen
 - **Important**: Review confirmations are self-reported by customers. We cannot verify actual Google/Facebook review submission.
 
 **Limitations:**
-- **Manual Sending Only**: Emails are sent manually via "Send Emails Now" button. No automatic scheduled sending yet.
+- **Manual Sending Only**: Emails are sent manually via "Send Pending Emails" button. No automatic scheduled sending.
 - **Self-Confirmed Reviews**: Review tracking relies on customer clicking "I left a review" confirmation link. We cannot detect actual Google/Facebook review submission.
 - **SMS Not Supported**: Email sending only. SMS templates are generated but SMS sending is not implemented (manual copy/paste workflow remains)
 
@@ -123,16 +155,16 @@ Review Request Automation V3.6 adds real email sending functionality using Resen
 | `toneStyle` | Yes | `"Friendly" \| "Professional" \| "Bold" \| "Luxury"` | Message tone |
 | `brandVoice` | No | `string` | Optional brand voice description |
 
-### Automation Rules
+### Delivery Rules
 
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
-| `triggerType` | Yes | `"manual" \| "after_service" \| "after_payment"` | When to trigger send |
+| `triggerType` | Yes | `"manual" \| "after_service" \| "after_payment"` | When queue timing is computed (at snapshot creation) |
 | `sendDelayHours` | Yes | `0-168` | Hours to wait before sending |
 | `followUpEnabled` | Yes | `boolean` | Enable follow-up messages |
 | `followUpDelayDays` | Yes (if enabled) | `1-30` | Days to wait before follow-up |
 | `frequencyCapDays` | Yes | `30 \| 60 \| 90` | Days between sends to same customer |
-| `quietHours` | Yes | `{ start: "HH:mm", end: "HH:mm" }` | Hours when messages should not be sent (default: 09:00-19:00) |
+| `quietHours` | Yes | `{ start: "HH:mm", end: "HH:mm" }` | Hours when queue items should not be scheduled (default: 09:00-19:00) |
 
 ### Inline "Why this matters" Micro-Education
 
@@ -140,7 +172,7 @@ Small info icons (ℹ️) appear next to key settings in the Campaign tab with e
 
 **Fields with Micro-Education:**
 - **Follow-Up Delay**: Explains why 2-7 day delay is optimal (gives customers time to review naturally while staying top of mind)
-- **Quiet Hours**: Explains that 9am-7pm prevents sending during sleep/busy times, messages auto-scheduled for next allowed window
+- **Quiet Hours**: Explains that 9am-7pm prevents scheduling during sleep/busy times; queue items are planned for the next allowed window
 - **Frequency Cap**: Explains how 30-90 days prevents over-messaging and protects reputation
 
 **Behavior:**
@@ -429,11 +461,11 @@ The Results tab includes a "Best-Practice Guidance" section that provides non-bi
 - Available from Queue tab when queue exists
 - Filename format: `send-queue-{businessName}-{date}.csv`
 
-### Export Campaign JSON
-- Exports complete campaign data to JSON
-- Includes: campaign configuration, customers, events, results, and `exportedAt` timestamp (ISO format)
-- Available from Queue tab
-- Filename format: `campaign-{businessName}-{date}.json`
+### Export Snapshot JSON
+- Exports the active snapshot to JSON
+- Includes: campaign configuration, customers, events, computed response, and `exportedAt` timestamp (ISO format)
+- Available from Queue tab when an active snapshot exists
+- Filename format: `campaign-snapshot-{businessName}-{date}.json`
 - Useful for backup, migration, or analysis
 
 ## Database Persistence
@@ -442,14 +474,15 @@ The Review Request Automation app now supports database persistence via Prisma a
 
 ### Storage Options
 
-- **Database (Canonical)**: Campaigns, customers, queue items, and datasets are saved to Postgres when "Save to Database" toggle is enabled (default ON)
-- **localStorage (Fallback)**: Campaign data is also saved to localStorage for backward compatibility and offline access
+- **Active snapshot (local-first)**: The canonical computed snapshot is stored in localStorage for deterministic viewing and exports.
+- **Draft edits (local-first)**: Campaign/customers/events drafts are stored in localStorage for convenience.
+- **Database (optional)**: Saving to Postgres is explicit and user-initiated (Save to database + Create New Snapshot).
 
 ### Save to Database Toggle
 
 - Location: Campaign tab, "Storage Options" section
 - Default: **ON** (enabled)
-- When enabled: Campaign data is automatically saved to the database after "Generate Templates & Queue" completes
+- When enabled: Snapshot data is saved to the database after "Create New Snapshot" completes
 - When disabled: Data is only stored in localStorage (local-only mode), DB status pill shows "Local Only"
 
 ### Database Schema

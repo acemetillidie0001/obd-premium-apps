@@ -1,10 +1,23 @@
 # Review Request Automation - Changelog
 
+## [Unreleased]
+
+### Added
+- Snapshot-first canonical state: Templates / Queue / Results are derived only from the active snapshot (created explicitly by the user).
+- Local-first snapshot storage (`activeSnapshot`) with draft-only persistence for edits.
+- Ecosystem awareness (safe, read-only): link-only Reputation Dashboard awareness; no silent integration.
+- Calm advisory framing (Tier 6-lite): Campaign Readiness checklist (no scoring, no urgency).
+
+### Changed
+- Primary action now creates a snapshot ("Create New Snapshot") instead of implying ongoing automation.
+- Queue/Results no longer recompute implicitly (no hidden recalculation on tab change, status update, or refresh).
+- Send Timeline renamed to Planned Send Timeline with a delivery disclaimer (availability/eligibility).
+
 ## [V3] - 2025-12-24
 
 ### Added
 - Quick Start banner with interactive guide on first load
-- Campaign Health Score: Deterministic health assessment with status badge (Good/Needs Attention/At Risk), score (0-100), and detailed reasons in hover tooltip
+- Campaign Health Score: Deterministic health assessment with status badge (Good/Needs Attention/At Risk), score (0-100), and detailed reasons in hover tooltip (superseded by Campaign Readiness in [Unreleased])
 - Template Quality Score: Per-template quality badges (Good/Too Long/Missing Opt-out/Link Issue/Needs Review) with severity levels (info/warning/critical), detailed analysis, and actionable suggestions in tooltips
 - Smart Defaults: Business type-based recommendations (Restaurant/Food, Home Services, Beauty/Wellness, Auto/Trades, Medical/Healthcare, Retail) with opt-in "Apply" button (never auto-override user settings)
 - Send Timeline: Visual read-only timeline above Queue tab showing Now → Initial Send → Follow-Up schedule using actual computed queue times

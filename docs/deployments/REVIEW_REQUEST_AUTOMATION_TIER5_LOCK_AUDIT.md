@@ -1,7 +1,7 @@
 ### REVIEW_REQUEST_AUTOMATION_TIER5_LOCK_AUDIT — FINAL (Tier 5A/5B/5C PASS; lock-ready)
 
-Status: **LOCK-eligible** (maintenance-mode safe)  
-Validated on `main` @ **(pending commit)**
+Status: **LOCKED** (maintenance-mode safe)  
+Validated on `main` @ **fe8d534fa78a0b89f1c09fb979bc60fa356246cd**
 
 Scope: **code-truth audit + docs/changelog updates** (no schema changes; no API changes; no new automation).
 

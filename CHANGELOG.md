@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tier 5B (Upgrade): “Review changes” step before snapshot creation (tiny deterministic summary; UI-only).
   - Tier 5C: safe ecosystem awareness (link-only Reputation Dashboard; CRM independence note; no silent integration).
   - Export integrity: snapshot-safe filenames for queue CSV + snapshot JSON (columns unchanged).
-  - Lock audit: `docs/deployments/REVIEW_REQUEST_AUTOMATION_TIER5_LOCK_AUDIT.md` (LOCK-eligible pending lock flip).
+  - Lock audit: `docs/deployments/REVIEW_REQUEST_AUTOMATION_TIER5_LOCK_AUDIT.md` (Status: **LOCKED**; maintenance-mode safe).
   - Tier 6-lite: Campaign Readiness checklist + Planned Send Timeline disclaimer (no scores, no urgency).
 
 - **Public Help Center (Read-Only)**

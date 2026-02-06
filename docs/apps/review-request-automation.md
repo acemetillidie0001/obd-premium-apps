@@ -1,8 +1,8 @@
 # Review Request Automation
 
-**Status:** LOCK-eligible (maintenance-mode safe)  
+**Status:** LOCKED (maintenance-mode safe)  
 **Route:** `/apps/review-request-automation`  
-**Last verified:** main @ (pending)  
+**Last verified:** main @ fe8d534fa78a0b89f1c09fb979bc60fa356246cd  
 **One-line:** Draft-first, snapshot-based campaign planner. No autonomous behavior.
 
 ## What this app IS

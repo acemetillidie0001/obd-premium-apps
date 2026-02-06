@@ -16,6 +16,7 @@
 - Primary action now creates a snapshot ("Create New Snapshot") instead of implying ongoing automation.
 - Queue/Results no longer recompute implicitly (no hidden recalculation on tab change, status update, or refresh).
 - Send Timeline renamed to Planned Send Timeline with a delivery disclaimer (availability/eligibility).
+- Docs: Added Tier 5 lock audit and marked the app **LOCKED** (maintenance-mode safe).
 
 ## [V3] - 2025-12-24
 

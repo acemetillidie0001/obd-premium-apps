@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import {
@@ -29,6 +29,38 @@ import {
   Palette,
   Sparkles,
 } from "lucide-react";
+
+type OnboardingStepStatus = "not_started" | "in_progress" | "done" | "optional";
+
+type OnboardingStatusResponse = {
+  ok: true;
+  dismissed: boolean;
+  dismissedAt: string | null;
+  progress: { percent: number; completedRequired: number; totalRequired: number };
+  steps: Array<{
+    key: "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk";
+    title: string;
+    status: OnboardingStepStatus;
+    href: string;
+  }>;
+};
+
+type OnboardingDismissResponse = {
+  ok: true;
+  dismissed: boolean;
+  dismissedAt: string | null;
+};
+
+const ONBOARDING_STEP_DESCRIPTIONS: Record<
+  "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk",
+  string
+> = {
+  brandKit: "Add your business name and core brand colors once, then reuse them everywhere.",
+  billing: "Confirm your plan so premium tools stay enabled for your business.",
+  scheduler: "Add a service and availability if you want to accept bookings (optional).",
+  crm: "Create your first contact to start tracking customers and follow-ups.",
+  helpDesk: "Add at least one knowledge entry so the Help Desk has something to answer from.",
+};
 
 interface AppTile {
   title: string;
@@ -278,6 +310,104 @@ export default function AppsLauncherClient() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const isDark = theme === "dark";
 
+  const [onboarding, setOnboarding] = useState<OnboardingStatusResponse | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(true);
+  const [onboardingSaving, setOnboardingSaving] = useState(false);
+  const [onboardingCollapsed, setOnboardingCollapsed] = useState(false);
+
+  useEffect(() => {
+    // Local-only UI preference: collapse/expand
+    try {
+      const raw = window.localStorage.getItem("obd:onboardingGuideCollapsed");
+      if (raw === "1" || raw === "true") setOnboardingCollapsed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("obd:onboardingGuideCollapsed", onboardingCollapsed ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [onboardingCollapsed]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setOnboardingLoading(true);
+      try {
+        const res = await fetch("/api/onboarding/status", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as unknown;
+        if (!cancelled && res.ok && json && typeof json === "object" && (json as any).ok === true) {
+          setOnboarding(json as OnboardingStatusResponse);
+        }
+      } catch {
+        // Non-blocking: if it fails, we just don't show the panel.
+      } finally {
+        if (!cancelled) setOnboardingLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const statusPill = (status: OnboardingStepStatus) => {
+    const base = "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap";
+    if (status === "done") {
+      return (
+        <span className={`${base} border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200`}>
+          Done
+        </span>
+      );
+    }
+    if (status === "in_progress") {
+      return (
+        <span className={`${base} border-[#29c4a9]/30 bg-[#29c4a9]/10 text-[#1f8f7d] dark:border-[#29c4a9]/40 dark:bg-[#29c4a9]/10 dark:text-[#29c4a9]`}>
+          In progress
+        </span>
+      );
+    }
+    if (status === "optional") {
+      return (
+        <span className={`${base} border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-300`}>
+          Optional
+        </span>
+      );
+    }
+    return (
+      <span className={`${base} border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-200`}>
+        Not started
+      </span>
+    );
+  };
+
+  const setDismissed = async (dismissed: boolean) => {
+    setOnboardingSaving(true);
+    try {
+      const res = await fetch("/api/onboarding/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissed }),
+      });
+      const json = (await res.json().catch(() => null)) as unknown;
+      if (!res.ok || !json || typeof json !== "object" || (json as any).ok !== true) return;
+      const next = json as OnboardingDismissResponse;
+
+      setOnboarding((prev) => {
+        if (!prev) return prev;
+        return { ...prev, dismissed: next.dismissed, dismissedAt: next.dismissedAt };
+      });
+    } finally {
+      setOnboardingSaving(false);
+    }
+  };
+
   return (
     <OBDPageContainer
       isDark={isDark}
@@ -287,6 +417,106 @@ export default function AppsLauncherClient() {
     >
       {/* Sections */}
       <div className="space-y-8">
+        {/* Onboarding anchor target for sidebar link */}
+        <div id="get-started" className="scroll-mt-28">
+          {/* Onboarding guide panel (non-blocking, dismissible) */}
+          {!onboardingLoading && onboarding?.ok && onboarding.dismissed === true ? (
+            <div className="mt-7">
+              <button
+                type="button"
+                onClick={() => setDismissed(false)}
+                disabled={onboardingSaving}
+                className="text-sm font-medium text-slate-700 hover:underline hover:underline-offset-2 dark:text-slate-200 disabled:opacity-60"
+              >
+                Show setup guide
+              </button>
+            </div>
+          ) : null}
+
+          {!onboardingLoading && onboarding?.ok && onboarding.dismissed === false ? (
+            <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+                    Get started with OBD
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                    Recommended steps to set up your tools. Nothing is automatic — you’re always in control.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setOnboardingCollapsed((v) => !v)}
+                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-900/45"
+                  >
+                    {onboardingCollapsed ? "Expand" : "Collapse"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissed(true)}
+                    disabled={onboardingSaving}
+                    className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-200 dark:hover:bg-slate-900/35 disabled:opacity-60"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress */}
+              <div className="mt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Setup progress: {onboarding.progress.percent}%
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {onboarding.progress.completedRequired}/{onboarding.progress.totalRequired} required complete
+                  </div>
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div
+                    className="h-2 rounded-full bg-[#29c4a9] transition-[width]"
+                    style={{ width: `${Math.max(0, Math.min(100, onboarding.progress.percent))}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Steps */}
+              {!onboardingCollapsed ? (
+                <div className="mt-6 divide-y divide-slate-200 rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+                  {onboarding.steps.map((step) => (
+                    <div
+                      key={step.key}
+                      className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                            {step.title}
+                          </div>
+                          {statusPill(step.status)}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                          {ONBOARDING_STEP_DESCRIPTIONS[step.key]}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-end">
+                        <Link
+                          href={step.href}
+                          className="inline-flex items-center justify-center rounded-md bg-[#29c4a9] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#24b09a]"
+                        >
+                          Open
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
+
         {APP_SECTIONS.map((section, sectionIndex) => {
           const SectionIcon = section.icon;
           return (

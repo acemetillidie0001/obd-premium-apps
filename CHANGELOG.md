@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Suite onboarding (first-run setup guide)**
+  - Add dashboard “Get started” guide with deterministic progress and dismiss.
+  - Add sidebar and Help Center links to setup guide.
+
 - **Review Request Automation — Tier 5A + Tier 5B + Tier 5C + Tier 6-lite (2026-02-06)**
   - Tier 5A: trust microcopy + disabled-not-hidden parity; calm, user-driven step language (no autonomous claims).
   - Tier 5B: canonical active snapshot (local-first) with explicit “Create New Snapshot”; Templates/Queue/Results are snapshot-derived only (no silent recomputation).

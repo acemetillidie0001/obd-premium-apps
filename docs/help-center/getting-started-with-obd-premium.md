@@ -48,6 +48,25 @@ If you’re unsure where to begin:
 - Use the Help Center for shared guidance and definitions (global, read-only).
 - Use the in-app AI Help Desk for business-specific guidance (tenant-scoped).
 
+## Get started with OBD (dashboard setup guide)
+
+OBD includes a **non-blocking, advisory-only** setup guide panel called **“Get started with OBD”**.
+
+What it does:
+- Shows **recommended setup steps** (no enforced order).
+- Shows a **progress bar** (required steps only; optional steps do not affect percent).
+- Uses **deterministic status derivation** from existing stored data only (no automation, no external calls).
+
+Where to find it:
+- **Dashboard panel**: on the Premium Dashboard (`/apps`) near the top of the page.
+- **Sidebar link**: “Get Started” → `/apps#get-started`
+- **Help Center link**: “Get Started with OBD” → `/apps#get-started`
+
+Dismiss behavior:
+- The panel includes a **Dismiss** button (explicit action).
+- Dismissal is **business-scoped** and persisted; it hides the panel without affecting any tools.
+- You can re-enable it with **“Show setup guide”** (explicit action).
+
 ## What “advisory-only” means
 
 “Advisory-only” means:

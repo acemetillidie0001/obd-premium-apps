@@ -33,6 +33,7 @@ model Business {
 
   memberships BusinessUser[]
   invites     TeamInvite[]
+  onboardingState OnboardingState?
 }
 
 model BusinessUser {
@@ -85,6 +86,18 @@ model TeamAuditLog {
   createdAt   DateTime @default(now())
 
   @@index([businessId, createdAt])
+}
+
+// Business-scoped onboarding UI state (read-only derivations elsewhere)
+model OnboardingState {
+  businessId            String   @id
+  onboardingDismissedAt DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
 }
 
 model Account {

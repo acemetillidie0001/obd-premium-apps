@@ -57,6 +57,13 @@ Start with the tool closest to your goal:
 If you need business-specific support:
 - use the in-app AI Help Desk (tenant-scoped, mapped to your workspace)
 
+## Where is the “Get started” setup guide?
+
+On the Premium Dashboard (`/apps`) there’s a **“Get started with OBD”** panel that shows recommended setup steps and a progress bar.
+
+- Open it directly: `/apps#get-started`
+- It’s **dismissible** and **advisory-only** (no automation, no enforced order).
+
 ## How do Teams & Users permissions work?
 
 Teams & Users is the suite’s tenant-scoped access control layer:

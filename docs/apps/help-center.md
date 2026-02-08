@@ -30,6 +30,11 @@ Public, search-first, read-only discovery layer powered by a global AnythingLLM 
 - `/help-center` (public page)
 - `POST /api/help-center/query`
 
+## Getting started link (UI)
+
+- The Help Center landing page includes a link to the suite setup guide:
+  - “Get Started with OBD” → `/apps#get-started`
+
 ## Env vars (names only)
 
 - `HELP_CENTER_WORKSPACE_SLUG`

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { CheckCircle2, AlertCircle, Calendar as CalendarIcon } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, AlertCircle, Calendar as CalendarIcon, Shield, ChevronDown } from "lucide-react";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
@@ -31,13 +33,58 @@ import type {
   CalendarIntegrationStatusResponse,
 } from "@/lib/apps/obd-scheduler/types";
 import { BookingStatus, BookingMode } from "@/lib/apps/obd-scheduler/types";
+import type { CrmContact } from "@/lib/apps/obd-crm/types";
 import { assertNever } from "@/lib/dev/assertNever";
 
 type SchedulerTab = "requests" | "services" | "availability" | "branding" | "settings" | "metrics" | "verification" | "calendar";
 type RequestView = "needs-action" | "upcoming" | "past-due" | "completed" | "declined" | "all";
 type RequestSort = "newest-first" | "oldest-first" | "soonest-appointment" | "recently-updated";
 
+type SchedulerAccessSnapshot = {
+  isEnabled: boolean;
+  isPilot: boolean;
+  activationAllowed: boolean;
+  pilotMode: boolean;
+  setup: {
+    servicesCount: number;
+    hasAvailability: boolean;
+    hasBranding: boolean;
+  };
+  connections: {
+    sms: { status: "connected" | "not_connected" };
+    calendar: { status: "connected" | "not_connected" | "coming_soon" };
+  };
+};
+
+type BrandKitActiveSnapshot = {
+  businessName: string | null;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  toneSnippet: string | null;
+  emailSignature: string | null;
+  updatedAtISO: string | null;
+};
+
+type HelpDeskSetupStatus = {
+  env: { hasBaseUrl: boolean; hasApiKey: boolean; baseUrlPreview?: string | null };
+  db: { canQuery: boolean; hasAiWorkspaceMap: boolean; lastErrorCode?: string; lastErrorMessage?: string };
+};
+
+// Pre-config vs activation gate matrix (pilot rollout)
+const SCHEDULER_PRECONFIG_TABS = new Set<SchedulerTab>(["services", "availability", "branding"]);
+const SCHEDULER_ACTIVATION_REQUIRED_TABS = new Set<SchedulerTab>([
+  "requests",
+  "settings",
+  "metrics",
+  "verification",
+  "calendar",
+]);
+
 function OBDSchedulerPageContent() {
+  const searchParams = useSearchParams();
+  const crmContactIdFilter = (searchParams.get("crmContactId") || "").trim();
+
   // Initialize theme with consistent default (fixes hydration mismatch)
   // Will be updated from localStorage in useEffect after hydration
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -50,6 +97,9 @@ function OBDSchedulerPageContent() {
 
   // Requests tab state (needed for storage key prefix)
   const [requests, setRequests] = useState<BookingRequest[]>([]);
+
+  // Customer-facing booking instructions draft (local-only storage)
+  const [bookingInstructionsDraft, setBookingInstructionsDraft] = useState("");
   
   // P2-10: Generate storage key prefix from businessId (extracted from requests)
   // Since all requests belong to the same business, we use the first request's businessId
@@ -95,6 +145,9 @@ function OBDSchedulerPageContent() {
     }
   };
 
+  // Customer-facing booking instructions (draft-only, stored locally)
+  const BOOKING_INSTRUCTIONS_DRAFT_LEGACY_KEY = "obd:scheduler:bookingInstructions:draft";
+
   // Load verification auto-run preference from localStorage
   useEffect(() => {
     const prefix = getStorageKeyPrefix();
@@ -102,6 +155,30 @@ function OBDSchedulerPageContent() {
     if (savedAutoRun === "true") {
       setVerificationAutoRun(true);
     }
+  }, [requests]);
+
+  // Load booking instructions draft (legacy, unscoped) on mount
+  useEffect(() => {
+    try {
+      const legacy = localStorage.getItem(BOOKING_INSTRUCTIONS_DRAFT_LEGACY_KEY);
+      if (legacy !== null) {
+        // Don't trim — preserve user formatting
+        setBookingInstructionsDraft(legacy);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Migrate booking instructions to namespaced key when tenant namespace becomes available
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    migrateStorageKey(
+      BOOKING_INSTRUCTIONS_DRAFT_LEGACY_KEY,
+      `${prefix}bookingInstructions:draft`,
+      setBookingInstructionsDraft
+    );
   }, [requests]);
 
   // Load theme, activeTab, and activeView from localStorage after hydration
@@ -123,6 +200,13 @@ function OBDSchedulerPageContent() {
     }
   }, []);
 
+  // If CRM deep-link filter is present, default to Requests tab
+  useEffect(() => {
+    if (crmContactIdFilter) {
+      setActiveTab("requests");
+    }
+  }, [crmContactIdFilter]);
+
   // P2-10: Save activeTab to namespaced localStorage key
   useEffect(() => {
     const prefix = getStorageKeyPrefix();
@@ -143,11 +227,30 @@ function OBDSchedulerPageContent() {
     }
   }, [theme, requests]);
 
+  // Save booking instructions draft to namespaced localStorage key
+  useEffect(() => {
+    const prefix = getStorageKeyPrefix();
+    try {
+      localStorage.setItem(`${prefix}bookingInstructions:draft`, bookingInstructionsDraft);
+    } catch {
+      // ignore
+    }
+  }, [bookingInstructionsDraft, requests]);
+
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
   const [showRequestDetail, setShowRequestDetail] = useState(false);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState("");
   const [isPilotMode, setIsPilotMode] = useState<boolean>(false);
+  const [activationAllowed, setActivationAllowed] = useState<boolean | null>(null);
+  const [accessSnapshot, setAccessSnapshot] = useState<SchedulerAccessSnapshot | null>(null);
+  const isActivationGated = activationAllowed === false || requestsError === "PILOT_ONLY";
+  const servicesCount = accessSnapshot?.setup.servicesCount ?? null;
+  const servicesConfigured = servicesCount !== null ? servicesCount > 0 : null;
+  const availabilityConfigured = accessSnapshot?.setup.hasAvailability ?? null;
+  const brandingConfigured = accessSnapshot?.setup.hasBranding ?? null;
+  const setupComplete =
+    servicesConfigured === true && availabilityConfigured === true;
   // Initialize activeView with consistent default (fixes hydration mismatch)
   // Will be updated from localStorage in useEffect after hydration
   const [activeView, setActiveView] = useState<RequestView>("needs-action");
@@ -355,6 +458,14 @@ function OBDSchedulerPageContent() {
   const [bookingTheme, setBookingTheme] = useState<BookingTheme | null>(null);
   const [themeLoading, setThemeLoading] = useState(false);
   const [themeError, setThemeError] = useState("");
+  const [brandKitSnapshot, setBrandKitSnapshot] = useState<BrandKitActiveSnapshot | null>(null);
+  const [brandKitLoading, setBrandKitLoading] = useState(false);
+  const [brandKitError, setBrandKitError] = useState("");
+  const [applyingBrandKit, setApplyingBrandKit] = useState(false);
+  const [applyingBookingInstructions, setApplyingBookingInstructions] = useState(false);
+  const [helpDeskSetup, setHelpDeskSetup] = useState<HelpDeskSetupStatus | null>(null);
+  const [helpDeskSetupLoading, setHelpDeskSetupLoading] = useState(false);
+  const [helpDeskSetupError, setHelpDeskSetupError] = useState("");
 
   // Metrics tab state
   const [metrics, setMetrics] = useState<SchedulerMetrics | null>(null);
@@ -420,6 +531,23 @@ function OBDSchedulerPageContent() {
   // Toast queue state - P1-23: Standardized toast structure
   const [toasts, setToasts] = useState<OBDToastItem[]>([]);
 
+  // CRM linking (manual, deterministic)
+  const [crmLinkLoading, setCrmLinkLoading] = useState(false);
+  const [crmLinkedContact, setCrmLinkedContact] = useState<Pick<CrmContact, "id" | "name" | "email" | "phone"> | null>(null);
+  const [crmLinkError, setCrmLinkError] = useState<string>("");
+  const [showCrmAttachModal, setShowCrmAttachModal] = useState(false);
+  const [showCrmCreateModal, setShowCrmCreateModal] = useState(false);
+  const [crmAttachSearch, setCrmAttachSearch] = useState("");
+  const [crmAttachLoading, setCrmAttachLoading] = useState(false);
+  const [crmAttachResults, setCrmAttachResults] = useState<CrmContact[]>([]);
+  const [crmAttachSelectedId, setCrmAttachSelectedId] = useState<string>("");
+  const [crmCreateForm, setCrmCreateForm] = useState<{ name: string; email: string; phone: string }>({
+    name: "",
+    email: "",
+    phone: "",
+  });
+  const [crmCreateLoading, setCrmCreateLoading] = useState(false);
+
   // Validation state
   const [settingsErrors, setSettingsErrors] = useState<Record<string, string>>({});
   const [themeErrors, setThemeErrors] = useState<Record<string, string>>({});
@@ -435,11 +563,23 @@ function OBDSchedulerPageContent() {
     reactivate: useRef<HTMLDivElement>(null),
     history: useRef<HTMLDivElement>(null),
     busyBlock: useRef<HTMLDivElement>(null),
+    crmAttach: useRef<HTMLDivElement>(null),
+    crmCreate: useRef<HTMLDivElement>(null),
   };
 
   // Focus trap and restoration for modals
   useEffect(() => {
-    const anyModalOpen = showProposeModal || showServiceModal || showBulkDeclineConfirm || showCompleteModal || showDeclineConfirm || showReactivateConfirm || showHistoryModal;
+    const anyModalOpen =
+      showProposeModal ||
+      showServiceModal ||
+      showBulkDeclineConfirm ||
+      showCompleteModal ||
+      showDeclineConfirm ||
+      showReactivateConfirm ||
+      showHistoryModal ||
+      showBusyBlockModal ||
+      showCrmAttachModal ||
+      showCrmCreateModal;
     
     if (anyModalOpen) {
       // Store the previously focused element
@@ -455,7 +595,9 @@ function OBDSchedulerPageContent() {
           (showDeclineConfirm && modalRefs.decline.current) ||
           (showReactivateConfirm && modalRefs.reactivate.current) ||
           (showHistoryModal && modalRefs.history.current) ||
-          (showBusyBlockModal && modalRefs.busyBlock.current);
+          (showBusyBlockModal && modalRefs.busyBlock.current) ||
+          (showCrmAttachModal && modalRefs.crmAttach.current) ||
+          (showCrmCreateModal && modalRefs.crmCreate.current);
         
         if (modalContainer) {
           const firstFocusable = modalContainer.querySelector(
@@ -469,7 +611,19 @@ function OBDSchedulerPageContent() {
       previousActiveElement.focus();
       setPreviousActiveElement(null);
     }
-  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm, showReactivateConfirm, showHistoryModal]);
+  }, [
+    showProposeModal,
+    showServiceModal,
+    showBulkDeclineConfirm,
+    showCompleteModal,
+    showDeclineConfirm,
+    showReactivateConfirm,
+    showHistoryModal,
+    showBusyBlockModal,
+    showCrmAttachModal,
+    showCrmCreateModal,
+    previousActiveElement,
+  ]);
 
   // Handle Escape key to close modals
   useEffect(() => {
@@ -500,13 +654,29 @@ function OBDSchedulerPageContent() {
           setShowBusyBlockModal(false);
           setBusyBlockForm({ start: "", end: "", reason: "" });
           setBusyBlockErrors({});
+        } else if (showCrmAttachModal) {
+          setShowCrmAttachModal(false);
+          setCrmAttachSelectedId("");
+        } else if (showCrmCreateModal) {
+          setShowCrmCreateModal(false);
         }
       }
     };
 
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [showProposeModal, showServiceModal, showBulkDeclineConfirm, showCompleteModal, showDeclineConfirm, showReactivateConfirm, showHistoryModal]);
+  }, [
+    showProposeModal,
+    showServiceModal,
+    showBulkDeclineConfirm,
+    showCompleteModal,
+    showDeclineConfirm,
+    showReactivateConfirm,
+    showHistoryModal,
+    showBusyBlockModal,
+    showCrmAttachModal,
+    showCrmCreateModal,
+  ]);
 
   // P2-10: Persist theme to namespaced localStorage key (duplicate for backward compat, will be removed)
   useEffect(() => {
@@ -550,12 +720,33 @@ function OBDSchedulerPageContent() {
     checkPilotMode();
   }, []);
 
+  // Check whether this business is activation-allowed (one-time check on mount)
+  useEffect(() => {
+    const checkActivationAccess = async () => {
+      try {
+        const res = await fetch("/api/obd-scheduler/access");
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.ok && typeof data?.data?.activationAllowed === "boolean") {
+          setActivationAllowed(data.data.activationAllowed);
+          setAccessSnapshot(data.data as SchedulerAccessSnapshot);
+        }
+      } catch {
+        // Silently fail - keep unknown
+      }
+    };
+    checkActivationAccess();
+  }, []);
+
   // Load requests (fetch all, filtering done client-side)
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
     setRequestsError("");
     try {
-      const res = await fetch(`/api/obd-scheduler/requests`);
+      const url = new URL("/api/obd-scheduler/requests", window.location.origin);
+      if (crmContactIdFilter) {
+        url.searchParams.set("crmContactId", crmContactIdFilter);
+      }
+      const res = await fetch(url.toString());
       
       // Handle network/fetch errors
       if (!res.ok && res.status >= 500) {
@@ -580,6 +771,7 @@ function OBDSchedulerPageContent() {
         // Handle PILOT_ONLY error (403) - show pilot message and stop loading
         if (errorCode === "PILOT_ONLY" || res.status === 403) {
           setRequestsError("PILOT_ONLY");
+          setActivationAllowed(false);
           setRequests([]);
           return;
         }
@@ -701,7 +893,7 @@ function OBDSchedulerPageContent() {
     } finally {
       setRequestsLoading(false);
     }
-  }, []);
+  }, [crmContactIdFilter]);
 
   // Load services
   const loadServices = async () => {
@@ -1045,8 +1237,167 @@ function OBDSchedulerPageContent() {
     }
   };
 
+  // Load active Brand Kit snapshot (read-only)
+  const loadBrandKitActive = async () => {
+    setBrandKitLoading(true);
+    setBrandKitError("");
+    try {
+      const res = await fetch("/api/brand-kit/active", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || json?.message || "Failed to load Brand Kit");
+      }
+      const snapshot = (json.data?.snapshot ?? null) as BrandKitActiveSnapshot | null;
+      setBrandKitSnapshot(snapshot);
+    } catch (e) {
+      setBrandKitSnapshot(null);
+      setBrandKitError(e instanceof Error ? e.message : "Failed to load Brand Kit");
+    } finally {
+      setBrandKitLoading(false);
+    }
+  };
+
+  const applyBrandKitToScheduler = async () => {
+    if (applyingBrandKit) return;
+    setApplyingBrandKit(true);
+    try {
+      const res = await fetch("/api/obd-scheduler/theme/apply-brand-kit", {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || json?.message || "Failed to apply Brand Kit");
+      }
+
+      // If theme was returned, apply immediately to form state; otherwise fall back to reload.
+      if (json.theme) {
+        const t = json.theme as BookingTheme;
+        setBookingTheme(t);
+        setThemeForm({
+          logoUrl: t.logoUrl || "",
+          primaryColor: t.primaryColor || "#29c4a9",
+          accentColor: t.accentColor || "",
+          headlineText: t.headlineText || "",
+          introText: t.introText || "",
+        });
+      } else {
+        await loadTheme();
+      }
+
+      showNotification("Brand Kit applied to Scheduler.");
+      // Refresh snapshot for preview accuracy (read-only)
+      void loadBrandKitActive();
+    } catch (e) {
+      showNotification(e instanceof Error ? e.message : "Failed to apply Brand Kit", "error");
+    } finally {
+      setApplyingBrandKit(false);
+    }
+  };
+
+  const loadHelpDeskSetupStatus = async () => {
+    setHelpDeskSetupLoading(true);
+    setHelpDeskSetupError("");
+    try {
+      const res = await fetch("/api/ai-help-desk/setup/status", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || json?.message || "Failed to load AI Help Desk status");
+      }
+      setHelpDeskSetup(json.data as HelpDeskSetupStatus);
+    } catch (e) {
+      setHelpDeskSetup(null);
+      setHelpDeskSetupError(e instanceof Error ? e.message : "Failed to load AI Help Desk status");
+    } finally {
+      setHelpDeskSetupLoading(false);
+    }
+  };
+
+  const applyBookingInstructionsToHelpDesk = async () => {
+    if (applyingBookingInstructions) return;
+
+    const text = bookingInstructionsDraft.trim();
+    if (!text) {
+      showNotification("Please enter booking instructions before applying.", "error");
+      return;
+    }
+    if (text.length > 2000) {
+      showNotification("Booking instructions must be 2000 characters or less.", "error");
+      return;
+    }
+
+    setApplyingBookingInstructions(true);
+    try {
+      const res = await fetch("/api/obd-scheduler/help-desk/apply-booking-instructions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || json?.message || "Failed to apply booking instructions");
+      }
+      showNotification("Booking instructions added to AI Help Desk.");
+    } catch (e) {
+      showNotification(e instanceof Error ? e.message : "Failed to apply booking instructions", "error");
+    } finally {
+      setApplyingBookingInstructions(false);
+    }
+  };
+
+  const createBookingFaqHandoff = () => {
+    const businessId = (requests[0]?.businessId || "").trim();
+    if (!businessId) {
+      showNotification("Load a request first to determine business context for FAQ handoff.", "error");
+      return;
+    }
+
+    const bookingMode = settings?.bookingModeDefault || settingsForm.bookingModeDefault;
+    const modeLabel = bookingMode === BookingMode.INSTANT_ALLOWED ? "Instant booking" : "Request-only booking";
+
+    const questions = [
+      "How do I book an appointment?",
+      bookingMode === BookingMode.INSTANT_ALLOWED
+        ? "Can I book instantly online?"
+        : "Do I need to wait for approval after submitting a request?",
+      "Do you offer same-day appointments?",
+      "What is your cancellation policy?",
+      "How long are appointments?",
+      "What areas do you serve?",
+      "What should I do before my appointment?",
+      "How will I know my booking is confirmed?",
+    ];
+
+    const payload = {
+      sourceApp: "obd-scheduler" as const,
+      importedAt: new Date().toISOString(),
+      questions,
+      context: {
+        businessId,
+        topic: `Booking FAQs (${modeLabel})`,
+      },
+    };
+
+    // Base64url encode (UTF-8 safe)
+    const jsonString = JSON.stringify(payload);
+    const utf8Bytes = new TextEncoder().encode(jsonString);
+    let binary = "";
+    for (let i = 0; i < utf8Bytes.length; i++) {
+      binary += String.fromCharCode(utf8Bytes[i]);
+    }
+    const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+
+    // Tenant-safe: pass businessId in URL so receiver can guard and resolve context.
+    const url = `/apps/faq-generator?businessId=${encodeURIComponent(businessId)}&handoff=${encoded}`;
+    window.location.href = url;
+  };
+
   // Load data on mount and tab change
   useEffect(() => {
+    // Soft-lock: allow pre-config tabs while activation is gated
+    if (isActivationGated && !SCHEDULER_PRECONFIG_TABS.has(activeTab)) {
+      return;
+    }
+
     if (activeTab === "requests") {
       loadRequests();
       // Also load settings to ensure bookingKey is available for download button
@@ -1060,6 +1411,8 @@ function OBDSchedulerPageContent() {
       loadBusyBlocks();
     } else if (activeTab === "branding") {
       loadTheme();
+      loadBrandKitActive();
+      loadHelpDeskSetupStatus();
     } else if (activeTab === "settings") {
       loadSettings();
       loadPublicLink();
@@ -1077,6 +1430,102 @@ function OBDSchedulerPageContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, loadRequests]);
+
+  // Load CRM link when request detail opens / changes
+  useEffect(() => {
+    const run = async () => {
+      if (!showRequestDetail || !selectedRequest?.id) return;
+      setCrmLinkLoading(true);
+      setCrmLinkError("");
+      try {
+        const res = await fetch(`/api/obd-scheduler/requests/${selectedRequest.id}/crm-link`, { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) {
+          throw new Error(json?.error || "Failed to load CRM link");
+        }
+        setCrmLinkedContact(json.data?.linked ? json.data.contact : null);
+      } catch (e) {
+        setCrmLinkedContact(null);
+        setCrmLinkError(e instanceof Error ? e.message : "Failed to load CRM link");
+      } finally {
+        setCrmLinkLoading(false);
+      }
+    };
+    run();
+  }, [showRequestDetail, selectedRequest?.id]);
+
+  const loadCrmContacts = async (search: string) => {
+    setCrmAttachLoading(true);
+    try {
+      const url = new URL("/api/obd-crm/contacts", window.location.origin);
+      if (search.trim()) url.searchParams.set("search", search.trim());
+      url.searchParams.set("limit", "25");
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to load CRM contacts");
+      }
+      setCrmAttachResults(json.data?.contacts || []);
+    } catch (e) {
+      setCrmAttachResults([]);
+      showNotification(e instanceof Error ? e.message : "Failed to load CRM contacts", "error");
+    } finally {
+      setCrmAttachLoading(false);
+    }
+  };
+
+  const attachExistingCrmContact = async () => {
+    if (!selectedRequest?.id || !crmAttachSelectedId) return;
+    try {
+      const res = await fetch(`/api/obd-scheduler/requests/${selectedRequest.id}/link-crm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crmContactId: crmAttachSelectedId }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to attach CRM contact");
+      }
+      setCrmLinkedContact(json.data?.contact || null);
+      setShowCrmAttachModal(false);
+      showNotification("Linked to CRM contact");
+      if (activeTab === "requests") {
+        await loadRequests();
+      }
+    } catch (e) {
+      showNotification(e instanceof Error ? e.message : "Failed to attach CRM contact", "error");
+    }
+  };
+
+  const createCrmContactFromRequest = async () => {
+    if (!selectedRequest?.id) return;
+    setCrmCreateLoading(true);
+    try {
+      const res = await fetch(`/api/obd-scheduler/requests/${selectedRequest.id}/create-crm-contact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: crmCreateForm.name,
+          email: crmCreateForm.email,
+          phone: crmCreateForm.phone,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed to create CRM contact");
+      }
+      setCrmLinkedContact(json.data?.contact || null);
+      setShowCrmCreateModal(false);
+      showNotification("CRM contact created and linked");
+      if (activeTab === "requests") {
+        await loadRequests();
+      }
+    } catch (e) {
+      showNotification(e instanceof Error ? e.message : "Failed to create CRM contact", "error");
+    } finally {
+      setCrmCreateLoading(false);
+    }
+  };
 
   // P1-23: Notification helper - adds to toast queue with standardized structure
   const showNotification = (message: string, type: OBDToastType = "success") => {
@@ -2245,6 +2694,270 @@ function OBDSchedulerPageContent() {
           />
         ))}
       </div>
+
+      {/* Setup & Status */}
+      <OBDPanel isDark={isDark} className="mb-6">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>Setup & Status</h3>
+            {accessSnapshot?.isPilot ? (
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                You can configure setup now. Booking links and notifications activate when enabled.
+              </p>
+            ) : accessSnapshot?.isEnabled ? (
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                {setupComplete ? "Ready to accept bookings." : "Complete setup to accept bookings."}
+              </p>
+            ) : (
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                Checking readiness…
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {/* Account */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                accessSnapshot?.isPilot
+                  ? isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+                  : isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+              }`}
+            >
+              Account:{" "}
+              {accessSnapshot ? (accessSnapshot.isPilot ? "Pilot" : "Enabled") : "…"}
+            </span>
+
+            {/* Services */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                servicesConfigured
+                  ? isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+                  : isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              Services:{" "}
+              {servicesConfigured === null
+                ? "…"
+                : servicesConfigured
+                  ? `Configured${servicesCount !== null ? ` (${servicesCount})` : ""}`
+                  : "Not configured"}
+            </span>
+
+            {/* Availability */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                availabilityConfigured
+                  ? isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+                  : isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              Availability:{" "}
+              {availabilityConfigured === null ? "…" : availabilityConfigured ? "Configured" : "Not configured"}
+            </span>
+
+            {/* Branding */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                brandingConfigured
+                  ? isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+                  : isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              Branding:{" "}
+              {brandingConfigured === null ? "…" : brandingConfigured ? "Set" : "Default"}
+            </span>
+
+            {/* SMS */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                accessSnapshot?.connections.sms.status === "connected"
+                  ? isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+                  : isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              SMS:{" "}
+              {accessSnapshot
+                ? accessSnapshot.connections.sms.status === "connected"
+                  ? "Connected"
+                  : "Not connected"
+                : "…"}
+            </span>
+
+            {/* Calendar */}
+            <span
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                accessSnapshot?.connections.calendar.status === "connected"
+                  ? isDark
+                    ? "border-green-700 bg-green-900/20 text-green-200"
+                    : "border-green-200 bg-green-50 text-green-700"
+                  : isDark
+                    ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                    : "border-slate-200 bg-white text-slate-700"
+              }`}
+            >
+              Calendar:{" "}
+              {accessSnapshot
+                ? accessSnapshot.connections.calendar.status === "connected"
+                  ? "Connected"
+                  : accessSnapshot.connections.calendar.status === "coming_soon"
+                    ? "Coming soon"
+                    : "Not connected"
+                : "…"}
+            </span>
+          </div>
+        </div>
+      </OBDPanel>
+
+      {/* Activation checklist (informational only) */}
+      <OBDPanel isDark={isDark} className="mb-6">
+        <details className="group">
+          <summary
+            className={`flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden [&::marker]:hidden`}
+          >
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <h3 className={`text-sm font-semibold ${themeClasses.headingText}`}>Activation checklist</h3>
+              <p className={`text-xs ${themeClasses.mutedText}`}>
+                Informational only — you can configure everything now. Activation depends on account enablement.
+              </p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <span className={`text-xs ${themeClasses.mutedText}`}>
+                {servicesConfigured === null ||
+                availabilityConfigured === null ||
+                brandingConfigured === null
+                  ? "Checking…"
+                  : `${[servicesConfigured, availabilityConfigured, brandingConfigured].filter(Boolean).length}/3 ready`}
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 group-open:rotate-180 ${
+                  isDark ? "text-slate-300" : "text-slate-600"
+                }`}
+                aria-hidden="true"
+              />
+            </div>
+          </summary>
+
+          <div className="mt-4">
+            <ul className="space-y-2">
+              <li
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  isDark ? "border-slate-700 bg-slate-900/20" : "border-slate-200 bg-white"
+                }`}
+              >
+                <span className={`inline-flex items-center gap-2 text-sm ${themeClasses.headingText}`}>
+                  {servicesConfigured === true ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
+                  ) : (
+                    <AlertCircle className={`h-4 w-4 ${isDark ? "text-slate-300" : "text-slate-500"}`} aria-hidden="true" />
+                  )}
+                  <span>Services added</span>
+                </span>
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  {servicesConfigured === null ? "…" : servicesConfigured ? "Added" : "Not added"}
+                </span>
+              </li>
+
+              <li
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  isDark ? "border-slate-700 bg-slate-900/20" : "border-slate-200 bg-white"
+                }`}
+              >
+                <span className={`inline-flex items-center gap-2 text-sm ${themeClasses.headingText}`}>
+                  {availabilityConfigured === true ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
+                  ) : (
+                    <AlertCircle className={`h-4 w-4 ${isDark ? "text-slate-300" : "text-slate-500"}`} aria-hidden="true" />
+                  )}
+                  <span>Availability set</span>
+                </span>
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  {availabilityConfigured === null ? "…" : availabilityConfigured ? "Set" : "Not set"}
+                </span>
+              </li>
+
+              <li
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  isDark ? "border-slate-700 bg-slate-900/20" : "border-slate-200 bg-white"
+                }`}
+              >
+                <span className={`inline-flex items-center gap-2 text-sm ${themeClasses.headingText}`}>
+                  {brandingConfigured === true ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
+                  ) : (
+                    <AlertCircle className={`h-4 w-4 ${isDark ? "text-slate-300" : "text-slate-500"}`} aria-hidden="true" />
+                  )}
+                  <span>Branding applied</span>
+                </span>
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  {brandingConfigured === null ? "…" : brandingConfigured ? "Applied" : "Not applied"}
+                </span>
+              </li>
+
+              <li
+                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
+                  isDark ? "border-slate-700 bg-slate-900/20" : "border-slate-200 bg-white"
+                }`}
+              >
+                <span className={`inline-flex items-center gap-2 text-sm ${themeClasses.headingText}`}>
+                  {accessSnapshot?.connections.sms.status === "connected" ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500" aria-hidden="true" />
+                  ) : (
+                    <AlertCircle className={`h-4 w-4 ${isDark ? "text-slate-300" : "text-slate-500"}`} aria-hidden="true" />
+                  )}
+                  <span className="inline-flex items-center gap-2">
+                    <span>SMS connected</span>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                        isDark
+                          ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                          : "border-slate-200 bg-white text-slate-700"
+                      }`}
+                    >
+                      Optional
+                    </span>
+                  </span>
+                </span>
+                <span className={`text-xs ${themeClasses.mutedText}`}>
+                  {accessSnapshot
+                    ? accessSnapshot.connections.sms.status === "connected"
+                      ? "Connected"
+                      : "Not connected"
+                    : "…"}
+                </span>
+              </li>
+            </ul>
+
+            {accessSnapshot?.isPilot && (
+              <p className={`mt-3 text-xs ${themeClasses.mutedText}`}>
+                Booking links and notifications activate when your account is enabled.
+              </p>
+            )}
+          </div>
+        </details>
+      </OBDPanel>
+
       {/* Tabs */}
       <OBDPanel isDark={isDark} className="mb-6">
         <div
@@ -2280,32 +2993,122 @@ function OBDSchedulerPageContent() {
                   : `${themeClasses.mutedText} hover:${themeClasses.headingText}`
               }`}
             >
-              {tab.label}
+              <span className="inline-flex items-center gap-2">
+                <span>{tab.label}</span>
+                {isActivationGated && SCHEDULER_ACTIVATION_REQUIRED_TABS.has(tab.id) && (
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                      isDark
+                        ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    Activation required
+                  </span>
+                )}
+                {!isActivationGated &&
+                  tab.id === "requests" &&
+                  (servicesConfigured === false || availabilityConfigured === false) && (
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                        isDark
+                          ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                          : "border-slate-200 bg-white text-slate-700"
+                      }`}
+                    >
+                      Setup needed
+                    </span>
+                  )}
+              </span>
             </button>
           ))}
         </div>
       </OBDPanel>
 
       {/* Pilot Mode Message */}
-      {requestsError === "PILOT_ONLY" && (
+      {isActivationGated && SCHEDULER_ACTIVATION_REQUIRED_TABS.has(activeTab) && (
         <OBDPanel isDark={isDark} className="mb-6">
           <div className={`rounded-xl border p-6 text-center ${
             isDark 
               ? "border-slate-700 bg-slate-800/50 text-slate-100" 
               : "border-slate-200 bg-slate-50 text-slate-700"
           }`}>
-            <h2 className={`text-lg font-semibold mb-2 ${themeClasses.headingText}`}>
-              Scheduler is in pilot rollout
-            </h2>
-            <p className={themeClasses.mutedText}>
-              Your account will be enabled soon. If you need access immediately, please contact support.
-            </p>
+            <div className="mx-auto flex max-w-2xl flex-col items-center">
+              <div
+                className={`mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl border ${
+                  isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"
+                }`}
+                aria-hidden="true"
+              >
+                <Shield className={`h-5 w-5 ${isDark ? "text-slate-200" : "text-slate-600"}`} />
+              </div>
+
+              <h2 className={`text-lg font-semibold mb-2 ${themeClasses.headingText}`}>
+                Scheduler is in controlled pilot rollout
+              </h2>
+
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                We’re finishing final SMS and calendar verification steps to ensure reliable delivery.
+              </p>
+              <p className={`mt-2 text-sm ${themeClasses.mutedText}`}>
+                You can explore the interface now. Booking links and notifications will activate once your account is enabled.
+              </p>
+
+              <div className="mt-5 w-full max-w-md text-left">
+                <p className={`text-sm font-medium ${themeClasses.headingText}`}>What you can do now</p>
+                <ul className={`mt-2 space-y-1 text-sm ${themeClasses.mutedText}`}>
+                  <li>• Set up services</li>
+                  <li>• Set availability</li>
+                  <li>• Customize branding</li>
+                </ul>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
+                  <button
+                    onClick={() => setActiveTab("services")}
+                    className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isDark ? "bg-slate-700 text-slate-100 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    Go to Services
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("availability")}
+                    className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isDark ? "bg-slate-700 text-slate-100 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    Go to Availability
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("branding")}
+                    className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      isDark ? "bg-slate-700 text-slate-100 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    Go to Branding
+                  </button>
+                </div>
+              </div>
+
+              <p className={`mt-4 text-xs ${themeClasses.mutedText}`}>
+                Need access sooner?{" "}
+                <a
+                  href="mailto:support@ocalabusinessdirectory.com"
+                  className={`font-medium hover:underline hover:underline-offset-2 focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none ${
+                    isDark ? "text-slate-100" : "text-slate-800"
+                  }`}
+                >
+                  Contact support
+                </a>{" "}
+                and we’ll help.
+              </p>
+            </div>
           </div>
         </OBDPanel>
       )}
 
       {/* V1 Scope Banner */}
-      {requestsError !== "PILOT_ONLY" && (
+      {!isActivationGated && (
         <OBDPanel isDark={isDark} className="mb-6">
           <div className={`rounded-lg border p-4 ${
             isDark 
@@ -2324,7 +3127,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* Requests Tab */}
-      {activeTab === "requests" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "requests" && !isActivationGated && (
         <OBDPanel isDark={isDark}>
           <div className="mb-4">
             <div className="flex items-center justify-between mb-4">
@@ -2663,7 +3466,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* Services Tab */}
-      {activeTab === "services" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "services" && (
         <OBDPanel isDark={isDark}>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-0">
             <OBDHeading level={2} isDark={isDark}>Services</OBDHeading>
@@ -2750,7 +3553,7 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* Availability Tab */}
-      {activeTab === "availability" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "availability" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Availability Windows</OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
@@ -2967,12 +3770,197 @@ function OBDSchedulerPageContent() {
       )}
 
       {/* ===== TAB: BRANDING (start) ===== */}
-      {activeTab === "branding" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "branding" && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Branding & Theme</OBDHeading>
           <p className={`text-sm mb-4 ${themeClasses.mutedText}`}>
             Customize the appearance of your public booking page.
           </p>
+
+          {/* Apply from Brand Kit (apply-only) */}
+          <div
+            className={`mb-5 rounded-xl border p-4 ${
+              isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${themeClasses.headingText}`}>Apply from Brand Kit</p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  Use your saved Brand Kit to set Scheduler colors, logo, and business name.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={applyBrandKitToScheduler}
+                  disabled={applyingBrandKit}
+                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                      : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                  }`}
+                >
+                  {applyingBrandKit ? "Applying..." : "Apply Brand Kit"}
+                </button>
+                <Link
+                  href="/apps/brand-kit-builder"
+                  className={`text-xs ${themeClasses.mutedText} hover:underline`}
+                >
+                  View Brand Kit →
+                </Link>
+              </div>
+            </div>
+
+            {/* Guardrails (never block) */}
+            <div className="mt-3">
+              {brandKitLoading ? (
+                <p className={`text-xs ${themeClasses.mutedText}`}>Loading Brand Kit preview…</p>
+              ) : brandKitError ? (
+                <p className={`text-xs ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                  {brandKitError}
+                </p>
+              ) : (
+                <>
+                  {(!brandKitSnapshot?.businessName || !brandKitSnapshot?.primaryColor) && (
+                    <p className={`text-xs ${themeClasses.mutedText}`}>
+                      Some Brand Kit fields are not set. We’ll apply what’s available.
+                    </p>
+                  )}
+
+                  {/* Preview rows */}
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className={`rounded-lg border p-3 ${isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"}`}>
+                      <div className={`text-xs font-medium ${themeClasses.labelText}`}>Logo</div>
+                      <div className="mt-2 flex items-center gap-2 min-w-0">
+                        {brandKitSnapshot?.logoUrl ? (
+                          <img
+                            src={brandKitSnapshot.logoUrl}
+                            alt="Brand logo preview"
+                            className="w-8 h-8 rounded border object-contain bg-white"
+                          />
+                        ) : (
+                          <div className={`w-8 h-8 rounded border flex items-center justify-center text-[10px] ${isDark ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
+                            —
+                          </div>
+                        )}
+                        <div className={`text-xs truncate ${themeClasses.mutedText}`}>
+                          {brandKitSnapshot?.logoUrl || "Not set"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-lg border p-3 ${isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"}`}>
+                      <div className={`text-xs font-medium ${themeClasses.labelText}`}>Primary color</div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div
+                          className="w-6 h-6 rounded border"
+                          style={{ backgroundColor: brandKitSnapshot?.primaryColor || "#000000" }}
+                        />
+                        <div className={`text-xs ${themeClasses.mutedText}`}>
+                          {brandKitSnapshot?.primaryColor || "Not set"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-lg border p-3 ${isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"}`}>
+                      <div className={`text-xs font-medium ${themeClasses.labelText}`}>Business name</div>
+                      <div className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                        {brandKitSnapshot?.businessName || "Not set"}
+                      </div>
+                    </div>
+
+                    <div className={`rounded-lg border p-3 ${isDark ? "border-slate-700 bg-slate-900/30" : "border-slate-200 bg-white"}`}>
+                      <div className={`text-xs font-medium ${themeClasses.labelText}`}>Tone</div>
+                      <div className={`text-xs mt-2 ${themeClasses.mutedText}`}>
+                        {brandKitSnapshot?.toneSnippet || "Not set"}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Customer-facing booking instructions (apply-only) */}
+          <div
+            className={`mb-5 rounded-xl border p-4 ${
+              isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className={`text-sm font-semibold ${themeClasses.headingText}`}>
+                  Customer-facing booking instructions
+                </p>
+                <p className={`text-xs mt-1 ${themeClasses.mutedText}`}>
+                  This text can be shown to customers to explain how booking works (request vs instant, hours, cancellations, etc.).
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={applyBookingInstructionsToHelpDesk}
+                  disabled={applyingBookingInstructions}
+                  className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDark
+                      ? "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                      : "bg-[#29c4a9] text-white hover:bg-[#24b09a]"
+                  }`}
+                >
+                  {applyingBookingInstructions ? "Applying..." : "Apply to AI Help Desk"}
+                </button>
+                <Link href="/apps/ai-help-desk" className={`text-xs ${themeClasses.mutedText} hover:underline`}>
+                  Open AI Help Desk →
+                </Link>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <textarea
+                value={bookingInstructionsDraft}
+                onChange={(e) => setBookingInstructionsDraft(e.target.value)}
+                rows={6}
+                className={getInputClasses(isDark, "resize-none")}
+                placeholder="Example: We review booking requests during business hours. You’ll receive a confirmation email once approved…"
+                maxLength={2000}
+              />
+              <div className="mt-2 flex items-center justify-between gap-3 flex-wrap">
+                <div className={`text-xs ${themeClasses.mutedText}`}>
+                  {bookingInstructionsDraft.trim().length}/2000
+                </div>
+                <button
+                  type="button"
+                  onClick={createBookingFaqHandoff}
+                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                    isDark
+                      ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
+                      : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                  }`}
+                >
+                  Create booking FAQs (draft)
+                </button>
+              </div>
+
+              {/* Setup notice (never blocks draft) */}
+              <div className="mt-3">
+                {helpDeskSetupLoading ? (
+                  <p className={`text-xs ${themeClasses.mutedText}`}>Checking AI Help Desk status…</p>
+                ) : helpDeskSetupError ? (
+                  <p className={`text-xs ${themeClasses.mutedText}`}>{helpDeskSetupError}</p>
+                ) : helpDeskSetup &&
+                  (!helpDeskSetup.env.hasBaseUrl ||
+                    !helpDeskSetup.env.hasApiKey ||
+                    !helpDeskSetup.db.canQuery ||
+                    !helpDeskSetup.db.hasAiWorkspaceMap) ? (
+                  <p className={`text-xs ${themeClasses.mutedText}`}>
+                    AI Help Desk doesn’t look fully configured yet. You can still keep this draft here, then open AI Help Desk to finish setup.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
 
           {themeError && (
             <div className={getErrorPanelClasses(isDark)}>
@@ -3125,7 +4113,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: BRANDING (end) ===== */}
 
       {/* ===== TAB: SETTINGS (start) ===== */}
-      {activeTab === "settings" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "settings" && !isActivationGated && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Booking Settings</OBDHeading>
 
@@ -3450,7 +4438,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: SETTINGS (end) ===== */}
 
       {/* ===== TAB: METRICS (start) ===== */}
-      {activeTab === "metrics" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "metrics" && !isActivationGated && (
         <OBDPanel isDark={isDark}>
           <div className="flex items-center justify-between mb-6" data-testid="metrics-container">
             <OBDHeading level={2} isDark={isDark}>Business Metrics</OBDHeading>
@@ -3632,7 +4620,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: METRICS (end) ===== */}
 
       {/* ===== TAB: VERIFICATION (start) ===== */}
-      {activeTab === "verification" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "verification" && !isActivationGated && (
         <>
           <OBDPanel isDark={isDark} className="mb-6">
             <div className="flex items-center justify-between mb-6">
@@ -3895,7 +4883,7 @@ function OBDSchedulerPageContent() {
       {/* ===== TAB: VERIFICATION (end) ===== */}
 
       {/* ===== TAB: CALENDAR (start) ===== */}
-      {activeTab === "calendar" && requestsError !== "PILOT_ONLY" && (
+      {activeTab === "calendar" && !isActivationGated && (
         <OBDPanel isDark={isDark}>
           <OBDHeading level={2} isDark={isDark}>Calendar Integration</OBDHeading>
           
@@ -4239,6 +5227,8 @@ function OBDSchedulerPageContent() {
                 onClick={() => {
                   setShowRequestDetail(false);
                   setSelectedRequest(null);
+                  setShowCrmAttachModal(false);
+                  setShowCrmCreateModal(false);
                 }}
                 className={themeClasses.mutedText}
                 aria-label="Close request detail"
@@ -4351,6 +5341,95 @@ function OBDSchedulerPageContent() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* CRM Link - Full Width */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <p className={`text-sm font-medium ${themeClasses.labelText}`}>CRM</p>
+                {crmLinkedContact && (
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      isDark
+                        ? "border-slate-700 bg-slate-900/30 text-slate-200"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    Linked to CRM
+                  </span>
+                )}
+              </div>
+
+              {crmLinkError && (
+                <p className={`text-xs mb-2 ${isDark ? "text-amber-300" : "text-amber-700"}`}>
+                  {crmLinkError}
+                </p>
+              )}
+
+              {crmLinkLoading ? (
+                <p className={`text-sm ${themeClasses.mutedText}`}>Checking CRM link…</p>
+              ) : crmLinkedContact ? (
+                <div className={`rounded-lg border p-3 ${isDark ? "border-slate-700 bg-slate-800/30" : "border-slate-200 bg-slate-50"}`}>
+                  <p className={`text-sm ${themeClasses.headingText}`}>
+                    {crmLinkedContact.name}
+                  </p>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <a
+                      href={`/apps/obd-crm/contacts/${crmLinkedContact.id}`}
+                      className={`text-sm font-medium underline underline-offset-2 ${
+                        isDark ? "text-[#29c4a9] hover:text-[#22ad93]" : "text-[#29c4a9] hover:text-[#22ad93]"
+                      }`}
+                    >
+                      Open contact
+                    </a>
+                    <span className={`hidden sm:inline ${themeClasses.mutedText}`}>·</span>
+                    <button
+                      onClick={() => {
+                        setCrmAttachSearch("");
+                        setCrmAttachSelectedId("");
+                        setShowCrmAttachModal(true);
+                        loadCrmContacts("");
+                      }}
+                      className={`text-sm font-medium ${
+                        isDark ? "text-slate-200 hover:text-slate-100" : "text-slate-700 hover:text-slate-900"
+                      }`}
+                    >
+                      Attach different contact
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    onClick={() => {
+                      setCrmCreateForm({
+                        name: selectedRequest.customerName || "",
+                        email: selectedRequest.customerEmail || "",
+                        phone: selectedRequest.customerPhone || "",
+                      });
+                      setShowCrmCreateModal(true);
+                    }}
+                    className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                      isDark ? "bg-slate-700 text-slate-100 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    Create CRM contact
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCrmAttachSearch("");
+                      setCrmAttachSelectedId("");
+                      setShowCrmAttachModal(true);
+                      loadCrmContacts("");
+                    }}
+                    className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                      isDark ? "bg-slate-700 text-slate-100 hover:bg-slate-600" : "bg-white border border-slate-200 text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    Attach existing
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Internal Notes - Full Width */}
@@ -4593,6 +5672,192 @@ function OBDSchedulerPageContent() {
                   History
                 </button>
               </div>
+          </div>
+        </div>
+      )}
+
+      {/* CRM Attach Existing Modal */}
+      {showCrmAttachModal && selectedRequest && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="crm-attach-title"
+        >
+          <div
+            ref={modalRefs.crmAttach}
+            className={`rounded-xl border p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto ${
+              isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 id="crm-attach-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Attach to existing CRM contact
+              </h3>
+              <button
+                onClick={() => {
+                  setShowCrmAttachModal(false);
+                  setCrmAttachSelectedId("");
+                }}
+                className={themeClasses.mutedText}
+                aria-label="Close attach CRM modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center mb-4">
+              <input
+                type="text"
+                value={crmAttachSearch}
+                onChange={(e) => setCrmAttachSearch(e.target.value)}
+                className={getInputClasses(isDark, "flex-1")}
+                placeholder="Search by name, email, or phone…"
+              />
+              <button
+                onClick={() => loadCrmContacts(crmAttachSearch)}
+                disabled={crmAttachLoading}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                }`}
+              >
+                {crmAttachLoading ? "Searching…" : "Search"}
+              </button>
+            </div>
+
+            {crmAttachResults.length === 0 ? (
+              <p className={`text-sm ${themeClasses.mutedText}`}>
+                {crmAttachLoading ? "Loading contacts…" : "No contacts found."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {crmAttachResults.map((c) => (
+                  <label
+                    key={c.id}
+                    className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer ${
+                      isDark ? "border-slate-700 bg-slate-800/30 hover:bg-slate-800/50" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="crm-attach"
+                      value={c.id}
+                      checked={crmAttachSelectedId === c.id}
+                      onChange={() => setCrmAttachSelectedId(c.id)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${themeClasses.headingText}`}>{c.name}</p>
+                      <p className={`text-xs ${themeClasses.mutedText}`}>
+                        {c.email || c.phone || "No email/phone"}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => {
+                  setShowCrmAttachModal(false);
+                  setCrmAttachSelectedId("");
+                }}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={attachExistingCrmContact}
+                disabled={!crmAttachSelectedId}
+                className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Attach
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CRM Create Contact Modal */}
+      {showCrmCreateModal && selectedRequest && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="crm-create-title"
+        >
+          <div
+            ref={modalRefs.crmCreate}
+            className={`rounded-xl border p-6 max-w-lg w-full ${
+              isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 id="crm-create-title" className={`text-lg font-semibold ${themeClasses.headingText}`}>
+                Create CRM contact
+              </h3>
+              <button
+                onClick={() => setShowCrmCreateModal(false)}
+                className={themeClasses.mutedText}
+                aria-label="Close create CRM modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>Name</label>
+                <input
+                  type="text"
+                  value={crmCreateForm.name}
+                  onChange={(e) => setCrmCreateForm((p) => ({ ...p, name: e.target.value }))}
+                  className={getInputClasses(isDark)}
+                  placeholder="Full name"
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>Email</label>
+                <input
+                  type="email"
+                  value={crmCreateForm.email}
+                  onChange={(e) => setCrmCreateForm((p) => ({ ...p, email: e.target.value }))}
+                  className={getInputClasses(isDark)}
+                  placeholder="email@example.com"
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${themeClasses.labelText}`}>Phone</label>
+                <input
+                  type="tel"
+                  value={crmCreateForm.phone}
+                  onChange={(e) => setCrmCreateForm((p) => ({ ...p, phone: e.target.value }))}
+                  className={getInputClasses(isDark)}
+                  placeholder="(optional)"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => setShowCrmCreateModal(false)}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  isDark ? "bg-slate-700 hover:bg-slate-600 text-slate-200" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createCrmContactFromRequest}
+                disabled={crmCreateLoading || crmCreateForm.name.trim().length < 2}
+                className={`${SUBMIT_BUTTON_CLASSES} disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {crmCreateLoading ? "Creating…" : "Create & Link"}
+              </button>
+            </div>
           </div>
         </div>
       )}

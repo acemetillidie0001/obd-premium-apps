@@ -4,6 +4,21 @@
 
 OBD Scheduler & Booking (V3) is a request-based booking system for OBD Premium Apps. This is **NOT** a real-time calendar sync system. Instead, customers submit booking requests, business owners review and respond (approve/decline/propose time), and the system sends email notifications.
 
+## Activation pending (SMS)
+
+Some accounts may show **Activation pending** for Scheduler & Booking while SMS delivery is gated. This gating exists to ensure **reliable delivery** while Twilio verification and rollout checks are completed.
+
+- You can fully configure services, availability, and branding before activation.
+- Booking links and SMS notifications activate when your account is enabled and SMS verification is complete.
+- No automated publishing: everything is explicit and business-owned.
+
+### Integrations (explicit, apply-only)
+
+- **CRM link (manual)**: Linking is explicit and business-owned (no silent auto-linking across tenants).
+- **Brand Kit apply-only**: Brand Kit can be applied to Scheduler branding/theme when you choose.
+- **Help Desk booking instructions apply-only**: You can apply booking instructions to Help Desk content intentionally (no background publishing).
+- **FAQ Generator draft handoff**: FAQ output is a draft you review and paste/publish where you want.
+
 ## Recent Improvements (Tiers 5.4-5.7)
 
 ### Dashboard Enhancements (Tier 5.7)

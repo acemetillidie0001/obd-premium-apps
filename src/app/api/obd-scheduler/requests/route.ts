@@ -296,6 +296,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") as BookingStatus | null;
     const serviceId = searchParams.get("serviceId") || undefined;
     const search = searchParams.get("search") || undefined;
+    const crmContactId = searchParams.get("crmContactId") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10), 100);
     const sort = (searchParams.get("sort") || "createdAt") as "createdAt" | "updatedAt" | "preferredStart";
@@ -312,6 +313,53 @@ export async function GET(request: NextRequest) {
 
     if (serviceId) {
       where.serviceId = serviceId;
+    }
+
+    // Optional filter: only requests currently linked to a CRM contact
+    if (crmContactId && crmContactId.trim()) {
+      const contact = await prisma.crmContact.findFirst({
+        where: { id: crmContactId.trim(), businessId },
+        select: { id: true },
+      });
+      if (!contact) {
+        return apiErrorResponse("CRM contact not found", "NOT_FOUND", 404);
+      }
+
+      // Determine the latest CRM_LINKED audit event per request, then filter to the requested contact.
+      const linkLogs = await prisma.bookingRequestAuditLog.findMany({
+        where: { businessId, action: "CRM_LINKED" },
+        orderBy: { createdAt: "desc" },
+        select: { requestId: true, metadata: true },
+        take: 2000, // safety cap (tenant-scoped); enough for launch-scale usage
+      });
+
+      const latestLinkByRequest = new Map<string, string>();
+      for (const log of linkLogs) {
+        if (latestLinkByRequest.has(log.requestId)) continue;
+        const meta: any = log.metadata as any;
+        const linkedId = typeof meta?.crmContactId === "string" ? meta.crmContactId.trim() : "";
+        if (linkedId) {
+          latestLinkByRequest.set(log.requestId, linkedId);
+        }
+      }
+
+      const requestIds = Array.from(latestLinkByRequest.entries())
+        .filter(([, linkedId]) => linkedId === crmContactId.trim())
+        .map(([requestId]) => requestId);
+
+      // If none linked, return empty set deterministically
+      if (requestIds.length === 0) {
+        const response: BookingRequestListResponse = {
+          requests: [],
+          total: 0,
+          page,
+          limit,
+          totalPages: 0,
+        };
+        return apiSuccessResponse(response);
+      }
+
+      where.id = { in: requestIds };
     }
 
     // Search filter (customer name, email)

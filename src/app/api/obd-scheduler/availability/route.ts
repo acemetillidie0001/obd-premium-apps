@@ -11,7 +11,6 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getPrisma } from "@/lib/prisma";
-import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
@@ -93,15 +92,6 @@ export async function GET(request: NextRequest) {
     void userId;
     await requirePermission("OBD_SCHEDULER", "VIEW");
 
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
-
     // Get windows and exceptions
     const [windows, exceptions] = await Promise.all([
       prisma.availabilityWindow.findMany({
@@ -154,15 +144,6 @@ export async function PUT(request: NextRequest) {
     void role;
     void userId;
     await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
 
     const json = await request.json().catch(() => null);
     if (!json) {

@@ -12,7 +12,6 @@ import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getCurrentUser } from "@/lib/premium";
 import { getPrisma } from "@/lib/prisma";
-import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { BusinessContextError, requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { z } from "zod";
 import { sanitizeSingleLine, sanitizeText } from "@/lib/utils/sanitizeText";
@@ -77,15 +76,6 @@ export async function GET(request: NextRequest) {
       return apiErrorResponse(msg, "UNAUTHORIZED", 401);
     }
 
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
-
     const { searchParams } = new URL(request.url);
     const activeOnly = searchParams.get("activeOnly") === "true";
 
@@ -146,15 +136,6 @@ export async function POST(request: NextRequest) {
         return apiErrorResponse(msg, code, err.status);
       }
       return apiErrorResponse(msg, "UNAUTHORIZED", 401);
-    }
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
     }
 
     const json = await request.json().catch(() => null);

@@ -763,6 +763,16 @@ export default function ContactDetailPage() {
           </OBDHeading>
           <div className="flex items-center gap-2">
             <Link
+              href={`/apps/obd-scheduler?crmContactId=${encodeURIComponent(contactId)}`}
+              className={`text-sm font-medium transition-colors ${
+                isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"
+              }`}
+              title="View bookings in Scheduler (filtered to this contact)"
+            >
+              View bookings
+            </Link>
+            <span className={`${themeClasses.mutedText}`}>·</span>
+            <Link
               href="/apps/obd-scheduler"
               className={`text-sm font-medium transition-colors ${
                 isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"

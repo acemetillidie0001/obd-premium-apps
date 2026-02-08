@@ -15,8 +15,8 @@ import EcosystemNextSteps from "@/components/obd/EcosystemNextSteps";
 import { type BrandProfile as BrandProfileType } from "@/lib/brand/brand-profile-types";
 import { useAutoApplyBrandProfile } from "@/lib/brand/useAutoApplyBrandProfile";
 import { hasBrandProfile } from "@/lib/brand/brandProfileStorage";
-import { parseHelpDeskHandoffPayload } from "@/lib/apps/faq-generator/handoff-parser";
 import { resolveBusinessId } from "@/lib/utils/resolve-business-id";
+import { parseHandoffFromUrl } from "@/lib/utils/parse-handoff";
 import {
   getHandoffHash,
   wasHandoffAlreadyImported,
@@ -167,24 +167,53 @@ function FAQGeneratorPageContent() {
   const [importedTopic, setImportedTopic] = useState<string | undefined>(undefined);
   const [importedQuestionsExpanded, setImportedQuestionsExpanded] = useState(true);
 
-  // Handle Help Desk handoff
+  type InboundFaqHandoffPayload = {
+    sourceApp: "ai-help-desk" | "obd-scheduler";
+    importedAt: string;
+    questions: string[];
+    context?: {
+      businessId?: string;
+      topic?: string;
+    };
+  };
+
+  function isValidInboundFaqHandoff(p: unknown): p is InboundFaqHandoffPayload {
+    if (!p || typeof p !== "object") return false;
+    const obj = p as Record<string, unknown>;
+    if (obj.sourceApp !== "ai-help-desk" && obj.sourceApp !== "obd-scheduler") return false;
+    if (typeof obj.importedAt !== "string" || !obj.importedAt.trim()) return false;
+    if (!Array.isArray(obj.questions) || obj.questions.length === 0) return false;
+    for (const q of obj.questions) {
+      if (typeof q !== "string" || q.trim().length === 0) return false;
+    }
+    if (obj.context !== undefined) {
+      if (!obj.context || typeof obj.context !== "object") return false;
+      const ctx = obj.context as Record<string, unknown>;
+      if (ctx.businessId !== undefined && typeof ctx.businessId !== "string") return false;
+      if (ctx.topic !== undefined && typeof ctx.topic !== "string") return false;
+    }
+    // Size limit (rough): 100KB JSON
+    try {
+      if (JSON.stringify(p).length > 100000) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  // Handle inbound handoff (apply-only)
   useEffect(() => {
     if (typeof window === "undefined" || !searchParams) return;
 
     try {
-      const payload = parseHelpDeskHandoffPayload(searchParams);
+      const parsed = parseHandoffFromUrl(searchParams, isValidInboundFaqHandoff);
+      const payload = parsed.payload;
       
       if (payload) {
-        // Validate sourceApp (already validated by parser, but double-check)
-        if (payload.sourceApp !== "ai-help-desk") {
-          // Clean URL and exit
-          const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
-          replaceUrlWithoutReload(cleanUrl);
-          return;
-        }
-
-        // Validate questions is non-empty array (already validated by parser)
-        if (!Array.isArray(payload.questions) || payload.questions.length === 0) {
+        // Tenant mismatch guard (best-effort; receiver only)
+        const payloadBusinessId = payload.context?.businessId?.trim() || null;
+        if (payloadBusinessId && resolvedBusinessId && payloadBusinessId !== resolvedBusinessId) {
+          showToast("Tenant mismatch guard: this handoff belongs to a different business.");
           const cleanUrl = clearHandoffParamsFromUrl(window.location.href);
           replaceUrlWithoutReload(cleanUrl);
           return;
@@ -213,7 +242,7 @@ function FAQGeneratorPageContent() {
             // Set topic field if empty
             setTopic((prev) => {
               if (prev.trim()) return prev;
-              return payload.context?.topic || "Customer Questions";
+              return payload.context?.topic || (payload.sourceApp === "obd-scheduler" ? "Booking FAQs" : "Customer Questions");
             });
 
             // Mark as imported and clean URL

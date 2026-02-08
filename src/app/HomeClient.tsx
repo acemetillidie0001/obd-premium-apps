@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { OBD_APPS, AppCategory } from "@/lib/obd-framework/apps.config";
 import { getAppIcon } from "@/lib/obd-framework/app-icons";
 import { getAppPreview } from "@/lib/obd-framework/app-previews";
@@ -17,15 +18,86 @@ const DASHBOARD_SECTIONS: { id: AppCategory; title: string; tagline: string }[] 
   { id: "branding", title: "Design & Branding", tagline: "Clarify your visual identity so every touchpoint feels premium and consistent." },
 ];
 
+type SchedulerAccessSnapshot = {
+  isEnabled: boolean;
+  setup: {
+    servicesCount: number;
+    hasAvailability: boolean;
+  };
+};
+
+type SchedulerBadgeState = "activation_pending" | "ready_to_activate" | "ready" | "checking";
+
 export default function HomeClient() {
   const pathname = usePathname();
   const { theme, isDark, toggleTheme } = useOBDTheme();
+
+  const [schedulerBadgeState, setSchedulerBadgeState] = useState<SchedulerBadgeState>("checking");
+  const schedulerBadgeLabel = useMemo(() => {
+    switch (schedulerBadgeState) {
+      case "activation_pending":
+        return "Activation pending";
+      case "ready_to_activate":
+        return "Ready to activate";
+      case "ready":
+        return "Ready";
+      case "checking":
+      default:
+        return "…";
+    }
+  }, [schedulerBadgeState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/obd-scheduler/access");
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok || !json?.data) return;
+
+        const snap = json.data as SchedulerAccessSnapshot;
+        const next: SchedulerBadgeState =
+          snap.isEnabled === false
+            ? "activation_pending"
+            : snap.setup.servicesCount === 0 || snap.setup.hasAvailability === false
+              ? "ready_to_activate"
+              : "ready";
+
+        if (!cancelled) setSchedulerBadgeState(next);
+      } catch {
+        // Ignore — badge stays in "checking" state.
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const pageBg = isDark ? "bg-slate-950" : "bg-slate-50";
   const panelBg = isDark ? "bg-gradient-to-b from-slate-900/95 to-slate-950" : "bg-white";
   const mutedText = isDark ? "text-slate-300" : "text-slate-600";
   const cardBgLive = isDark ? "bg-slate-900/80 border-slate-800 shadow-lg shadow-slate-950/60 text-slate-50" : "bg-white border-slate-200 shadow-lg shadow-slate-200 text-slate-900";
   const cardBgNonLive = isDark ? "bg-slate-900/80 border-slate-800 shadow-md shadow-slate-950/40 text-slate-50 opacity-90" : "bg-white border-slate-200 shadow-md shadow-slate-200/50 text-slate-900 opacity-90";
+  const schedulerChipClasses = useMemo(() => {
+    const base =
+      "inline-flex min-w-[140px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-medium whitespace-nowrap";
+    if (schedulerBadgeState === "ready") {
+      return `${base} ${
+        isDark ? "border-green-700 bg-green-900/20 text-green-200" : "border-green-200 bg-green-50 text-green-700"
+      }`;
+    }
+    if (schedulerBadgeState === "ready_to_activate") {
+      return `${base} ${
+        isDark ? "border-[#29c4a9]/40 bg-[#29c4a9]/10 text-[#29c4a9]" : "border-[#29c4a9]/50 bg-[#29c4a9]/10 text-[#1f8f7d]"
+      }`;
+    }
+    // activation_pending or checking
+    return `${base} ${
+      isDark ? "border-slate-700 bg-slate-900/30 text-slate-200" : "border-slate-200 bg-white text-slate-700"
+    }`;
+  }, [isDark, schedulerBadgeState]);
 
   return (
     <main className={`w-full min-h-screen transition-colors ${pageBg}`}>
@@ -217,6 +289,7 @@ export default function HomeClient() {
                       const isComingSoon = app.status === "coming-soon";
                       const hasHref = !!app.href;
                       const isNonLive = !isLive;
+                      const isSchedulerCard = app.id === "scheduler-booking";
 
                       // Title with icon - centered
                       const TitleSection = (
@@ -226,13 +299,18 @@ export default function HomeClient() {
                               {getAppIcon(app.icon)}
                             </div>
                           )}
-                          <h3
-                            className={`text-base font-semibold ${
-                              isDark ? "text-slate-50" : "text-slate-900"
-                            }`}
-                          >
-                            {app.name}
-                          </h3>
+                          <div className="flex min-w-0 flex-col items-center gap-1">
+                            <h3
+                              className={`text-base font-semibold ${
+                                isDark ? "text-slate-50" : "text-slate-900"
+                              }`}
+                            >
+                              {app.name}
+                            </h3>
+                            {isSchedulerCard && (
+                              <span className={schedulerChipClasses}>{schedulerBadgeLabel}</span>
+                            )}
+                          </div>
                         </div>
                       );
 

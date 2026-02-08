@@ -11,7 +11,6 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getPrisma } from "@/lib/prisma";
-import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { requirePermission } from "@/lib/auth/permissions.server";
@@ -75,15 +74,6 @@ export async function PATCH(
     const prisma = getPrisma();
     const { businessId } = await requireTenant();
     await requirePermission("OBD_SCHEDULER", "EDIT_DRAFT");
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
 
     const { id } = await params;
 
@@ -169,15 +159,6 @@ export async function DELETE(
     const prisma = getPrisma();
     const { businessId } = await requireTenant();
     await requirePermission("OBD_SCHEDULER", "DELETE");
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
 
     const { id } = await params;
 

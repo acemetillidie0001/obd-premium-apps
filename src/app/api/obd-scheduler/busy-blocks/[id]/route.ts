@@ -12,7 +12,6 @@ import { checkRateLimit } from "@/lib/api/rateLimit";
 import { validationErrorResponse } from "@/lib/api/validationError";
 import { handleApiError, apiSuccessResponse, apiErrorResponse } from "@/lib/api/errorHandler";
 import { getPrisma } from "@/lib/prisma";
-import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
 import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { requireTenant, warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
@@ -83,15 +82,6 @@ export async function GET(
     void userId;
     await requirePermission("OBD_SCHEDULER", "VIEW");
 
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
-
     const block = await prisma.schedulerBusyBlock.findFirst({
       where: {
         id,
@@ -147,15 +137,6 @@ export async function PUT(
     void role;
     void userId;
     await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
 
     // Check if block exists and belongs to business
     const existingBlock = await prisma.schedulerBusyBlock.findFirst({
@@ -294,15 +275,6 @@ export async function DELETE(
     void role;
     void userId;
     await requirePermission("OBD_SCHEDULER", "MANAGE_SETTINGS");
-
-    // Check pilot access
-    if (!isSchedulerPilotAllowed(businessId)) {
-      return apiErrorResponse(
-        "Scheduler is currently in pilot rollout.",
-        "PILOT_ONLY",
-        403
-      );
-    }
 
     // Check if block exists and belongs to business
     const existingBlock = await prisma.schedulerBusyBlock.findFirst({

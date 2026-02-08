@@ -803,6 +803,19 @@ export default function ContactDetailPage() {
             </Link>
           </div>
         </div>
+        <p className={`-mt-2 mb-4 text-[11px] ${themeClasses.mutedText}`}>
+          <Link
+            href="/apps/ecosystem"
+            className={[
+              "underline underline-offset-2",
+              "hover:opacity-90",
+              "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+              isDark ? "text-slate-200" : "text-slate-700",
+            ].join(" ")}
+          >
+            How CRM connects to bookings and reviews
+          </Link>
+        </p>
 
         <div className="space-y-4">
           {/* Scheduler awareness */}

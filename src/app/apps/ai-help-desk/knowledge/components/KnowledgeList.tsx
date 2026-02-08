@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import OBDPanel from "@/components/obd/OBDPanel";
 import OBDHeading from "@/components/obd/OBDHeading";
 import { getThemeClasses, getInputClasses } from "@/lib/obd-framework/theme";
@@ -296,6 +297,19 @@ export default function KnowledgeList({
               {searchQuery || selectedType !== "ALL"
                 ? "Try adjusting your filters"
                 : "Add your first FAQ, service, policy, or note to get started"}
+            </p>
+            <p className="mt-3 text-[11px]">
+              <Link
+                href="/apps/ecosystem"
+                className={[
+                  "underline underline-offset-2",
+                  "hover:opacity-90",
+                  "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                  isDark ? "text-slate-200" : "text-slate-700",
+                ].join(" ")}
+              >
+                How OBD tools work together
+              </Link>
             </p>
           </div>
         )}

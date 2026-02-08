@@ -2840,6 +2840,19 @@ function OBDSchedulerPageContent() {
               <p className={`text-xs ${themeClasses.mutedText}`}>
                 Informational only — you can configure everything now. Activation depends on account enablement.
               </p>
+              <p className={`mt-1 text-[11px] ${themeClasses.mutedText}`}>
+                <Link
+                  href="/apps/ecosystem"
+                  className={[
+                    "underline underline-offset-2",
+                    "hover:opacity-90",
+                    "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                    isDark ? "text-slate-200" : "text-slate-700",
+                  ].join(" ")}
+                >
+                  See how Scheduler fits into OBD
+                </Link>
+              </p>
             </div>
 
             <div className="flex shrink-0 items-center gap-2">

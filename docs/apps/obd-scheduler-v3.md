@@ -18,6 +18,7 @@ Some accounts may show **Activation pending** for Scheduler & Booking while SMS 
 - **Brand Kit apply-only**: Brand Kit can be applied to Scheduler branding/theme when you choose.
 - **Help Desk booking instructions apply-only**: You can apply booking instructions to Help Desk content intentionally (no background publishing).
 - **FAQ Generator draft handoff**: FAQ output is a draft you review and paste/publish where you want.
+- See the OBD Ecosystem Overview for how Scheduler connects with CRM and Help Desk: `/apps/ecosystem`.
 
 ## Recent Improvements (Tiers 5.4-5.7)
 

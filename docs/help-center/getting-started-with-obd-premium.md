@@ -29,6 +29,14 @@ Handoffs are designed to be safe:
 - review-first
 - additive/fill-empty patterns when “Apply” exists
 
+## OBD Ecosystem Overview (read-only)
+
+- Route: `/apps/ecosystem`
+- Purpose: a read-only explanation of how OBD Premium apps are designed to work together.
+- Emphasis: explicit control, draft-first workflows, and no background automation.
+- Includes: a static relationship map (conceptual), plus small legend/tooltips and print-friendly styles.
+- Linked from: Help Center, Premium Dashboard, Brand Kit Builder, AI Help Desk, Scheduler & Booking, and CRM.
+
 ## Where new users should start
 
 If you are new to the suite:

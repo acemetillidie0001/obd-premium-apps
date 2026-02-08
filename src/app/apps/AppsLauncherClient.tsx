@@ -461,6 +461,13 @@ export default function AppsLauncherClient() {
           >
             Help Center
           </Link>
+          {" "}or{" "}
+          <Link
+            href="/apps/ecosystem"
+            className="text-slate-700 dark:text-slate-200 hover:underline hover:underline-offset-2 focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none"
+          >
+            How OBD works
+          </Link>
           .
         </p>
       </div>

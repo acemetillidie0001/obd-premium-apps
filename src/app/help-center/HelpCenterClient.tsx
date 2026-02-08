@@ -402,6 +402,14 @@ export default function HelpCenterClient() {
               Return to your dashboard.
             </Link>
           </p>
+          <p className="mt-2 text-[11px] text-slate-500">
+            <Link
+              href="/apps/ecosystem"
+              className="text-slate-600 hover:text-slate-800 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none rounded"
+            >
+              How OBD tools work together
+            </Link>
+          </p>
 
           {!hasSearched && isEmpty ? (
             <div className="mt-3 space-y-1">

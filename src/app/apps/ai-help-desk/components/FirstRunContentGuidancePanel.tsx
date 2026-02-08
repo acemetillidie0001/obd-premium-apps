@@ -97,6 +97,19 @@ export default function FirstRunContentGuidancePanel({
             <p className={`text-sm ${themeClasses.mutedText}`}>
               Upload documents or import your website so your Help Desk can answer questions in your voice. You can also generate starter FAQs to seed coverage.
             </p>
+            <p className={`mt-2 text-[11px] ${themeClasses.mutedText}`}>
+              <Link
+                href="/apps/ecosystem"
+                className={[
+                  "underline underline-offset-2",
+                  "hover:opacity-90",
+                  "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                  isDark ? "text-slate-200" : "text-slate-700",
+                ].join(" ")}
+              >
+                How OBD tools work together
+              </Link>
+            </p>
           </div>
           <button
             type="button"

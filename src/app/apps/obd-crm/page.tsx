@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 // Force dynamic rendering - CRM page is user-specific and requires search params
 export const dynamic = 'force-dynamic';
@@ -3020,6 +3021,19 @@ function OBDCRMPageContent() {
                   Import CSV
                 </button>
               </div>
+              <p className={`mt-4 text-[11px] ${themeClasses.mutedText}`}>
+                <Link
+                  href="/apps/ecosystem"
+                  className={[
+                    "underline underline-offset-2",
+                    "hover:opacity-90",
+                    "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                    isDark ? "text-slate-200" : "text-slate-700",
+                  ].join(" ")}
+                >
+                  How CRM connects to bookings and reviews
+                </Link>
+              </p>
             </div>
           </div>
         ) : followUpView === "queue" ? (

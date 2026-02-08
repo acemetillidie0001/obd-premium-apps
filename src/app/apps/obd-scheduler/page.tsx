@@ -2841,17 +2841,22 @@ function OBDSchedulerPageContent() {
                 Informational only — you can configure everything now. Activation depends on account enablement.
               </p>
               <p className={`mt-1 text-[11px] ${themeClasses.mutedText}`}>
-                <Link
-                  href="/apps/ecosystem"
-                  className={[
-                    "underline underline-offset-2",
-                    "hover:opacity-90",
-                    "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
-                    isDark ? "text-slate-200" : "text-slate-700",
-                  ].join(" ")}
-                >
-                  See how Scheduler fits into OBD
-                </Link>
+                <span className="block">
+                  Scheduler connects with CRM and Help Desk through explicit, apply-only steps.
+                </span>
+                <span className="mt-1 inline-block">
+                  <Link
+                    href="/apps/ecosystem"
+                    className={[
+                      "underline underline-offset-2",
+                      "hover:opacity-90",
+                      "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                      isDark ? "text-slate-200" : "text-slate-700",
+                    ].join(" ")}
+                  >
+                    See how Scheduler fits into OBD
+                  </Link>
+                </span>
               </p>
             </div>
 

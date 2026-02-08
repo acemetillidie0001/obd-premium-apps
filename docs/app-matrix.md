@@ -1,6 +1,6 @@
 # OBD App Matrix (v1)
 
-This is the definitive index of all 22 apps, their slugs, their status, and their purpose. Cursor uses this when updating routing, tiles, sidebars, or scaffolding new apps.
+This is the definitive index of all apps/pages, their slugs, their status, and their purpose. Cursor uses this when updating routing, tiles, sidebars, or scaffolding new apps.
 
 ---
 
@@ -61,3 +61,10 @@ This is the definitive index of all 22 apps, their slugs, their status, and thei
 ---
 
 # END
+
+---
+
+# Suite & Navigation (Reference)
+| Page | Slug | Status | Purpose |
+|------|------|--------|---------|
+| OBD Ecosystem Overview | ecosystem | Live | Read-only overview of how apps relate (explicit control; no actions). |

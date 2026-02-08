@@ -98,17 +98,20 @@ export default function FirstRunContentGuidancePanel({
               Upload documents or import your website so your Help Desk can answer questions in your voice. You can also generate starter FAQs to seed coverage.
             </p>
             <p className={`mt-2 text-[11px] ${themeClasses.mutedText}`}>
-              <Link
-                href="/apps/ecosystem"
-                className={[
-                  "underline underline-offset-2",
-                  "hover:opacity-90",
-                  "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
-                  isDark ? "text-slate-200" : "text-slate-700",
-                ].join(" ")}
-              >
-                How OBD tools work together
-              </Link>
+              <span className="block">Want a quick overview of how Help Desk fits into the suite?</span>
+              <span className="mt-1 inline-block">
+                <Link
+                  href="/apps/ecosystem"
+                  className={[
+                    "underline underline-offset-2",
+                    "hover:opacity-90",
+                    "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                    isDark ? "text-slate-200" : "text-slate-700",
+                  ].join(" ")}
+                >
+                  How OBD tools work together
+                </Link>
+              </span>
             </p>
           </div>
           <button

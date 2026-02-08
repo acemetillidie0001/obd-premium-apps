@@ -3022,17 +3022,22 @@ function OBDCRMPageContent() {
                 </button>
               </div>
               <p className={`mt-4 text-[11px] ${themeClasses.mutedText}`}>
-                <Link
-                  href="/apps/ecosystem"
-                  className={[
-                    "underline underline-offset-2",
-                    "hover:opacity-90",
-                    "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
-                    isDark ? "text-slate-200" : "text-slate-700",
-                  ].join(" ")}
-                >
-                  How CRM connects to bookings and reviews
-                </Link>
+                <span className="block">
+                  CRM becomes more useful when linked to Scheduler and Review Requests.
+                </span>
+                <span className="mt-1 inline-block">
+                  <Link
+                    href="/apps/ecosystem"
+                    className={[
+                      "underline underline-offset-2",
+                      "hover:opacity-90",
+                      "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
+                      isDark ? "text-slate-200" : "text-slate-700",
+                    ].join(" ")}
+                  >
+                    How CRM connects to bookings and reviews
+                  </Link>
+                </span>
               </p>
             </div>
           </div>

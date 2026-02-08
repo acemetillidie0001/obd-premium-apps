@@ -1,3 +1,33 @@
+/* Class hooks for the Ecosystem page (also used by print rules). */
+.connectors {
+  /* Allow native SVG <title> tooltips on desktop hover. */
+  pointer-events: auto;
+}
+
+.ecosystemGrid {
+  /* Layout is handled in JSX via utility classes. */
+}
+
+.appCard {
+  /* Layout is handled in JSX via utility classes. */
+}
+
+.legend {
+  /* Layout is handled in JSX via utility classes. */
+}
+
+.legendChip {
+  /* Visual style is handled in JSX via utility classes. */
+}
+
+.legendSeparator {
+  /* Visual style is handled in JSX via utility classes. */
+}
+
+.printSection {
+  /* Print behavior is defined in @media print below. */
+}
+
 @media print {
   /* Hide navigation chrome (sidebar + breadcrumb + theme toggle) */
   :global(#main-content) aside {
@@ -23,10 +53,24 @@
     display: block !important;
   }
 
+  .printSection {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   .appCard {
     break-inside: avoid;
     page-break-inside: avoid;
     margin-bottom: 12px;
+  }
+
+  /* Ensure headings and body copy are readable in print. */
+  :global(#main-content) :global(.obd-heading) {
+    color: #000 !important;
+  }
+
+  :global(#main-content) :global(.obd-soft-text) {
+    color: #111827 !important;
   }
 }
 

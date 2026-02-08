@@ -139,7 +139,9 @@ function EcosystemConnectors({ isDark }: { isDark: boolean }) {
         strokeWidth="2"
         fill="none"
         markerEnd="url(#arrow)"
-      />
+      >
+        <title>Apply Brand Kit settings</title>
+      </path>
 
       {/* Brand Kit → Scheduler */}
       <path
@@ -159,7 +161,9 @@ function EcosystemConnectors({ isDark }: { isDark: boolean }) {
         strokeWidth="2"
         fill="none"
         markerEnd="url(#arrow)"
-      />
+      >
+        <title>Apply Brand Kit settings</title>
+      </path>
 
       {/* Brand Kit → AI Help Desk */}
       <path
@@ -168,7 +172,9 @@ function EcosystemConnectors({ isDark }: { isDark: boolean }) {
         strokeWidth="2"
         fill="none"
         markerEnd="url(#arrow)"
-      />
+      >
+        <title>Apply Brand Kit settings</title>
+      </path>
 
       {/* Help Desk ↔ Scheduler */}
       <path
@@ -178,7 +184,9 @@ function EcosystemConnectors({ isDark }: { isDark: boolean }) {
         fill="none"
         markerStart="url(#arrow)"
         markerEnd="url(#arrow)"
-      />
+      >
+        <title>Apply booking instructions</title>
+      </path>
 
       {/* Help Desk ↔ FAQ Generator (polyline to avoid crossing the center) */}
       <path
@@ -293,7 +301,7 @@ export default function EcosystemOverviewPage() {
       title="OBD Ecosystem Overview"
       tagline="How OBD Premium tools are designed to work together — always with explicit control."
     >
-      <OBDPanel isDark={isDark} className="mt-7">
+      <OBDPanel isDark={isDark} className={`${styles.printSection} mt-7`}>
         <div className="space-y-3">
           <p className={`text-sm leading-relaxed ${themeClasses.mutedText}`}>
             OBD Premium is a suite of focused tools designed to work together without automation surprises.
@@ -314,7 +322,7 @@ export default function EcosystemOverviewPage() {
         </div>
       </OBDPanel>
 
-      <OBDPanel isDark={isDark} className="mt-7">
+      <OBDPanel isDark={isDark} className={`${styles.printSection} mt-7`}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <OBDHeading level={2} isDark={isDark}>
@@ -342,18 +350,40 @@ export default function EcosystemOverviewPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2" aria-label="Legend">
-          {["Apply-only", "Draft-first", "Manual linking"].map((label) => (
-            <span
-              key={label}
-              className={[
-                "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px]",
-                isDark ? "border-slate-700 bg-slate-900/40 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
-              ].join(" ")}
-            >
-              {label}
-            </span>
-          ))}
+        <div className={`mt-4 flex flex-wrap items-center gap-1 ${styles.legend}`} aria-label="Legend">
+          <span
+            className={[
+              styles.legendChip,
+              "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px]",
+              isDark ? "border-slate-700 bg-slate-900/40 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
+            ].join(" ")}
+          >
+            Apply-only
+          </span>
+          <span className={`${styles.legendSeparator} px-1 text-[11px] ${themeClasses.mutedText}`} aria-hidden="true">
+            •
+          </span>
+          <span
+            className={[
+              styles.legendChip,
+              "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px]",
+              isDark ? "border-slate-700 bg-slate-900/40 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
+            ].join(" ")}
+          >
+            Draft-first
+          </span>
+          <span className={`${styles.legendSeparator} px-1 text-[11px] ${themeClasses.mutedText}`} aria-hidden="true">
+            •
+          </span>
+          <span
+            className={[
+              styles.legendChip,
+              "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px]",
+              isDark ? "border-slate-700 bg-slate-900/40 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
+            ].join(" ")}
+          >
+            Manual linking
+          </span>
         </div>
 
         <p className={`mt-4 text-xs ${themeClasses.mutedText}`}>
@@ -362,7 +392,7 @@ export default function EcosystemOverviewPage() {
         </p>
       </OBDPanel>
 
-      <OBDPanel isDark={isDark} className="mt-7">
+      <OBDPanel isDark={isDark} className={`${styles.printSection} mt-7`}>
         <OBDHeading level={2} isDark={isDark}>
           How the relationships work (conceptually)
         </OBDHeading>
@@ -412,7 +442,7 @@ export default function EcosystemOverviewPage() {
         </div>
       </OBDPanel>
 
-      <OBDPanel isDark={isDark} className="mt-7">
+      <OBDPanel isDark={isDark} className={`${styles.printSection} mt-7`}>
         <OBDHeading level={2} isDark={isDark}>
           What OBD does not do
         </OBDHeading>

@@ -143,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hardened Tier 5C handoff guard labels (labels only) in FAQ import banners (AI Content Writer, AI Help Desk).
   - Add `/apps/ecosystem` read-only overview page with static app relationship map.
   - Link ecosystem overview from Help Center, Premium Dashboard, Brand Kit, AI Help Desk, Scheduler, and CRM.
-  - Ecosystem page polish: legend, connector tooltips, and print-friendly styles.
+  - Ecosystem page polish: legend, connector tooltips, and print styles.
 
 - **Demo Mode — Complete Implementation (2026-01-06)**
   - Demo Mode entrypoint: `/demo` route sets cookie-based demo session with `/demo/exit` for exit

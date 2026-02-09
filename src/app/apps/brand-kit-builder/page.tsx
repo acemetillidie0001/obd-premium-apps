@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import OBDPanel from "@/components/obd/OBDPanel";
@@ -876,20 +875,7 @@ export default function BrandKitBuilderPage() {
       tagline="Generate a complete brand kit with colors, typography, voice, messaging, and ready-to-use assets for your Ocala business."
     >
       <p className={`mt-3 text-[11px] sm:text-xs ${themeClasses.mutedText}`}>
-        <span className="block">Brand Kit can be applied across OBD tools — always explicitly.</span>
-        <span className="mt-1 inline-block">
-          <Link
-            href="/apps/ecosystem"
-            className={[
-              "underline underline-offset-2",
-              "hover:opacity-90",
-              "focus-visible:underline focus-visible:underline-offset-2 focus-visible:outline-none",
-              isDark ? "text-slate-200" : "text-slate-700",
-            ].join(" ")}
-          >
-            See how Brand Kit connects to other tools
-          </Link>
-        </span>
+        Used by: Scheduler • Social Auto-Poster • AI Content Writer • AI Help Desk
       </p>
 
       {/* Tier 5C+ Import Banner (apply-only) */}

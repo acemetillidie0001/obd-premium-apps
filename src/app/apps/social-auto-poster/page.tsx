@@ -109,6 +109,10 @@ export default function SocialAutoPosterDashboardPage() {
       title="OBD Social Auto-Poster"
       tagline="Generate, approve, schedule, and auto-publish platform-optimized social posts for your local business."
     >
+      <p className={`mt-3 text-[11px] sm:text-xs ${themeClasses.mutedText}`}>
+        Uses drafts from: AI Content Writer • Brand Kit
+      </p>
+
       <SocialAutoPosterNav isDark={isDark} />
 
       {reviewModeEnabled && (

@@ -1020,6 +1020,10 @@ function AIHelpDeskPageContent() {
       title="AI Help Desk"
       tagline="Search your help desk knowledge and get AI-powered answers to questions."
     >
+      <p className={`mt-3 text-[11px] sm:text-xs ${themeClasses.mutedText}`}>
+        Feeds drafts for: FAQ Generator
+      </p>
+
       <CrmIntegrationIndicator
         isDark={isDark}
         showContextPill={false}

@@ -2683,6 +2683,10 @@ function OBDSchedulerPageContent() {
       title="OBD Scheduler & Booking"
       tagline="Manage booking requests, services, availability, and settings for your business."
     >
+      <p className={`mt-3 text-[11px] sm:text-xs ${themeClasses.mutedText}`}>
+        Connects with: CRM • AI Help Desk
+      </p>
+
       {/* Toast Queue */}
       <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
         {toasts.slice(0, 3).map((toast) => (

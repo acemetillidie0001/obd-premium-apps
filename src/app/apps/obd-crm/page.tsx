@@ -2170,6 +2170,10 @@ function OBDCRMPageContent() {
       onThemeChange={setTheme}
       fullWidth={true}
     >
+      <p className={`mt-3 text-[11px] sm:text-xs ${themeClasses.mutedText}`}>
+        Linked with: Scheduler • Review Request Automation
+      </p>
+
       {/* Controls */}
       <OBDStickyToolbar isDark={isDark} className="mt-6">
         <OBDPanel isDark={isDark} variant="toolbar" className="border-0 shadow-none rounded-none overflow-hidden py-2 md:py-2.5">

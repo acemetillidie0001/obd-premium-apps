@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/auth/permissions.server";
+import { requireBusinessContext } from "@/lib/auth/requireBusinessContext";
 import { warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { extractBrandKitActiveSnapshot } from "@/lib/brand/brandKitSnapshot";
 import { isSchedulerPilotAllowed } from "@/lib/apps/obd-scheduler/pilotAccess";
@@ -70,7 +70,8 @@ export async function GET(request: NextRequest) {
 
   try {
     // Any ACTIVE member can view onboarding status (read-only).
-    const { businessId } = await requirePermission("TEAMS_USERS", "VIEW");
+    // Do NOT gate this behind a specific app permission; onboarding is suite-level guidance.
+    const { businessId } = await requireBusinessContext();
 
     let prisma;
     try {

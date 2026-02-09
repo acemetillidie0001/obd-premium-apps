@@ -9,8 +9,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { apiErrorResponse, handleApiError } from "@/lib/api/errorHandler";
-import { BusinessContextError } from "@/lib/auth/requireBusinessContext";
 import { requirePermission } from "@/lib/auth/permissions.server";
 import { warnIfBusinessIdParamPresent } from "@/lib/auth/tenant";
 import { extractBrandKitActiveSnapshot } from "@/lib/brand/brandKitSnapshot";
@@ -40,6 +38,13 @@ type OnboardingStatusResponse = {
   >;
 };
 
+type OnboardingStatusUnavailableResponse = {
+  ok: false;
+  unavailable: true;
+  reason: "backend_unavailable";
+  code: "ONBOARDING_STATUS_FAIL";
+};
+
 function toIsoOrNull(value: Date | null | undefined): string | null {
   return value instanceof Date ? value.toISOString() : null;
 }
@@ -48,6 +53,16 @@ function percentDone(completed: number, total: number): number {
   if (!Number.isFinite(completed) || !Number.isFinite(total) || total <= 0) return 0;
   const p = Math.round((completed / total) * 100);
   return Math.max(0, Math.min(100, p));
+}
+
+function fallbackUnavailable() {
+  const response: OnboardingStatusUnavailableResponse = {
+    ok: false,
+    unavailable: true,
+    reason: "backend_unavailable",
+    code: "ONBOARDING_STATUS_FAIL",
+  };
+  return NextResponse.json(response, { status: 200 });
 }
 
 export async function GET(request: NextRequest) {
@@ -60,8 +75,9 @@ export async function GET(request: NextRequest) {
     let prisma;
     try {
       prisma = getPrisma();
-    } catch {
-      return apiErrorResponse("Database unavailable", "DB_UNAVAILABLE", 503);
+    } catch (error) {
+      console.error("[api/onboarding/status] prisma unavailable", error);
+      return fallbackUnavailable();
     }
 
     // Dismissed state (best-effort; if table not migrated yet, treat as not dismissed)
@@ -79,9 +95,11 @@ export async function GET(request: NextRequest) {
 
     // Brand Kit completeness:
     // Business is the tenant key (V3 businessId == userId), so the brand profile is stored under userId=businessId.
-    const brandProfilePromise = prisma.brandProfile.findUnique({
-      where: { userId: businessId },
-    });
+    const brandProfilePromise = prisma.brandProfile
+      .findUnique({
+        where: { userId: businessId },
+      })
+      .catch(() => null);
 
     // Billing entitlement: derive from the oldest active OWNER membership (business-level).
     const ownerPremiumPromise = (async (): Promise<boolean> => {
@@ -105,27 +123,34 @@ export async function GET(request: NextRequest) {
 
     // Scheduler readiness (same sources as GET /api/obd-scheduler/access; no external calls)
     const schedulerPromise = (async () => {
-      const activationAllowed = isSchedulerPilotAllowed(businessId);
-      const pilotMode =
-        process.env.OBD_SCHEDULER_PILOT_MODE === "true" || process.env.OBD_SCHEDULER_PILOT_MODE === "1";
-      const isPilot = pilotMode && !activationAllowed;
-      const isEnabled = !isPilot;
+      try {
+        const activationAllowed = isSchedulerPilotAllowed(businessId);
+        const pilotMode =
+          process.env.OBD_SCHEDULER_PILOT_MODE === "true" || process.env.OBD_SCHEDULER_PILOT_MODE === "1";
+        const isPilot = pilotMode && !activationAllowed;
+        const isEnabled = !isPilot;
 
-      const [servicesCount, enabledAvailabilityWindowsCount, busyBlocksCount] = await Promise.all([
-        prisma.bookingService.count({ where: { businessId } }),
-        prisma.availabilityWindow.count({ where: { businessId, isEnabled: true } }),
-        prisma.schedulerBusyBlock.count({ where: { businessId } }),
-      ]);
+        const [servicesCount, enabledAvailabilityWindowsCount, busyBlocksCount] = await Promise.all([
+          prisma.bookingService.count({ where: { businessId } }).catch(() => 0),
+          prisma.availabilityWindow.count({ where: { businessId, isEnabled: true } }).catch(() => 0),
+          prisma.schedulerBusyBlock.count({ where: { businessId } }).catch(() => 0),
+        ]);
 
-      const hasAvailability = enabledAvailabilityWindowsCount > 0 || busyBlocksCount > 0;
-      return { isEnabled, servicesCount, hasAvailability };
+        const hasAvailability = enabledAvailabilityWindowsCount > 0 || busyBlocksCount > 0;
+        return { isEnabled, servicesCount, hasAvailability };
+      } catch {
+        // Degrade safely: optional/incomplete instead of failing the whole route.
+        return { isEnabled: false, servicesCount: 0, hasAvailability: false };
+      }
     })();
 
     // CRM + Help Desk completion counts
-    const crmContactsCountPromise = prisma.crmContact.count({ where: { businessId } });
-    const helpDeskEntriesCountPromise = prisma.aiHelpDeskEntry.count({
-      where: { businessId, isActive: true },
-    });
+    const crmContactsCountPromise = prisma.crmContact.count({ where: { businessId } }).catch(() => 0);
+    const helpDeskEntriesCountPromise = prisma.aiHelpDeskEntry
+      .count({
+        where: { businessId, isActive: true },
+      })
+      .catch(() => 0);
 
     const [dismissedAt, brandProfile, ownerPremium, scheduler, contactsCount, knowledgeEntriesCount] =
       await Promise.all([
@@ -191,11 +216,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
-    if (error instanceof BusinessContextError) {
-      const code = error.status === 401 ? "UNAUTHORIZED" : error.status === 403 ? "FORBIDDEN" : "DB_UNAVAILABLE";
-      return apiErrorResponse(error.message, code, error.status);
-    }
-    return handleApiError(error);
+    console.error("[api/onboarding/status] handler failed", error);
+    return fallbackUnavailable();
   }
 }
 

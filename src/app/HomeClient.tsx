@@ -30,18 +30,25 @@ type SchedulerBadgeState = "activation_pending" | "ready_to_activate" | "ready" 
 
 type OnboardingStepStatus = "not_started" | "in_progress" | "done" | "optional";
 
-type OnboardingStatusResponse = {
-  ok: true;
-  dismissed: boolean;
-  dismissedAt: string | null;
-  progress: { percent: number; completedRequired: number; totalRequired: number };
-  steps: Array<{
-    key: "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk";
-    title: string;
-    status: OnboardingStepStatus;
-    href: string;
-  }>;
-};
+type OnboardingStatusResponse =
+  | {
+      ok: true;
+      dismissed: boolean;
+      dismissedAt: string | null;
+      progress: { percent: number; completedRequired: number; totalRequired: number };
+      steps: Array<{
+        key: "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk";
+        title: string;
+        status: OnboardingStepStatus;
+        href: string;
+      }>;
+    }
+  | {
+      ok: false;
+      unavailable: true;
+      reason: "backend_unavailable";
+      code: "ONBOARDING_STATUS_FAIL";
+    };
 
 type OnboardingDismissResponse = {
   ok: true;
@@ -142,11 +149,37 @@ export default function HomeClient() {
       try {
         const res = await fetch("/api/onboarding/status", { cache: "no-store" });
         const json = (await res.json().catch(() => null)) as unknown;
-        if (!cancelled && res.ok && json && typeof json === "object" && (json as any).ok === true) {
-          setOnboarding(json as OnboardingStatusResponse);
+        if (cancelled) return;
+        if (res.ok && json && typeof json === "object") {
+          if ((json as any).ok === true) {
+            setOnboarding(json as OnboardingStatusResponse);
+          } else if ((json as any).unavailable === true) {
+            setOnboarding(json as OnboardingStatusResponse);
+          } else {
+            setOnboarding({
+              ok: false,
+              unavailable: true,
+              reason: "backend_unavailable",
+              code: "ONBOARDING_STATUS_FAIL",
+            });
+          }
+        } else {
+          setOnboarding({
+            ok: false,
+            unavailable: true,
+            reason: "backend_unavailable",
+            code: "ONBOARDING_STATUS_FAIL",
+          });
         }
       } catch {
-        // Non-blocking: if it fails, we just don't show the panel.
+        if (!cancelled) {
+          setOnboarding({
+            ok: false,
+            unavailable: true,
+            reason: "backend_unavailable",
+            code: "ONBOARDING_STATUS_FAIL",
+          });
+        }
       } finally {
         if (!cancelled) setOnboardingLoading(false);
       }
@@ -238,7 +271,7 @@ export default function HomeClient() {
     };
     // Re-run after onboarding loads so we can highlight the real panel (or dismissed link)
     // instead of a placeholder container.
-  }, [onboardingLoading, onboarding?.dismissed]);
+  }, [onboardingLoading, onboarding && onboarding.ok === true ? onboarding.dismissed : null]);
 
   const statusPill = (status: OnboardingStepStatus) => {
     const base =
@@ -377,7 +410,7 @@ export default function HomeClient() {
                 </section>
               ) : null}
 
-              {!onboardingLoading && onboarding?.ok && onboarding.dismissed === true ? (
+              {!onboardingLoading && onboarding?.ok === true && onboarding.dismissed === true ? (
                 <div data-get-started-highlight="true" className="mt-7 inline-block rounded-2xl">
                   <button
                     type="button"
@@ -392,7 +425,7 @@ export default function HomeClient() {
                 </div>
               ) : null}
 
-              {!onboardingLoading && onboarding?.ok && onboarding.dismissed === false ? (
+              {!onboardingLoading && onboarding?.ok === true && onboarding.dismissed === false ? (
                 <section
                   data-get-started-highlight="true"
                   className={`mt-7 rounded-2xl border p-6 shadow-sm ${
@@ -492,7 +525,7 @@ export default function HomeClient() {
                 </section>
               ) : null}
 
-              {!onboardingLoading && (!onboarding || onboarding.ok !== true) ? (
+              {!onboardingLoading && onboarding?.ok === false && onboarding.unavailable === true ? (
                 <section
                   data-get-started-highlight="true"
                   className={`mt-7 rounded-2xl border p-5 shadow-sm ${
@@ -501,10 +534,25 @@ export default function HomeClient() {
                       : "border-slate-200 bg-white text-slate-900"
                   }`}
                 >
-                  <div className="text-sm font-semibold">Get started with OBD</div>
-                  <p className={`mt-1 text-xs ${mutedText}`}>
-                    Setup guide is temporarily unavailable.
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">Get started with OBD</div>
+                      <p className={`mt-1 text-xs ${mutedText}`}>
+                        Your setup guide will appear once your account finishes initializing.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => window.location.reload()}
+                      className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                        isDark
+                          ? "border-slate-700 bg-slate-950/30 text-slate-200 hover:bg-slate-950/45"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Refresh
+                    </button>
+                  </div>
                 </section>
               ) : null}
             </div>

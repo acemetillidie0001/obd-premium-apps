@@ -11,6 +11,7 @@ import ReturnToDashboardLink from "@/components/layout/ReturnToDashboardLink";
 import { hasDemoCookie } from "@/lib/demo/demo-cookie";
 import { GlobalDemoToast } from "@/components/obd/GlobalDemoToast";
 import { FetchInterceptorInit } from "@/components/obd/FetchInterceptorInit";
+import OBDHeaderLogo from "@/components/layout/OBDHeaderLogo";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -83,7 +84,7 @@ export default async function RootLayout({
                     <div className="flex items-center gap-4 flex-wrap">
                       {/* LEFT: Logo + Product Title */}
                       <div className="flex items-center gap-3 flex-shrink-0">
-                        <img src="/obd-logo.png" alt="OBD Logo" className="h-10 w-auto" />
+                        <OBDHeaderLogo />
                         <div className="flex flex-col leading-tight">
                           <span className="text-xs uppercase tracking-wide text-teal-300">
                             Ocala Business Directory

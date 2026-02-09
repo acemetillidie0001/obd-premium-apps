@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import OBDPageContainer from "@/components/obd/OBDPageContainer";
 import {
@@ -315,6 +315,100 @@ export default function AppsLauncherClient() {
   const [onboardingSaving, setOnboardingSaving] = useState(false);
   const [onboardingCollapsed, setOnboardingCollapsed] = useState(false);
 
+  const getStartedHighlightTimeoutRef = useRef<number | null>(null);
+  const lastGetStartedHighlightedElRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const HIGHLIGHT_CLASSES = [
+      "ring-2",
+      "ring-[#29c4a9]/35",
+      "ring-offset-2",
+      "ring-offset-white",
+      "dark:ring-offset-slate-900",
+      "shadow-[0_0_0_10px_rgba(41,196,169,0.10)]",
+      "transition-shadow",
+      "duration-300",
+    ];
+
+    const clearHighlight = () => {
+      if (getStartedHighlightTimeoutRef.current != null) {
+        window.clearTimeout(getStartedHighlightTimeoutRef.current);
+        getStartedHighlightTimeoutRef.current = null;
+      }
+      if (lastGetStartedHighlightedElRef.current) {
+        lastGetStartedHighlightedElRef.current.classList.remove(...HIGHLIGHT_CLASSES);
+        lastGetStartedHighlightedElRef.current = null;
+      }
+    };
+
+    const scrollAndHighlightGetStarted = () => {
+      if (typeof window === "undefined") return;
+      if (window.location.hash !== "#get-started") return;
+
+      const anchor = document.getElementById("get-started");
+      if (!anchor) return;
+
+      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      // Prefer the visible panel (or dismissed link area) so the ring looks "attached" to UI.
+      const highlightTarget =
+        (document.querySelector('[data-get-started-highlight="true"]') as HTMLElement | null) ??
+        anchor;
+
+      clearHighlight();
+      highlightTarget.classList.add(...HIGHLIGHT_CLASSES);
+      lastGetStartedHighlightedElRef.current = highlightTarget;
+      getStartedHighlightTimeoutRef.current = window.setTimeout(() => {
+        highlightTarget.classList.remove(...HIGHLIGHT_CLASSES);
+        if (lastGetStartedHighlightedElRef.current === highlightTarget) {
+          lastGetStartedHighlightedElRef.current = null;
+        }
+        getStartedHighlightTimeoutRef.current = null;
+      }, 900);
+    };
+
+    // Initial load: hash may already be present before content renders.
+    scrollAndHighlightGetStarted();
+    const raf = window.requestAnimationFrame(() => scrollAndHighlightGetStarted());
+    const t = window.setTimeout(() => scrollAndHighlightGetStarted(), 60);
+
+    // Subsequent navigations (e.g. sidebar /apps#get-started).
+    // Note: Next.js often uses history.pushState/replaceState which does NOT fire `hashchange`,
+    // so we also emit a lightweight locationchange event when that happens.
+    const LOCATION_CHANGE_EVENT = "obd:locationchange";
+    const emitLocationChange = () => window.dispatchEvent(new Event(LOCATION_CHANGE_EVENT));
+
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      originalPushState.apply(window.history, args as any);
+      emitLocationChange();
+    };
+    window.history.replaceState = function (...args) {
+      originalReplaceState.apply(window.history, args as any);
+      emitLocationChange();
+    };
+
+    window.addEventListener("hashchange", scrollAndHighlightGetStarted);
+    window.addEventListener("popstate", scrollAndHighlightGetStarted);
+    window.addEventListener(LOCATION_CHANGE_EVENT, scrollAndHighlightGetStarted);
+
+    return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+
+      window.removeEventListener("hashchange", scrollAndHighlightGetStarted);
+      window.removeEventListener("popstate", scrollAndHighlightGetStarted);
+      window.removeEventListener(LOCATION_CHANGE_EVENT, scrollAndHighlightGetStarted);
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      clearHighlight();
+    };
+    // Re-run after onboarding loads so we can highlight the real panel (or dismissed link)
+    // instead of an empty anchor container.
+  }, [onboardingLoading, onboarding?.dismissed]);
+
   useEffect(() => {
     // Local-only UI preference: collapse/expand
     try {
@@ -414,6 +508,14 @@ export default function AppsLauncherClient() {
       onThemeToggle={() => setTheme(theme === "light" ? "dark" : "light")}
       title="OBD Premium Dashboard"
       tagline="Access all your Ocala-focused AI business tools in one place."
+      titleRight={
+        <Link
+          href="/apps#get-started"
+          className="mt-1 text-sm font-medium text-slate-600 hover:text-slate-900 hover:underline hover:underline-offset-4 dark:text-slate-300 dark:hover:text-white"
+        >
+          Get Started
+        </Link>
+      }
     >
       {/* Sections */}
       <div className="space-y-8">
@@ -421,7 +523,7 @@ export default function AppsLauncherClient() {
         <div id="get-started" className="scroll-mt-28">
           {/* Onboarding guide panel (non-blocking, dismissible) */}
           {!onboardingLoading && onboarding?.ok && onboarding.dismissed === true ? (
-            <div className="mt-7">
+            <div data-get-started-highlight="true" className="mt-7 inline-block rounded-2xl">
               <button
                 type="button"
                 onClick={() => setDismissed(false)}
@@ -434,7 +536,10 @@ export default function AppsLauncherClient() {
           ) : null}
 
           {!onboardingLoading && onboarding?.ok && onboarding.dismissed === false ? (
-            <section className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <section
+              data-get-started-highlight="true"
+              className="mt-7 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800"
+            >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <h2 className="text-xl font-semibold text-slate-900 dark:text-white">

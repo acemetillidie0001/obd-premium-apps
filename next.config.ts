@@ -3,6 +3,15 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "ocalabusinessdirectory.com",
+        pathname: "/wp-content/uploads/**",
+      },
+    ],
+  },
   async redirects() {
     return [
       {

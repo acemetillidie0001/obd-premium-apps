@@ -27,7 +27,7 @@ export default function OBDAppSidebar({ isDark }: OBDAppSidebarProps) {
   const theme = getThemeClasses(isDark);
   const brandProfileHref = toolHrefForPathname("brand-profile", pathname);
   const teamsUsersHref = toolHrefForPathname("teams-users", pathname);
-  const getStartedHref = "/apps#get-started";
+  const getStartedHref = "/#get-started";
   const isAppsDashboard = pathname === "/apps";
 
   // Group apps by category

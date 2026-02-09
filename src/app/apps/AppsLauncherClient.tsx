@@ -372,7 +372,7 @@ export default function AppsLauncherClient() {
     const raf = window.requestAnimationFrame(() => scrollAndHighlightGetStarted());
     const t = window.setTimeout(() => scrollAndHighlightGetStarted(), 60);
 
-    // Subsequent navigations (e.g. sidebar /apps#get-started).
+    // Subsequent navigations (e.g. /#get-started, or /apps#get-started in legacy/demo contexts).
     // Note: Next.js often uses history.pushState/replaceState which does NOT fire `hashchange`,
     // so we also emit a lightweight locationchange event when that happens.
     const LOCATION_CHANGE_EVENT = "obd:locationchange";
@@ -510,7 +510,7 @@ export default function AppsLauncherClient() {
       tagline="Access all your Ocala-focused AI business tools in one place."
       titleRight={
         <Link
-          href="/apps#get-started"
+          href="/#get-started"
           className="mt-1 text-sm font-medium text-slate-600 hover:text-slate-900 hover:underline hover:underline-offset-4 dark:text-slate-300 dark:hover:text-white"
         >
           Get Started

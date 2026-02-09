@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { OBD_APPS, AppCategory } from "@/lib/obd-framework/apps.config";
 import { getAppIcon } from "@/lib/obd-framework/app-icons";
 import { getAppPreview } from "@/lib/obd-framework/app-previews";
@@ -28,11 +28,52 @@ type SchedulerAccessSnapshot = {
 
 type SchedulerBadgeState = "activation_pending" | "ready_to_activate" | "ready" | "checking";
 
+type OnboardingStepStatus = "not_started" | "in_progress" | "done" | "optional";
+
+type OnboardingStatusResponse = {
+  ok: true;
+  dismissed: boolean;
+  dismissedAt: string | null;
+  progress: { percent: number; completedRequired: number; totalRequired: number };
+  steps: Array<{
+    key: "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk";
+    title: string;
+    status: OnboardingStepStatus;
+    href: string;
+  }>;
+};
+
+type OnboardingDismissResponse = {
+  ok: true;
+  dismissed: boolean;
+  dismissedAt: string | null;
+};
+
+const ONBOARDING_STEP_DESCRIPTIONS: Record<
+  "brandKit" | "billing" | "scheduler" | "crm" | "helpDesk",
+  string
+> = {
+  brandKit: "Add your business name and core brand colors once, then reuse them everywhere.",
+  billing: "Confirm your plan so premium tools stay enabled for your business.",
+  scheduler: "Add a service and availability if you want to accept bookings (optional).",
+  crm: "Create your first contact to start tracking customers and follow-ups.",
+  helpDesk: "Add at least one knowledge entry so the Help Desk has something to answer from.",
+};
+
 export default function HomeClient() {
   const pathname = usePathname();
   const { theme, isDark, toggleTheme } = useOBDTheme();
 
   const [schedulerBadgeState, setSchedulerBadgeState] = useState<SchedulerBadgeState>("checking");
+  const [onboarding, setOnboarding] = useState<OnboardingStatusResponse | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(true);
+  const [onboardingSaving, setOnboardingSaving] = useState(false);
+  const [onboardingCollapsed, setOnboardingCollapsed] = useState(false);
+
+  const getStartedHighlightTimeoutRef = useRef<number | null>(null);
+  const getStartedRetryTimeoutRef = useRef<number | null>(null);
+  const lastGetStartedHighlightedElRef = useRef<HTMLElement | null>(null);
+
   const schedulerBadgeLabel = useMemo(() => {
     switch (schedulerBadgeState) {
       case "activation_pending":
@@ -74,6 +115,182 @@ export default function HomeClient() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    // Local-only UI preference: collapse/expand onboarding guide
+    try {
+      const raw = window.localStorage.getItem("obd:onboardingGuideCollapsed");
+      if (raw === "1" || raw === "true") setOnboardingCollapsed(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("obd:onboardingGuideCollapsed", onboardingCollapsed ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [onboardingCollapsed]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setOnboardingLoading(true);
+      try {
+        const res = await fetch("/api/onboarding/status", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as unknown;
+        if (!cancelled && res.ok && json && typeof json === "object" && (json as any).ok === true) {
+          setOnboarding(json as OnboardingStatusResponse);
+        }
+      } catch {
+        // Non-blocking: if it fails, we just don't show the panel.
+      } finally {
+        if (!cancelled) setOnboardingLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const HIGHLIGHT_CLASSES = [
+      "ring-2",
+      "ring-[#29c4a9]/35",
+      "ring-offset-2",
+      "ring-offset-white",
+      "dark:ring-offset-slate-900",
+      "shadow-[0_0_0_10px_rgba(41,196,169,0.10)]",
+      "transition-shadow",
+      "duration-300",
+    ];
+
+    const clearHighlight = () => {
+      if (getStartedHighlightTimeoutRef.current != null) {
+        window.clearTimeout(getStartedHighlightTimeoutRef.current);
+        getStartedHighlightTimeoutRef.current = null;
+      }
+      if (lastGetStartedHighlightedElRef.current) {
+        lastGetStartedHighlightedElRef.current.classList.remove(...HIGHLIGHT_CLASSES);
+        lastGetStartedHighlightedElRef.current = null;
+      }
+    };
+
+    const scrollAndHighlightGetStarted = () => {
+      if (typeof window === "undefined") return;
+      if (window.location.hash !== "#get-started") return;
+
+      if (getStartedRetryTimeoutRef.current != null) {
+        window.clearTimeout(getStartedRetryTimeoutRef.current);
+        getStartedRetryTimeoutRef.current = null;
+      }
+
+      let attempts = 0;
+      const tryOnce = () => {
+        attempts += 1;
+
+        const anchor = document.getElementById("get-started");
+        if (!anchor) {
+          if (attempts < 10) {
+            getStartedRetryTimeoutRef.current = window.setTimeout(tryOnce, 100);
+          }
+          return;
+        }
+
+        anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+
+        // Prefer the visible panel (or dismissed link area) so the ring looks "attached" to UI.
+        const highlightTarget =
+          (document.querySelector('[data-get-started-highlight="true"]') as HTMLElement | null) ??
+          anchor;
+
+        clearHighlight();
+        highlightTarget.classList.add(...HIGHLIGHT_CLASSES);
+        lastGetStartedHighlightedElRef.current = highlightTarget;
+        getStartedHighlightTimeoutRef.current = window.setTimeout(() => {
+          highlightTarget.classList.remove(...HIGHLIGHT_CLASSES);
+          if (lastGetStartedHighlightedElRef.current === highlightTarget) {
+            lastGetStartedHighlightedElRef.current = null;
+          }
+          getStartedHighlightTimeoutRef.current = null;
+        }, 900);
+      };
+
+      tryOnce();
+    };
+
+    // Initial load: hash may already be present before content renders.
+    scrollAndHighlightGetStarted();
+    window.addEventListener("hashchange", scrollAndHighlightGetStarted);
+
+    return () => {
+      window.removeEventListener("hashchange", scrollAndHighlightGetStarted);
+      if (getStartedRetryTimeoutRef.current != null) {
+        window.clearTimeout(getStartedRetryTimeoutRef.current);
+        getStartedRetryTimeoutRef.current = null;
+      }
+      clearHighlight();
+    };
+    // Re-run after onboarding loads so we can highlight the real panel (or dismissed link)
+    // instead of a placeholder container.
+  }, [onboardingLoading, onboarding?.dismissed]);
+
+  const statusPill = (status: OnboardingStepStatus) => {
+    const base =
+      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap";
+    if (status === "done") {
+      return (
+        <span className={`${base} border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200`}>
+          Done
+        </span>
+      );
+    }
+    if (status === "in_progress") {
+      return (
+        <span className={`${base} border-[#29c4a9]/30 bg-[#29c4a9]/10 text-[#1f8f7d] dark:border-[#29c4a9]/40 dark:bg-[#29c4a9]/10 dark:text-[#29c4a9]`}>
+          In progress
+        </span>
+      );
+    }
+    if (status === "optional") {
+      return (
+        <span className={`${base} border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-300`}>
+          Optional
+        </span>
+      );
+    }
+    return (
+      <span className={`${base} border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-200`}>
+        Not started
+      </span>
+    );
+  };
+
+  const setDismissed = async (dismissed: boolean) => {
+    setOnboardingSaving(true);
+    try {
+      const res = await fetch("/api/onboarding/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissed }),
+      });
+      const json = (await res.json().catch(() => null)) as unknown;
+      if (!res.ok || !json || typeof json !== "object" || (json as any).ok !== true) return;
+      const next = json as OnboardingDismissResponse;
+
+      setOnboarding((prev) => {
+        if (!prev) return prev;
+        return { ...prev, dismissed: next.dismissed, dismissedAt: next.dismissedAt };
+      });
+    } finally {
+      setOnboardingSaving(false);
+    }
+  };
 
   const pageBg = isDark ? "bg-slate-950" : "bg-slate-50";
   const panelBg = isDark ? "bg-gradient-to-b from-slate-900/95 to-slate-950" : "bg-white";
@@ -138,6 +355,160 @@ export default function HomeClient() {
           className={`mt-8 rounded-3xl p-6 md:p-8 transition-colors ${panelBg}`}
         >
           <div className="space-y-16">
+            {/* Get Started anchor target (always present) */}
+            <div id="get-started" className="scroll-mt-28">
+              {/* Onboarding guide panel (non-blocking, dismissible) */}
+              {onboardingLoading ? (
+                <section
+                  data-get-started-highlight="true"
+                  className={`mt-7 rounded-2xl border p-5 shadow-sm ${
+                    isDark
+                      ? "border-slate-800 bg-slate-900/40 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-900"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">Get started with OBD</div>
+                      <div className={`mt-1 text-xs ${mutedText}`}>Loading setup guide…</div>
+                    </div>
+                    <div className={`text-xs ${mutedText}`}>…</div>
+                  </div>
+                </section>
+              ) : null}
+
+              {!onboardingLoading && onboarding?.ok && onboarding.dismissed === true ? (
+                <div data-get-started-highlight="true" className="mt-7 inline-block rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setDismissed(false)}
+                    disabled={onboardingSaving}
+                    className={`text-sm font-medium hover:underline hover:underline-offset-2 disabled:opacity-60 ${
+                      isDark ? "text-slate-200" : "text-slate-700"
+                    }`}
+                  >
+                    Show setup guide
+                  </button>
+                </div>
+              ) : null}
+
+              {!onboardingLoading && onboarding?.ok && onboarding.dismissed === false ? (
+                <section
+                  data-get-started-highlight="true"
+                  className={`mt-7 rounded-2xl border p-6 shadow-sm ${
+                    isDark ? "border-slate-800 bg-slate-900/40" : "border-slate-200 bg-white"
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h2 className={`text-xl font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                        Get started with OBD
+                      </h2>
+                      <p className={`mt-1 text-sm ${mutedText}`}>
+                        Recommended steps to set up your tools. Nothing is automatic — you’re always in control.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setOnboardingCollapsed((v) => !v)}
+                        className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${
+                          isDark
+                            ? "border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-950/55"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {onboardingCollapsed ? "Expand" : "Collapse"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDismissed(true)}
+                        disabled={onboardingSaving}
+                        className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 ${
+                          isDark
+                            ? "border-slate-700 bg-slate-950/25 text-slate-200 hover:bg-slate-950/40"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Progress */}
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>
+                        Setup progress: {onboarding.progress.percent}%
+                      </div>
+                      <div className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                        {onboarding.progress.completedRequired}/{onboarding.progress.totalRequired} required complete
+                      </div>
+                    </div>
+                    <div className={`mt-2 h-2 w-full rounded-full ${isDark ? "bg-slate-800" : "bg-slate-200"}`}>
+                      <div
+                        className="h-2 rounded-full bg-[#29c4a9] transition-[width]"
+                        style={{ width: `${Math.max(0, Math.min(100, onboarding.progress.percent))}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Steps */}
+                  {!onboardingCollapsed ? (
+                    <div
+                      className={`mt-6 divide-y rounded-xl border ${
+                        isDark ? "divide-slate-800 border-slate-800" : "divide-slate-200 border-slate-200"
+                      }`}
+                    >
+                      {onboarding.steps.map((step) => (
+                        <div
+                          key={step.key}
+                          className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-900"}`}>
+                                {step.title}
+                              </div>
+                              {statusPill(step.status)}
+                            </div>
+                            <p className={`mt-1 text-sm ${mutedText}`}>
+                              {ONBOARDING_STEP_DESCRIPTIONS[step.key]}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-end">
+                            <Link
+                              href={step.href}
+                              className="inline-flex items-center justify-center rounded-md bg-[#29c4a9] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#24b09a]"
+                            >
+                              Open
+                            </Link>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {!onboardingLoading && (!onboarding || onboarding.ok !== true) ? (
+                <section
+                  data-get-started-highlight="true"
+                  className={`mt-7 rounded-2xl border p-5 shadow-sm ${
+                    isDark
+                      ? "border-slate-800 bg-slate-900/40 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-900"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">Get started with OBD</div>
+                  <p className={`mt-1 text-xs ${mutedText}`}>
+                    Setup guide is temporarily unavailable.
+                  </p>
+                </section>
+              ) : null}
+            </div>
+
             {/* My Account Section */}
             <div className="space-y-4 pt-6">
               <div className="max-w-3xl">

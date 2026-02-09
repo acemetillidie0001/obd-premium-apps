@@ -404,7 +404,7 @@ export default function HelpCenterClient() {
           </p>
           <div className="mt-3">
             <Link
-              href="/apps#get-started"
+              href="/#get-started"
               className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-slate-400 outline-none"
             >
               Get Started with OBD

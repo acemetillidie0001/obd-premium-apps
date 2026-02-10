@@ -20,6 +20,15 @@ export const runtime = "nodejs";
 type RequiredStepStatus = "not_started" | "in_progress" | "done";
 type SchedulerStepStatus = "optional" | "in_progress" | "done";
 
+type OnboardingStatusFailStage =
+  | "business_context"
+  | "onboarding_state"
+  | "brand_kit"
+  | "billing"
+  | "scheduler"
+  | "crm"
+  | "help_desk";
+
 type OnboardingStatusResponse = {
   ok: true;
   dismissed: boolean;
@@ -43,6 +52,7 @@ type OnboardingStatusUnavailableResponse = {
   unavailable: true;
   reason: "backend_unavailable";
   code: "ONBOARDING_STATUS_FAIL";
+  stage: OnboardingStatusFailStage;
 };
 
 function toIsoOrNull(value: Date | null | undefined): string | null {
@@ -55,12 +65,15 @@ function percentDone(completed: number, total: number): number {
   return Math.max(0, Math.min(100, p));
 }
 
-function fallbackUnavailable() {
+function fallbackUnavailable(stage: OnboardingStatusFailStage, error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  console.error("[onboarding-status]", stage, msg);
   const response: OnboardingStatusUnavailableResponse = {
     ok: false,
     unavailable: true,
     reason: "backend_unavailable",
     code: "ONBOARDING_STATUS_FAIL",
+    stage,
   };
   return NextResponse.json(response, { status: 200 });
 }
@@ -71,97 +84,106 @@ export async function GET(request: NextRequest) {
   try {
     // Any ACTIVE member can view onboarding status (read-only).
     // Do NOT gate this behind a specific app permission; onboarding is suite-level guidance.
-    const { businessId } = await requireBusinessContext();
+    let businessId: string;
+    try {
+      ({ businessId } = await requireBusinessContext());
+    } catch (error) {
+      return fallbackUnavailable("business_context", error);
+    }
 
     let prisma;
     try {
       prisma = getPrisma();
     } catch (error) {
-      console.error("[api/onboarding/status] prisma unavailable", error);
-      return fallbackUnavailable();
+      return fallbackUnavailable("onboarding_state", error);
     }
 
     // Dismissed state (best-effort; if table not migrated yet, treat as not dismissed)
-    const dismissedAtPromise = (async (): Promise<Date | null> => {
-      try {
-        const row = await prisma.onboardingState.findUnique({
-          where: { businessId },
-          select: { onboardingDismissedAt: true },
-        });
-        return row?.onboardingDismissedAt ?? null;
-      } catch {
-        return null;
-      }
-    })();
+    let dismissedAt: Date | null = null;
+    try {
+      const row = await prisma.onboardingState.findUnique({
+        where: { businessId },
+        select: { onboardingDismissedAt: true },
+      });
+      dismissedAt = row?.onboardingDismissedAt ?? null;
+    } catch (error) {
+      return fallbackUnavailable("onboarding_state", error);
+    }
 
     // Brand Kit completeness:
     // Business is the tenant key (V3 businessId == userId), so the brand profile is stored under userId=businessId.
-    const brandProfilePromise = prisma.brandProfile
-      .findUnique({
+    let brandProfile: any = null;
+    try {
+      brandProfile = await prisma.brandProfile.findUnique({
         where: { userId: businessId },
-      })
-      .catch(() => null);
+      });
+    } catch (error) {
+      return fallbackUnavailable("brand_kit", error);
+    }
 
     // Billing entitlement: derive from the oldest active OWNER membership (business-level).
-    const ownerPremiumPromise = (async (): Promise<boolean> => {
-      try {
-        const owner = await prisma.businessUser.findFirst({
-          where: { businessId, role: "OWNER", status: "ACTIVE" },
-          orderBy: { createdAt: "asc" },
-          select: { userId: true },
-        });
-        if (!owner?.userId) return false;
+    let ownerPremium = false;
+    try {
+      const owner = await prisma.businessUser.findFirst({
+        where: { businessId, role: "OWNER", status: "ACTIVE" },
+        orderBy: { createdAt: "asc" },
+        select: { userId: true },
+      });
+      if (!owner?.userId) {
+        ownerPremium = false;
+      } else {
         const u = await prisma.user.findUnique({
           where: { id: owner.userId },
           select: { isPremium: true, role: true },
         });
         // Admin users implicitly have premium access in code; mirror that here.
-        return !!u && (u.role === "admin" || u.isPremium === true);
-      } catch {
-        return false;
+        ownerPremium = !!u && (u.role === "admin" || u.isPremium === true);
       }
-    })();
+    } catch (error) {
+      return fallbackUnavailable("billing", error);
+    }
 
     // Scheduler readiness (same sources as GET /api/obd-scheduler/access; no external calls)
-    const schedulerPromise = (async () => {
-      try {
-        const activationAllowed = isSchedulerPilotAllowed(businessId);
-        const pilotMode =
-          process.env.OBD_SCHEDULER_PILOT_MODE === "true" || process.env.OBD_SCHEDULER_PILOT_MODE === "1";
-        const isPilot = pilotMode && !activationAllowed;
-        const isEnabled = !isPilot;
+    let scheduler: { isEnabled: boolean; servicesCount: number; hasAvailability: boolean } = {
+      isEnabled: false,
+      servicesCount: 0,
+      hasAvailability: false,
+    };
+    try {
+      const activationAllowed = isSchedulerPilotAllowed(businessId);
+      const pilotMode =
+        process.env.OBD_SCHEDULER_PILOT_MODE === "true" || process.env.OBD_SCHEDULER_PILOT_MODE === "1";
+      const isPilot = pilotMode && !activationAllowed;
+      const isEnabled = !isPilot;
 
-        const [servicesCount, enabledAvailabilityWindowsCount, busyBlocksCount] = await Promise.all([
-          prisma.bookingService.count({ where: { businessId } }).catch(() => 0),
-          prisma.availabilityWindow.count({ where: { businessId, isEnabled: true } }).catch(() => 0),
-          prisma.schedulerBusyBlock.count({ where: { businessId } }).catch(() => 0),
-        ]);
+      const [servicesCount, enabledAvailabilityWindowsCount, busyBlocksCount] = await Promise.all([
+        prisma.bookingService.count({ where: { businessId } }),
+        prisma.availabilityWindow.count({ where: { businessId, isEnabled: true } }),
+        prisma.schedulerBusyBlock.count({ where: { businessId } }),
+      ]);
 
-        const hasAvailability = enabledAvailabilityWindowsCount > 0 || busyBlocksCount > 0;
-        return { isEnabled, servicesCount, hasAvailability };
-      } catch {
-        // Degrade safely: optional/incomplete instead of failing the whole route.
-        return { isEnabled: false, servicesCount: 0, hasAvailability: false };
-      }
-    })();
+      const hasAvailability = enabledAvailabilityWindowsCount > 0 || busyBlocksCount > 0;
+      scheduler = { isEnabled, servicesCount, hasAvailability };
+    } catch (error) {
+      return fallbackUnavailable("scheduler", error);
+    }
 
     // CRM + Help Desk completion counts
-    const crmContactsCountPromise = prisma.crmContact.count({ where: { businessId } }).catch(() => 0);
-    const helpDeskEntriesCountPromise = prisma.aiHelpDeskEntry
-      .count({
-        where: { businessId, isActive: true },
-      })
-      .catch(() => 0);
+    let contactsCount = 0;
+    try {
+      contactsCount = await prisma.crmContact.count({ where: { businessId } });
+    } catch (error) {
+      return fallbackUnavailable("crm", error);
+    }
 
-    const [dismissedAt, brandProfile, ownerPremium, scheduler, contactsCount, knowledgeEntriesCount] =
-      await Promise.all([
-        dismissedAtPromise,
-        brandProfilePromise,
-        ownerPremiumPromise,
-        schedulerPromise,
-        crmContactsCountPromise,
-        helpDeskEntriesCountPromise,
-      ]);
+    let knowledgeEntriesCount = 0;
+    try {
+      knowledgeEntriesCount = await prisma.aiHelpDeskEntry.count({
+        where: { businessId, isActive: true },
+      });
+    } catch (error) {
+      return fallbackUnavailable("help_desk", error);
+    }
 
     const dismissedAtISO = toIsoOrNull(dismissedAt);
     const dismissed = dismissedAtISO !== null;
@@ -217,8 +239,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
-    console.error("[api/onboarding/status] handler failed", error);
-    return fallbackUnavailable();
+    return fallbackUnavailable("onboarding_state", error);
   }
 }
 

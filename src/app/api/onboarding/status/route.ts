@@ -19,6 +19,7 @@ export const runtime = "nodejs";
 
 type RequiredStepStatus = "not_started" | "in_progress" | "done";
 type SchedulerStepStatus = "optional" | "in_progress" | "done";
+type UnknownStepStatus = "unknown";
 
 type OnboardingStatusFailStage =
   | "business_context"
@@ -31,6 +32,7 @@ type OnboardingStatusFailStage =
 
 type OnboardingStatusResponse = {
   ok: true;
+  needsBusinessContext?: boolean;
   dismissed: boolean;
   dismissedAt: string | null;
   progress: {
@@ -38,13 +40,25 @@ type OnboardingStatusResponse = {
     completedRequired: number;
     totalRequired: number;
   };
-  steps: Array<
-    | { key: "brandKit"; title: "Brand Kit"; status: RequiredStepStatus; href: "/apps/brand-kit-builder" }
-    | { key: "billing"; title: "Billing & Plan"; status: RequiredStepStatus; href: "/apps/billing-plan" }
-    | { key: "scheduler"; title: "Scheduler (optional)"; status: SchedulerStepStatus; href: "/apps/obd-scheduler" }
-    | { key: "crm"; title: "CRM"; status: RequiredStepStatus; href: "/apps/obd-crm" }
-    | { key: "helpDesk"; title: "AI Help Desk"; status: RequiredStepStatus; href: "/apps/ai-help-desk" }
-  >;
+  steps: Array<{
+    key: "brandKit" | "billing" | "crm" | "helpDesk" | "scheduler";
+    /**
+     * Back-compat with existing UI.
+     */
+    title: string;
+    /**
+     * Requested by diagnostics prompt; safe metadata only.
+     */
+    label: string;
+    required: boolean;
+    status: RequiredStepStatus | SchedulerStepStatus | UnknownStepStatus;
+    href:
+      | "/apps/brand-kit-builder"
+      | "/apps/billing-plan"
+      | "/apps/obd-scheduler"
+      | "/apps/obd-crm"
+      | "/apps/ai-help-desk";
+  }>;
 };
 
 type OnboardingStatusUnavailableResponse = {
@@ -78,6 +92,58 @@ function fallbackUnavailable(stage: OnboardingStatusFailStage, error: unknown) {
   return NextResponse.json(response, { status: 200 });
 }
 
+function needsBusinessContextResponse(): OnboardingStatusResponse {
+  return {
+    ok: true,
+    needsBusinessContext: true,
+    dismissed: false,
+    dismissedAt: null,
+    progress: { percent: 0, completedRequired: 0, totalRequired: 4 },
+    steps: [
+      {
+        key: "brandKit",
+        title: "Brand Kit",
+        label: "Brand Kit",
+        required: true,
+        status: "unknown",
+        href: "/apps/brand-kit-builder",
+      },
+      {
+        key: "billing",
+        title: "Billing & Plan",
+        label: "Billing & Plan",
+        required: true,
+        status: "unknown",
+        href: "/apps/billing-plan",
+      },
+      {
+        key: "crm",
+        title: "CRM",
+        label: "CRM",
+        required: true,
+        status: "unknown",
+        href: "/apps/obd-crm",
+      },
+      {
+        key: "helpDesk",
+        title: "AI Help Desk",
+        label: "AI Help Desk",
+        required: true,
+        status: "unknown",
+        href: "/apps/ai-help-desk",
+      },
+      {
+        key: "scheduler",
+        title: "Scheduler (optional)",
+        label: "Scheduler (optional)",
+        required: false,
+        status: "unknown",
+        href: "/apps/obd-scheduler",
+      },
+    ],
+  };
+}
+
 export async function GET(request: NextRequest) {
   warnIfBusinessIdParamPresent(request);
 
@@ -87,8 +153,13 @@ export async function GET(request: NextRequest) {
     let businessId: string;
     try {
       ({ businessId } = await requireBusinessContext());
+      if (!businessId || typeof businessId !== "string" || businessId.trim().length === 0) {
+        console.warn("[onboarding-status] missing business context");
+        return NextResponse.json(needsBusinessContextResponse(), { status: 200 });
+      }
     } catch (error) {
-      return fallbackUnavailable("business_context", error);
+      console.warn("[onboarding-status] missing business context");
+      return NextResponse.json(needsBusinessContextResponse(), { status: 200 });
     }
 
     let prisma;
@@ -229,11 +300,46 @@ export async function GET(request: NextRequest) {
         totalRequired,
       },
       steps: [
-        { key: "brandKit", title: "Brand Kit", status: brandKitStatus, href: "/apps/brand-kit-builder" },
-        { key: "billing", title: "Billing & Plan", status: billingStatus, href: "/apps/billing-plan" },
-        { key: "scheduler", title: "Scheduler (optional)", status: schedulerStatus, href: "/apps/obd-scheduler" },
-        { key: "crm", title: "CRM", status: crmStatus, href: "/apps/obd-crm" },
-        { key: "helpDesk", title: "AI Help Desk", status: helpDeskStatus, href: "/apps/ai-help-desk" },
+        {
+          key: "brandKit",
+          title: "Brand Kit",
+          label: "Brand Kit",
+          required: true,
+          status: brandKitStatus,
+          href: "/apps/brand-kit-builder",
+        },
+        {
+          key: "billing",
+          title: "Billing & Plan",
+          label: "Billing & Plan",
+          required: true,
+          status: billingStatus,
+          href: "/apps/billing-plan",
+        },
+        {
+          key: "scheduler",
+          title: "Scheduler (optional)",
+          label: "Scheduler (optional)",
+          required: false,
+          status: schedulerStatus,
+          href: "/apps/obd-scheduler",
+        },
+        {
+          key: "crm",
+          title: "CRM",
+          label: "CRM",
+          required: true,
+          status: crmStatus,
+          href: "/apps/obd-crm",
+        },
+        {
+          key: "helpDesk",
+          title: "AI Help Desk",
+          label: "AI Help Desk",
+          required: true,
+          status: helpDeskStatus,
+          href: "/apps/ai-help-desk",
+        },
       ],
     };
 

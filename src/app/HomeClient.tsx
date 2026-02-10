@@ -28,11 +28,12 @@ type SchedulerAccessSnapshot = {
 
 type SchedulerBadgeState = "activation_pending" | "ready_to_activate" | "ready" | "checking";
 
-type OnboardingStepStatus = "not_started" | "in_progress" | "done" | "optional";
+type OnboardingStepStatus = "not_started" | "in_progress" | "done" | "optional" | "unknown";
 
 type OnboardingStatusResponse =
   | {
       ok: true;
+      needsBusinessContext?: boolean;
       dismissed: boolean;
       dismissedAt: string | null;
       progress: { percent: number; completedRequired: number; totalRequired: number };
@@ -41,6 +42,9 @@ type OnboardingStatusResponse =
         title: string;
         status: OnboardingStepStatus;
         href: string;
+        // optional safe metadata (server may include)
+        required?: boolean;
+        label?: string;
       }>;
     }
   | {
@@ -297,6 +301,13 @@ export default function HomeClient() {
         </span>
       );
     }
+    if (status === "unknown") {
+      return (
+        <span className={`${base} border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-300`}>
+          Unknown
+        </span>
+      );
+    }
     return (
       <span className={`${base} border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-200`}>
         Not started
@@ -406,6 +417,39 @@ export default function HomeClient() {
                       <div className={`mt-1 text-xs ${mutedText}`}>Loading setup guide…</div>
                     </div>
                     <div className={`text-xs ${mutedText}`}>…</div>
+                  </div>
+                </section>
+              ) : null}
+
+              {!onboardingLoading &&
+              onboarding?.ok === true &&
+              onboarding.needsBusinessContext === true ? (
+                <section
+                  data-get-started-highlight="true"
+                  className={`mt-7 rounded-2xl border p-5 shadow-sm ${
+                    isDark
+                      ? "border-slate-800 bg-slate-900/40 text-slate-100"
+                      : "border-slate-200 bg-white text-slate-900"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">Get started with OBD</div>
+                      <p className={`mt-1 text-xs ${mutedText}`}>
+                        Select your business to load your setup guide.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => window.location.reload()}
+                      className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                        isDark
+                          ? "border-slate-700 bg-slate-950/30 text-slate-200 hover:bg-slate-950/45"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      Refresh
+                    </button>
                   </div>
                 </section>
               ) : null}
